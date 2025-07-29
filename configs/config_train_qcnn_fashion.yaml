@@ -1,0 +1,20 @@
+experiment_name: fashion_exp
+dataset:
+  name: fashion_mnist
+  path: null
+
+training:
+  batch_size: 32
+  epochs: 20
+  learning_rate: 0.001
+  kfold: 3
+  early_stopping: 5
+
+binary_classes: [3, 8]   # Pull, Boot
+
+model:
+  n_qubits: 4
+  n_layers: 2
+  dropout: 0.3
+
+scheduler: step

@@ -30,7 +30,7 @@ def run_train_hybrid_qcnn(config):
     if custom_dataset_size is not None:
         custom_dataset_size = int(custom_dataset_size)
     else:
-        custom_dataset_size = 500
+        custom_dataset_size = 2500
     if EXP_MODE:
         print(f"⚙️ Mode expérimental: {EXP_MODE} = {EXP_VALUE}")
 
@@ -121,9 +121,18 @@ def run_train_hybrid_qcnn(config):
                     batch_X = batch_X.view(batch_X.size(0), -1).to(DEVICE)
                     preds_logits = model(batch_X).squeeze()
                     preds = (preds_logits >= 0.5).float()
-                    y_true.extend(batch_y.tolist())
-                    y_pred.extend(preds.cpu().tolist())
-                    y_probs.extend(preds_logits.cpu().tolist())
+
+                    def tolist_safe(x):
+                        if isinstance(x, torch.Tensor):
+                            return x.cpu().numpy().flatten().tolist()
+                        if isinstance(x, float) or isinstance(x, int):
+                            return [x]
+                        return list(x)
+
+                    y_true.extend(tolist_safe(batch_y))
+                    y_pred.extend(tolist_safe(preds))
+                    y_probs.extend(tolist_safe(preds_logits))
+
             acc, f1, precision, recall = log_metrics(y_true, y_pred)
             try:
                 auc = roc_auc_score(y_true, y_probs)

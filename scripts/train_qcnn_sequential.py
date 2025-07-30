@@ -148,19 +148,30 @@ def run_train_hybrid_qcnn_sequential(config):
         for epoch in trange(start_epoch, EPOCHS, desc=f"[Fold {fold}] Hybrid QCNN Training (SEQ)"):
             model.train()
             total_loss = 0
-            for batch_X, batch_y in tqdm(train_loader, desc=f"[Fold {fold}] Batches"):
+            grad_norms = []
+            for batch_idx, (batch_X, batch_y) in enumerate(tqdm(train_loader, desc=f"[Fold {fold}] Batches")):
                 batch_X, batch_y = batch_X.view(batch_X.size(0), -1).to(DEVICE), batch_y.to(DEVICE)
                 optimizer.zero_grad()
                 outputs = model(batch_X)
-                print("shapes:", outputs.shape, batch_y.shape)  # Debug temporaire
-
-                # Correction:
                 outputs = outputs.view(-1)
                 batch_y = batch_y.view(-1)
                 loss = criterion(outputs, batch_y.float())
                 loss.backward()
+                # Log la norme des gradients pour chaque batch
+                total_norm = 0.
+                for p in model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** 0.5
+                grad_norms.append(total_norm)
+                wandb.log({"grad_norm": total_norm}, step=epoch * len(train_loader) + batch_idx)
                 optimizer.step()
                 total_loss += loss.item()
+            # Optionnel : log moyenne par epoch
+            mean_grad_norm = sum(grad_norms) / len(grad_norms)
+            wandb.log({"mean_grad_norm": mean_grad_norm}, step=epoch)
+
             model.eval()
             y_true, y_pred, y_probs = [], [], []
             with torch.no_grad():

@@ -70,15 +70,15 @@ class QuantumCircuitBuilder:
 
 class QuantumWorker:
     def __init__(self, n_qubits, n_layers, device_name="lightning.qubit"):
-        self.builder = QuantumCircuitBuilder(n_qubits, n_layers, device_name)
+        self.n_qubits = n_qubits
+        self.n_layers = n_layers
+        self.device_name = device_name
 
     def __call__(self, args):
-        sample, weights = args
-        if not isinstance(weights, dict) or "weights" not in weights:
-            raise ValueError("Weights must be dict with key 'weights'")
-        if weights["weights"].ndim != 2:
-            raise ValueError(f"Weights tensor must be 2D, got {weights['weights'].shape}")
-        return self.builder.eval_sample(sample, weights)
+        sample_np, weights = args
+        builder = QuantumCircuitBuilder(self.n_qubits, self.n_layers, self.device_name)
+        return builder.eval_sample(sample_np, weights)
+
 
 class HybridQCNNBase(nn.Module):
     def __init__(self, input_size, hidden_sizes=None, n_qubits=4, n_layers=2,
@@ -99,11 +99,8 @@ class HybridQCNNBase(nn.Module):
         self.parallel = parallel
         self.worker = QuantumWorker(n_qubits, n_layers)
         self.pool = None
-        if self.parallel:
-            mp.set_start_method("spawn", force=True)
-            self.pool = mp.Pool(processes=mp.cpu_count())
 
-    def forward_quantum(self, x):
+    def forward_quantum(self, x, pool=None):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
@@ -114,19 +111,13 @@ class HybridQCNNBase(nn.Module):
         samples_np = x.detach().cpu().numpy()
         args_list = [(sample, weights_dict) for sample in samples_np]
         if self.parallel and self.pool is not None:
-            results = self.pool.map(self.worker, args_list)
+            results = pool.map(self.worker, args_list)
         else:
             results = [self.worker(args) for args in args_list]
         outputs = [torch.tensor(r, device=x.device) for r in results]
         x = torch.stack(outputs, dim=0)
         x = self.bn_q(x)
         return x
-
-    def close_pool(self):
-        if self.pool is not None:
-            self.pool.close()
-            self.pool.join()
-            self.pool = None
 
 class HybridQCNNFeatures(HybridQCNNBase):
     def forward(self, x):

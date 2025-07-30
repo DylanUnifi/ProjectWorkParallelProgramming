@@ -3,10 +3,12 @@
 
 import os
 import time
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import balanced_accuracy_score, roc_auc_score
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm, trange
@@ -24,13 +26,16 @@ from utils.logger import init_logger, write_log
 
 @timeit
 def run_train_hybrid_qcnn_sequential(config):
+    # --- Variables d'expérimentation ---
     EXP_MODE = os.environ.get("EXP_MODE", None)
     EXP_VALUE = os.environ.get("EXP_VALUE", None)
+
+    # Override taille dataset depuis env si present
     custom_dataset_size = os.environ.get("DATASET_SIZE", None)
     if custom_dataset_size is not None:
         custom_dataset_size = int(custom_dataset_size)
     else:
-        custom_dataset_size = 500
+        custom_dataset_size = 1000
     if EXP_MODE:
         print(f"⚙️ Mode expérimental (SEQ): {EXP_MODE} = {EXP_VALUE}")
 
@@ -47,7 +52,8 @@ def run_train_hybrid_qcnn_sequential(config):
         config=config
     )
 
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    DEVICE = torch.device("cpu")
     print(f"📌 Device utilisé (SEQ) : {DEVICE}")
 
     BATCH_SIZE = config["training"]["batch_size"]
@@ -74,10 +80,14 @@ def run_train_hybrid_qcnn_sequential(config):
     if EXP_MODE == "batch_size" and EXP_VALUE:
         BATCH_SIZE = int(EXP_VALUE)
 
-    kfold = KFold(n_splits=KFOLD, shuffle=True, random_state=42)
+    kfold = StratifiedKFold(n_splits=KFOLD, shuffle=True, random_state=42)
+    labels = np.array([target for _, target in train_dataset])
     total_training_time = 0
     fold_f1_scores, fold_accuracies, fold_aucs, fold_bal_accs = [], [], [], []
-    for fold, (train_idx, val_idx) in enumerate(kfold.split(train_dataset)):
+    for fold, (train_idx, val_idx) in enumerate(kfold.split(np.zeros(len(labels)), labels)):
+        # Log distribution des classes dans chaque split :
+        print(f"Fold {fold} - Train class dist:", np.unique(labels[train_idx], return_counts=True))
+        print(f"Fold {fold} - Val class dist:", np.unique(labels[val_idx], return_counts=True))
         print(f"[Fold {fold}] Starting Hybrid QCNN training (Sequential)...")
         early_stopping = EarlyStopping(patience=PATIENCE)
         log_path, log_file = init_logger(os.path.join(SAVE_DIR, "logs"), fold)
@@ -94,6 +104,16 @@ def run_train_hybrid_qcnn_sequential(config):
         wandb.log({"mode": "sequential"})
         optimizer = optim.Adam(model.parameters(), lr=LR)
         scheduler = get_scheduler(optimizer, SCHEDULER_TYPE)
+        optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+
+        def lr_lambda(epoch):
+            if epoch < warmup_epochs:
+                return float(epoch + 1) / float(warmup_epochs)
+            else:
+                return 1.0
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
         criterion = nn.BCELoss()
         start_epoch = 0
         try:
@@ -103,15 +123,22 @@ def run_train_hybrid_qcnn_sequential(config):
             print("No checkpoint found, starting from scratch")
         loss_history, f1_history = [], []
         best_f1, best_epoch = 0, 0
+        acc, auc, bal_acc = 0, 0, 0  # ← PATCH
         stopped_early = False
         start_time = time.time()
+
         for epoch in trange(start_epoch, EPOCHS, desc=f"[Fold {fold}] Hybrid QCNN Training (SEQ)"):
             model.train()
             total_loss = 0
             for batch_X, batch_y in tqdm(train_loader, desc=f"[Fold {fold}] Batches"):
                 batch_X, batch_y = batch_X.view(batch_X.size(0), -1).to(DEVICE), batch_y.to(DEVICE)
                 optimizer.zero_grad()
-                outputs = model(batch_X).squeeze()
+                outputs = model(batch_X)
+                print("shapes:", outputs.shape, batch_y.shape)  # Debug temporaire
+
+                # Correction:
+                outputs = outputs.view(-1)
+                batch_y = batch_y.view(-1)
                 loss = criterion(outputs, batch_y.float())
                 loss.backward()
                 optimizer.step()
@@ -123,9 +150,17 @@ def run_train_hybrid_qcnn_sequential(config):
                     batch_X = batch_X.view(batch_X.size(0), -1).to(DEVICE)
                     preds_logits = model(batch_X).squeeze()
                     preds = (preds_logits >= 0.5).float()
-                    y_true.extend(batch_y.tolist())
-                    y_pred.extend(preds.cpu().tolist())
-                    y_probs.extend(preds_logits.cpu().tolist())
+
+                    def tolist_safe(x):
+                        if isinstance(x, torch.Tensor):
+                            return x.cpu().numpy().flatten().tolist()
+                        if isinstance(x, float) or isinstance(x, int):
+                            return [x]
+                        return list(x)
+
+                    y_true.extend(tolist_safe(batch_y))
+                    y_pred.extend(tolist_safe(preds))
+                    y_probs.extend(tolist_safe(preds_logits))
             acc, f1, precision, recall = log_metrics(y_true, y_pred)
             try:
                 auc = roc_auc_score(y_true, y_probs)
@@ -154,7 +189,7 @@ def run_train_hybrid_qcnn_sequential(config):
                 stopped_early = True
                 break
             if scheduler:
-                scheduler.step()
+                scheduler.step(total_loss)
         if hasattr(model, "close_pool"):
             model.close_pool()
         end_time = time.time()

@@ -48,7 +48,8 @@ def run_train_hybrid_qcnn(config):
         name=EXPERIMENT_NAME,
         config=config
     )
-    DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    # DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    DEVICE = torch.device("cpu")
     print(f"📌 Device utilisé : {DEVICE}")
     BATCH_SIZE = config["training"]["batch_size"]
     EPOCHS = config["training"]["epochs"]

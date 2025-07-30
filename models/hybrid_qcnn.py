@@ -120,15 +120,15 @@ class HybridQCNNBase(nn.Module):
         return x
 
 class HybridQCNNFeatures(HybridQCNNBase):
-    def forward(self, x):
-        return self.forward_quantum(x)
+    def forward(self, x, pool=None):
+        return self.forward_quantum(x, pool)
 
 class HybridQCNNBinaryClassifier(HybridQCNNBase):
     def __init__(self, input_size, hidden_sizes=None, n_qubits=4, n_layers=2,
                  dropout=0.3, parallel=True, device="cpu"):
         super().__init__(input_size, hidden_sizes, n_qubits, n_layers, dropout, parallel, device)
         self.final_fc = nn.Linear(n_qubits, 1)
-    def forward(self, x):
-        x = self.forward_quantum(x)
+    def forward(self, x, pool=None):
+        x = self.forward_quantum(x,pool)
         x = self.final_fc(x)
         return torch.sigmoid(x)

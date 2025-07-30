@@ -20,8 +20,8 @@ training:
 model:
   input_size: 784  # Fashion-MNIST images 28x28 aplaties
   quantum:
-    n_qubits: 8
-    n_layers: 2
+    n_qubits: 4
+    n_layers: 1
     backend: "default.qubit"
 
 checkpoint:

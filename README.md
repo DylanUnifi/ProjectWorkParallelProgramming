@@ -107,7 +107,7 @@ bash scripts/run_experiments_all.sh
 
 ---
 
-## 🔀 Experiment Flow (Mermaid Diagram)
+## 🔀 Experiment Flow
 
 ```mermaid
 graph TD

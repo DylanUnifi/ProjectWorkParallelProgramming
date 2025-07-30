@@ -59,6 +59,9 @@ def run_train_hybrid_qcnn_sequential(config):
     BATCH_SIZE = config["training"]["batch_size"]
     EPOCHS = config["training"]["epochs"]
     LR = config["training"]["learning_rate"]
+    WARMUP_EPOCHS = config["training"].get("warmup_epochs", 0)
+    SCHEDULER_TYPE = config.get("scheduler", None)
+    SCHEDULER_PARAMS = config.get("scheduler_params", {})
     KFOLD = config["training"]["kfold"]
     PATIENCE = config["training"]["early_stopping"]
     SCHEDULER_TYPE = config.get("scheduler", None)
@@ -102,17 +105,32 @@ def run_train_hybrid_qcnn_sequential(config):
         ).to(DEVICE)
         print(f"🚀 Mode utilisé : Séquentiel")
         wandb.log({"mode": "sequential"})
-        optimizer = optim.Adam(model.parameters(), lr=LR)
-        scheduler = get_scheduler(optimizer, SCHEDULER_TYPE)
         optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-        def lr_lambda(epoch):
-            if epoch < warmup_epochs:
-                return float(epoch + 1) / float(warmup_epochs)
-            else:
-                return 1.0
+        # Warmup scheduler
+        if WARMUP_EPOCHS > 0:
+            def lr_lambda(epoch):
+                if epoch < WARMUP_EPOCHS:
+                    return float(epoch + 1) / float(WARMUP_EPOCHS)
+                else:
+                    return 1.0
 
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+            scheduler_type = SCHEDULER_TYPE  # Sauvegarde pour l'après-warmup
+        else:
+            scheduler = None
+            scheduler_type = SCHEDULER_TYPE
+
+        # Après le warmup, StepLR prendra le relais
+        step_scheduler = None
+        if scheduler_type == "StepLR":
+            step_size = SCHEDULER_PARAMS.get("step_size", 5)
+            gamma = SCHEDULER_PARAMS.get("gamma", 0.5)
+            step_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
+        elif scheduler_type == "CosineAnnealingLR":
+            T_max = SCHEDULER_PARAMS.get("T_max", 20)
+            eta_min = SCHEDULER_PARAMS.get("eta_min", 1e-5)
+            step_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
 
         criterion = nn.BCELoss()
         start_epoch = 0
@@ -188,8 +206,13 @@ def run_train_hybrid_qcnn_sequential(config):
                 write_log(log_file, f"Early stopping triggered at epoch {epoch}")
                 stopped_early = True
                 break
-            if scheduler:
-                scheduler.step(total_loss)
+            if scheduler is not None and epoch < WARMUP_EPOCHS:
+                scheduler.step()
+            elif step_scheduler is not None:
+                step_scheduler.step()
+            current_lr = optimizer.param_groups[0]["lr"]
+            wandb.log({"learning_rate": current_lr}, step=epoch)
+
         if hasattr(model, "close_pool"):
             model.close_pool()
         end_time = time.time()

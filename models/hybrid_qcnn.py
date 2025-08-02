@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.multiprocessing as mp
 import numpy as np
 import pennylane as qml
 
@@ -98,7 +97,6 @@ class HybridQCNNBase(nn.Module):
         self.n_layers = n_layers
         self.parallel = parallel
         self.worker = QuantumWorker(n_qubits, n_layers)
-        self.pool = None
 
     def forward_quantum(self, x, pool=None):
         x = self.block1(x)
@@ -111,7 +109,7 @@ class HybridQCNNBase(nn.Module):
         weights_dict = {"weights": weights_tensor}
         samples_np = x.detach().cpu().numpy()
         args_list = [(sample, weights_dict) for sample in samples_np]
-        if self.parallel and self.pool is not None:
+        if self.parallel and pool is not None:
             results = pool.map(self.worker, args_list)
         else:
             results = [self.worker(args) for args in args_list]

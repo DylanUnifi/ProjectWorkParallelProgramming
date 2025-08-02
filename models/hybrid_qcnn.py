@@ -107,16 +107,23 @@ class HybridQCNNBase(nn.Module):
         x = self.dropout(x)
         x = self.bn_q(x)
         x = torch.tanh(self.quantum_fc_input(x)) * np.pi
-        weights_tensor = next(self.quantum_layer.parameters()).detach().to(x.device)
-        weights_dict = {"weights": weights_tensor}
-        samples_np = x.detach().cpu().numpy()
-        args_list = [(sample, weights_dict) for sample in samples_np]
+
+        # When running in parallel we rely on the worker utilities which return
+        # plain tensors.  In this case gradients through the quantum circuit are
+        # not tracked.  For the single process case we directly call the
+        # TorchLayer, allowing PyTorch's autograd to optimise the circuit
+        # parameters.
         if self.parallel and self.pool is not None:
+            weights_tensor = next(self.quantum_layer.parameters()).to(x.device)
+            weights_dict = {"weights": weights_tensor}
+            samples_np = x.detach().cpu().numpy()
+            args_list = [(sample, weights_dict) for sample in samples_np]
             results = pool.map(self.worker, args_list)
+            outputs = [torch.tensor(r, device=x.device) for r in results]
+            x = torch.stack(outputs, dim=0)
         else:
-            results = [self.worker(args) for args in args_list]
-        outputs = [torch.tensor(r, device=x.device) for r in results]
-        x = torch.stack(outputs, dim=0)
+            x = self.quantum_layer(x)
+
         x = self.bn_q(x)
         return x
 

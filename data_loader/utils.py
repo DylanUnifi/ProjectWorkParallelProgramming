@@ -68,12 +68,14 @@ def load_cifar10(batch_size=64, binary_classes=(3, 5), grayscale=True, root='./d
 
 def load_svhn(batch_size=64, binary_classes=(3, 5), grayscale=True, root='./data'):
     """
-    Charge SVHN avec filtrage des classes et DataLoader pour classification binaire.
+    Load SVHN with class filtering for binary classification.
+    Optionally converts images to grayscale while keeping three channels.
     """
+    # Keep RGB images or convert to grayscale while preserving 3 channels
     transform = transforms.Compose([
-        transforms.Grayscale() if grayscale else transforms.Lambda(lambda x: x),
+        transforms.Grayscale(num_output_channels=3) if grayscale else transforms.Lambda(lambda x: x),
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)) if grayscale else transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
     train_set = SVHN(root=root, split='train', download=True, transform=transform)
@@ -84,7 +86,8 @@ def load_svhn(batch_size=64, binary_classes=(3, 5), grayscale=True, root='./data
         for idx in range(len(dataset)):
             img, label = dataset[idx]
             if label in binary_classes:
-                X.append(img)  # conserve la forme [3, 32, 32]
+                # img is always 3-channel (RGB or replicated grayscale)
+                X.append(img)
                 y.append(1 if label == binary_classes[1] else 0)
         return torch.utils.data.TensorDataset(torch.stack(X), torch.tensor(y, dtype=torch.float32))
 
@@ -155,7 +158,8 @@ def load_dataset_by_name(name, batch_size=64, binary_classes=[3, 8], grayscale=T
             for idx in range(len(dataset)):
                 img, label = dataset[idx]
                 if label in binary_classes:
-                    X.append(img)  # ✅ conserve la forme [3, 32, 32] pour la CNN
+                    # tensor shape follows transform (1 or 3 channels)
+                    X.append(img)
                     y.append(1 if label == binary_classes[1] else 0)
             return torch.utils.data.TensorDataset(torch.stack(X), torch.tensor(y, dtype=torch.float32))
 
@@ -165,4 +169,6 @@ def load_dataset_by_name(name, batch_size=64, binary_classes=[3, 8], grayscale=T
         return train_dataset, test_dataset
 
     else:
-        raise ValueError(f"[ERROR] Dataset '{name}' non pris en charge. Utilisez 'FashionMNIST', 'CIFAR10' ou 'SVHN'.")
+        raise ValueError(
+            f"[ERROR] Dataset '{name}' non pris en charge. Utilisez 'FashionMNIST', 'CIFAR10' ou 'SVHN'."
+        )

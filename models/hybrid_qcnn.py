@@ -103,18 +103,18 @@ class HybridQCNNBase(nn.Module):
         x = self.block2(x)
         x = self.block3(x)
         x = self.dropout(x)
-        x = self.bn_q(x)
+        # x = self.bn_q(x)
         x = torch.tanh(self.quantum_fc_input(x)) * np.pi
-        weights_tensor = next(self.quantum_layer.parameters()).detach().to(x.device)
-        weights_dict = {"weights": weights_tensor}
-        samples_np = x.detach().cpu().numpy()
-        args_list = [(sample, weights_dict) for sample in samples_np]
         if self.parallel and pool is not None:
+            weights_tensor = next(self.quantum_layer.parameters()).to(x.device)
+            weights_dict = {"weights": weights_tensor}
+            samples_np = x.detach().cpu().numpy()
+            args_list = [(sample, weights_dict) for sample in samples_np]
             results = pool.map(self.worker, args_list)
+            outputs = [torch.tensor(r, device=x.device) for r in results]
+            x = torch.stack(outputs, dim=0)
         else:
-            results = [self.worker(args) for args in args_list]
-        outputs = [torch.tensor(r, device=x.device) for r in results]
-        x = torch.stack(outputs, dim=0)
+            x = self.quantum_layer(x)
         x = self.bn_q(x)
         return x
 

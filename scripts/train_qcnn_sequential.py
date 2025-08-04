@@ -52,8 +52,8 @@ def run_train_hybrid_qcnn_sequential(config):
         config=config
     )
 
-    # DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-    DEVICE = torch.device("cpu")
+    DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    # DEVICE = torch.device("cpu")
     print(f"📌 Device utilisé (SEQ) : {DEVICE}")
 
     BATCH_SIZE = config["training"]["batch_size"]
@@ -76,8 +76,8 @@ def run_train_hybrid_qcnn_sequential(config):
     if EXP_MODE == "dataset_size" and EXP_VALUE:
         dataset_size = int(EXP_VALUE)
 
-    indices = torch.randperm(len(train_dataset))[:dataset_size]
-    train_dataset = Subset(train_dataset, indices)
+    # indices = torch.randperm(len(train_dataset))[:dataset_size]
+    # train_dataset = Subset(train_dataset, indices)
     print(f"Nombre d'exemples chargés dans train_dataset (SEQ) : {len(train_dataset)}")
 
     if EXP_MODE == "batch_size" and EXP_VALUE:

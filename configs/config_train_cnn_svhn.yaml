@@ -1,0 +1,18 @@
+experiment_name: "cnn_svhn_exp"
+
+dataset:
+  name: "svhn"            # Dataset SVHN
+  binary_classes: [3, 8]  # Tes classes cibles
+  grayscale: false        # ⚠️ SVHN est en couleurs, pas en niveaux de gris !
+
+training:
+  batch_size: 64
+  epochs: 50
+  learning_rate: 0.001
+  kfold: 3
+  early_stopping: 15
+  scheduler: "StepLR"
+
+model:
+  in_channels: 3          # SVHN a 3 canaux (RGB)
+

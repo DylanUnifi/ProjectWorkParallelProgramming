@@ -1,0 +1,31 @@
+experiment_name: "hybrid_qcnn_svm_svhn_exp"
+
+dataset:
+  name: "svhn"
+  binary_classes: [3, 8]
+
+training:
+  batch_size: 32
+  epochs: 60
+  learning_rate: 0.0001
+  kfold: 3
+  early_stopping: 15
+  scheduler: "StepLR"
+  scheduler_params:
+    step_size: 10
+    gamma: 0.5
+
+svm:
+  optimize: true
+  n_trials: 30
+  kernel_options: ["rbf", "poly", "sigmoid"]
+  C_range: [0.001, 1000.0]
+  gamma_range: [0.0001, 10.0]
+  default_C: 1.0
+  default_kernel: "rbf"
+  default_gamma: "scale"
+
+quantum:
+  n_qubits: 4
+  layers: 2
+  backend: "lightning.qubit"

@@ -1,9 +1,3 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 # Quantum Machine Learning – Parallel Programming Project
 
 [![W&B

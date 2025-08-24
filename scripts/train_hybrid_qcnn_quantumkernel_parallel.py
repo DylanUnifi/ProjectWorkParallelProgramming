@@ -5,12 +5,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import KFold, train_test_split
+from sklearn.model_selection import KFold
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score, balanced_accuracy_score, roc_auc_score
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 import wandb
 import optuna
+import matplotlib.pyplot as plt
 
 from data_loader.utils import load_dataset_by_name
 from models.hybrid_qcnn import HybridQCNNFeatures
@@ -52,7 +52,6 @@ def run_train(args):
     # Dataset
     train_dataset, test_dataset = load_dataset_by_name(
         name=dataset_name,
-        batch_size=config["training"]["batch_size"],
         binary_classes=config.get("binary_classes", [3, 8])
     )
 
@@ -140,7 +139,6 @@ def run_train(args):
             K_test     = K_test.detach().cpu().numpy()
 
         # Heatmap
-        import matplotlib.pyplot as plt
         plt.figure(figsize=(7,5))
         plt.imshow(K_trainval, cmap="viridis")
         plt.title(f"Quantum Kernel Matrix - Fold {fold}")

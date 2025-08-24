@@ -51,7 +51,6 @@ def run_train(args):
     # Dataset
     train_dataset, test_dataset = load_dataset_by_name(
         name=dataset_name,
-        batch_size=config["training"]["batch_size"],
         binary_classes=config.get("binary_classes", [3, 8])
     )
 

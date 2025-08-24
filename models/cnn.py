@@ -1,5 +1,5 @@
 # models/cnn.py
-# Version: 2.0
+# Version: 2.1
 
 import torch
 import torch.nn as nn

@@ -103,7 +103,6 @@ class HybridQCNNBase(nn.Module):
         x = self.block2(x)
         x = self.block3(x)
         x = self.dropout(x)
-        x = self.bn_q(x)
         x = torch.tanh(self.quantum_fc_input(x)) * np.pi
         weights_tensor = next(self.quantum_layer.parameters()).detach().to(x.device)
         weights_dict = {"weights": weights_tensor}

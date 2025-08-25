@@ -206,24 +206,24 @@ flowchart TD
   style FE fill:#fff5ee,stroke:#ff7f50,stroke-width:2px
 
   subgraph BK [Kernel Computation]
-    E{"Backend Selector"}
-    D --> E
-    F["CPU / GPU Kernels (NumPy, OpenMP, cuBLAS, etc.)"]
-    E --> F
+    E["Tiling (block decomposition)"]
+    F{"Intra-tile Parallelism"}
+    D --> E --> F
+    F --> G["CPU / GPU Kernels (NumPy, Numba, OpenMP, cuBLAS, PyCUDA)"]
   end
   style BK fill:#fafad2,stroke:#daa520,stroke-width:2px
 
-  F --> G["Gram Matrix K"]
+  G --> H["Gram Matrix K"]
 
   subgraph ML [Learning]
-    H["SVM / Baselines"]
-    G --> H
+    I["SVM / Baselines"]
+    H --> I
   end
   style ML fill:#f5f5f5,stroke:#696969,stroke-width:1.5px
 
-  I["Metrics & Logging (Acc / F1 / W&B)"]
-  H --> I
-  style I fill:#e6e6fa,stroke:#9370db,stroke-width:2px
+  J["Metrics & Logging (Acc / F1 / W&B)"]
+  I --> J
+  style J fill:#e6e6fa,stroke:#9370db,stroke-width:2px
 ```
 
 ---

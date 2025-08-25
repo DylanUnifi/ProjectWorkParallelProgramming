@@ -1,0 +1,21 @@
+dataset:
+  name: svhn
+  binary_classes: [1, 7]      # recommandation: 1 vs 7 (plus standard)
+
+training:
+  batch_size: 256
+  kfold: 3
+  seed: 42
+
+svm:
+  n_trials: 20
+
+qcnn:
+  n_qubits: 8                 # + de qubits que Fashion
+  n_layers: 2
+
+pennylane:
+  device: lightning.qubit     # CPU (ok), bascule sur GPU si dispo
+  tile_size: 128
+  workers: 4
+  kernel_centering: true

@@ -1,240 +1,147 @@
-"""
-pipeline_backends.py
---------------------
-Unified API to build a (quantum) kernel / Gram matrix from embeddings or
-pairwise similarity callbacks, with multiple HPC backends.
-
-Usage
------
-from pipeline_backends import compute_kernel_matrix
-
-# X, Y: numpy or torch/cupy arrays (depending on backend)
-K = compute_kernel_matrix(X, Y=None, backend="cpu", tile_size=128, symmetric=True)
-
-Backends
---------
-- "cpu"       : Pure NumPy (tiling + symmetry)
-- "numba"     : Numba JIT for upper-triangle fill (CPU)
-- "torchcuda" : Torch CUDA (cuBLAS) K = X @ X^T
-- "pycuda"    : Custom CUDA kernel for tiled Gram computation (optional demo)
-- "openmp"    : Placeholder to call a pybind11/C++ OpenMP extension (optional)
-
-Notes
------
-- This module expects *embeddings* X (shape [N, D]). If you still compute
-  pairwise quantum fidelities via a simulator, adapt `pairwise_fn` to produce
-  the similarity between two rows and set backend="cpu" (it will call pairwise_fn).
-- For dense GPU compute, prefer "torchcuda" if you already have X as torch.cuda.Tensor.
-"""
-
-from typing import Optional, Callable, Literal, Any
+# pipeline_backends.py — PennyLane-only, multiprocessing-safe (spawn-friendly)
+from typing import Optional, Any
+import os
 import numpy as np
 
-Backend = Literal["cpu", "numba", "torchcuda", "pycuda", "openmp"]
-
-
-def _ensure_numpy(a: Any) -> np.ndarray:
-    """Move torch/cupy arrays to NumPy (CPU) without forcing copy when possible."""
+# ---------- helpers ----------
+def _ensure_numpy(a: Any, dtype=np.float64) -> np.ndarray:
     try:
         import torch
         if isinstance(a, torch.Tensor):
-            return a.detach().cpu().numpy()
+            return a.detach().cpu().numpy().astype(dtype, copy=False)
     except Exception:
         pass
-    try:
-        import cupy as cp
-        if isinstance(a, cp.ndarray):
-            return cp.asnumpy(a)
-    except Exception:
-        pass
-    return a
+    return np.asarray(a, dtype=dtype, order="C")
 
+def _tile_ranges(n: int, tile: int):
+    for s in range(0, n, tile):
+        e = min(s + tile, n)
+        yield s, e
 
-def _gram_numpy(X: np.ndarray, Y: Optional[np.ndarray], tile_size: int, symmetric: bool) -> np.ndarray:
-    """Dense Gram via NumPy with tiling + symmetry (CPU)."""
-    X = _ensure_numpy(X).astype(np.float32, copy=False)
-    Y = None if Y is None else _ensure_numpy(Y).astype(np.float32, copy=False)
+# ---------- GLOBALS for worker processes ----------
+_PL_W: Optional[np.ndarray] = None
+_PL_NQ: Optional[int] = None
+_PL_DEVICE: Optional[str] = None
+_PL_QNODE = None  # cached qnode per process
 
-    if Y is None:
-        N = X.shape[0]
-        K = np.zeros((N, N), dtype=np.float32)
-        for i0 in range(0, N, tile_size):
-            i1 = min(i0 + tile_size, N)
-            # j loop: upper triangle only if symmetric
-            j_start = i0 if symmetric else 0
-            for j0 in range(j_start, N, tile_size):
-                j1 = min(j0 + tile_size, N)
-                # block product
-                Bij = X[i0:i1] @ X[j0:j1].T
-                K[i0:i1, j0:j1] = Bij
-                if symmetric and j0 != i0:
-                    K[j0:j1, i0:i1] = Bij.T
-        return K
+def _pl_worker_init(W_local: np.ndarray, device_name: str, nq: int):
+    """Initializer called once per worker process."""
+    global _PL_W, _PL_NQ, _PL_DEVICE, _PL_QNODE
+    _PL_W = np.asarray(W_local, dtype=np.float64)
+    _PL_NQ = int(nq)
+    _PL_DEVICE = str(device_name)
+    _PL_QNODE = None
+    # evite la sur-parallélisation BLAS dans chaque worker
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+
+def _pl_get_qnode():
+    """Lazy-create & cache the qnode in this worker process."""
+    global _PL_QNODE
+    if _PL_QNODE is None:
+        import pennylane as qml
+        dev = qml.device(_PL_DEVICE, wires=_PL_NQ, shots=None)
+
+        @qml.qnode(dev, interface=None, diff_method=None)
+        def _state(theta_row: np.ndarray):
+            # encodage: RY+RZ puis entangler avec W
+            for i in range(_PL_NQ):
+                qml.RY(theta_row[i], wires=i)
+                qml.RZ(theta_row[i], wires=i)
+            qml.templates.BasicEntanglerLayers(_PL_W, wires=range(_PL_NQ))
+            return qml.state()
+        _PL_QNODE = _state
+    return _PL_QNODE
+
+def _pl_states_for_rows(rows: list[int], MAT: np.ndarray) -> np.ndarray:
+    """Top-level worker function (picklable): build statevectors for given row indices."""
+    qnode = _pl_get_qnode()
+    out = np.empty((len(rows), 1 << _PL_NQ), dtype=np.complex128)
+    for t, idx in enumerate(rows):
+        out[t] = qnode(MAT[idx])
+    return out
+
+# ---------- main API ----------
+def _gram_pennylane_angles_mp(
+    A: Any,
+    B: Optional[Any] = None,
+    *,
+    weights: np.ndarray,
+    device_name: str = "lightning.qubit",
+    tile_size: int = 64,
+    symmetric: bool = True,
+    n_workers: int = 0,
+) -> np.ndarray:
+    """Parallel PennyLane kernel (fidelity) with multiprocessing (spawn-safe)."""
+    import multiprocessing as mp
+
+    A = _ensure_numpy(A, dtype=np.float64)
+    B = A if B is None else _ensure_numpy(B, dtype=np.float64)
+    n, nq = A.shape
+    m = B.shape[0]
+
+    W = np.asarray(weights, dtype=np.float64)
+    if W.ndim != 2 or W.shape[1] != nq:
+        raise ValueError(f"`weights` must be [n_layers, n_qubits={nq}]")
+
+    # chunks of row indices
+    def _chunk_indices(N, chunk):
+        return [list(range(s, min(s+chunk, N))) for s in range(0, N, chunk)]
+
+    rows_A = _chunk_indices(n, max(1, tile_size))
+    rows_B = rows_A if (B is A) else _chunk_indices(m, max(1, tile_size))
+
+    if n_workers is None or n_workers <= 0:
+        n_workers = max(1, mp.cpu_count() - 1)
+
+    # special-case: single process (debug or very small)
+    if n_workers == 1:
+        _pl_worker_init(W, device_name, nq)
+        SA = np.concatenate([_pl_states_for_rows(rs, A) for rs in rows_A], axis=0)
+        SB = SA if (B is A) else np.concatenate([_pl_states_for_rows(rs, B) for rs in rows_B], axis=0)
     else:
-        N, M = X.shape[0], Y.shape[0]
-        K = np.zeros((N, M), dtype=np.float32)
-        for i0 in range(0, N, tile_size):
-            i1 = min(i0 + tile_size, N)
-            for j0 in range(0, M, tile_size):
-                j1 = min(j0 + tile_size, M)
-                K[i0:i1, j0:j1] = X[i0:i1] @ Y[j0:j1].T
-        return K
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(processes=n_workers,
+                      initializer=_pl_worker_init,
+                      initargs=(W, device_name, nq)) as pool:
+            SA_parts = pool.starmap(_pl_states_for_rows, [(rs, A) for rs in rows_A])
+            SA = np.concatenate(SA_parts, axis=0)
+            if B is A:
+                SB = SA
+            else:
+                SB_parts = pool.starmap(_pl_states_for_rows, [(rs, B) for rs in rows_B])
+                SB = np.concatenate(SB_parts, axis=0)
 
+    # K = |SA @ SB^H|^2 (tuilé pour RAM)
+    K = np.empty((n, m), dtype=np.float64)
+    for i0, i1 in _tile_ranges(n, tile_size):
+        SA_blk = SA[i0:i1]
+        for j0, j1 in _tile_ranges(m, tile_size):
+            SB_blk = SB[j0:j1]
+            G = SA_blk @ SB_blk.conj().T
+            K[i0:i1, j0:j1] = (np.abs(G) ** 2).real
 
-def _gram_numba(X: np.ndarray, Y: Optional[np.ndarray], symmetric: bool) -> np.ndarray:
-    """Upper-triangle fill with Numba (CPU). For X-only case (symmetric Gram)."""
-    from numba import njit, prange
-
-    X = _ensure_numpy(X).astype(np.float32, copy=False)
-    if Y is not None:
-        # fall back to numpy for the rectangular case
-        return _gram_numpy(X, _ensure_numpy(Y).astype(np.float32, copy=False), tile_size=128, symmetric=False)
-
-    @njit(parallel=True, fastmath=True)
-    def gram_upper(X):
-        n, d = X.shape
-        K = np.zeros((n, n), dtype=np.float32)
-        for i in prange(n):
-            K[i, i] = 1.0  # assuming normalized vectors; otherwise compute dot
-            xi = X[i]
-            for j in range(i + 1, n):
-                xj = X[j]
-                s = 0.0
-                for k in range(d):
-                    s += xi[k] * xj[k]
-                K[i, j] = s
-        return K
-
-    Ku = gram_upper(X)
-    # mirror
-    Ku = Ku + Ku.T - np.diag(np.diag(Ku))
-    return Ku
-
-
-def _gram_torch_cuda(X: Any, Y: Optional[Any], tile_size: int, symmetric: bool) -> Any:
-    """Dense Gram with torch.mm on CUDA. Returns torch.Tensor on GPU."""
-    import torch
-    assert torch.cuda.is_available(), "CUDA not available for torchcuda backend"
-
-    def to_cuda(a):
-        if isinstance(a, torch.Tensor):
-            return a.to("cuda", non_blocking=True).float()
-        # try dlpack from numpy/cupy
-        try:
-            import cupy as cp
-            if isinstance(a, cp.ndarray):
-                return torch.utils.dlpack.from_dlpack(a.toDlpack()).to("cuda").float()
-        except Exception:
-            pass
-        if isinstance(a, np.ndarray):
-            return torch.from_numpy(a).to("cuda").float()
-        raise TypeError("Unsupported array type for torchcuda backend")
-
-    Xt = to_cuda(X)
-    Yt = None if Y is None else to_cuda(Y)
-
-    if Yt is None:
-        if symmetric:
-            K = Xt @ Xt.T
-        else:
-            # full square but without mirroring
-            K = Xt @ Xt.T
-        return K  # keep on GPU
-    else:
-        K = Xt @ Yt.T
-        return K
-
-
-def _gram_pycuda(X: np.ndarray, Y: Optional[np.ndarray], tile_size: int, symmetric: bool) -> np.ndarray:
-    """Demo tiled Gram via PyCUDA. Falls back to cuBLAS (cupy) when available."""
-    try:
-        import cupy as cp
-        # Prefer robust path: use cuBLAS via CuPy for dense GEMM
-        Xd = cp.asarray(X, dtype=cp.float32)
-        Yd = Xd if Y is None else cp.asarray(Y, dtype=cp.float32)
-        Kd = Xd @ Yd.T
-        K = cp.asnumpy(Kd)
-        if Y is None and symmetric:
-            # ensure symmetry numerically
-            K = (K + K.T) * 0.5
-        return K
-    except Exception as e:
-        raise RuntimeError(f"PyCUDA backend requires CuPy. {e}")
-
-
-def _gram_openmp(X: np.ndarray, Y: Optional[np.ndarray]) -> np.ndarray:
-    """Placeholder: call a pybind11/C++ extension compiled with OpenMP.
-
-    Expected extension signature:
-        import gram_omp
-        K = gram_omp.gram_upper_omp(X.astype(np.float32))  # X is [N, D]
-    """
-    try:
-        import gram_omp  # user-compiled module
-    except Exception as e:
-        raise ImportError("OpenMP backend requires a compiled 'gram_omp' extension") from e
-
-    X = _ensure_numpy(X).astype(np.float32, copy=False)
-    if Y is not None:
-        # rectangular case: combine two calls or fallback
-        return _gram_numpy(X, _ensure_numpy(Y).astype(np.float32, copy=False), tile_size=128, symmetric=False)
-    K = gram_omp.gram_upper_omp(X)
-    # mirror
-    K = K + K.T - np.diag(np.diag(K))
+    if symmetric and (B is A):
+        K = 0.5 * (K + K.T)
     return K
-
 
 def compute_kernel_matrix(
     X: Any,
     Y: Optional[Any] = None,
-    backend: Backend = "cpu",
-    tile_size: int = 128,
+    *,
+    weights: np.ndarray,
+    device_name: str = "lightning.qubit",
+    tile_size: int = 64,
     symmetric: bool = True,
-    pairwise_fn: Optional[Callable[[np.ndarray, np.ndarray], float]] = None,
-) -> Any:
-    """Unified API.
-
-    Parameters
-    ----------
-    X, Y : embeddings (NumPy / Torch / CuPy) of shape [N, D] and [M, D].
-           If Y is None: compute square Gram(X, X).
-    backend : one of {"cpu","numba","torchcuda","pycuda","openmp"}.
-    tile_size : block size for tiled GEMM on CPU/GPU (where applicable).
-    symmetric : when Y is None, compute/assume an upper-triangular and mirror.
-    pairwise_fn : optional Python callback to compute similarity between two rows.
-                  If provided and backend="cpu", a slow but general fallback will be used.
-
-    Returns
-    -------
-    K : kernel/Gram matrix. Type depends on backend:
-        - cpu/numba/openmp/pycuda  -> NumPy array (float32)
-        - torchcuda                -> torch.cuda.FloatTensor
-    """
-    if pairwise_fn is not None and backend == "cpu":
-        # generic slow path: O(N^2) Python loop using pairwise_fn
-        Xn = _ensure_numpy(X).astype(np.float32, copy=False)
-        Yn = Xn if Y is None else _ensure_numpy(Y).astype(np.float32, copy=False)
-        N, M = Xn.shape[0], Yn.shape[0]
-        K = np.zeros((N, M), dtype=np.float32)
-        for i in range(N):
-            # allow symmetric shortcut
-            j_start = i if (Y is None and symmetric) else 0
-            for j in range(j_start, M):
-                kij = pairwise_fn(Xn[i], Yn[j])
-                K[i, j] = kij
-                if Y is None and symmetric and j != i:
-                    K[j, i] = kij
-        return K
-
-    if backend == "cpu":
-        return _gram_numpy(X, Y, tile_size=tile_size, symmetric=symmetric)
-    elif backend == "numba":
-        return _gram_numba(X, Y, symmetric=symmetric)
-    elif backend == "torchcuda":
-        return _gram_torch_cuda(X, Y, tile_size=tile_size, symmetric=symmetric)
-    elif backend == "pycuda":
-        return _gram_pycuda(_ensure_numpy(X), None if Y is None else _ensure_numpy(Y), tile_size=tile_size, symmetric=symmetric)
-    elif backend == "openmp":
-        return _gram_openmp(X, Y)
-    else:
-        raise ValueError(f"Unknown backend: {backend}")
+    n_workers: int = 0,
+) -> np.ndarray:
+    """Public API (PennyLane only). X,Y are angles [N, nq], [M, nq]."""
+    # limiter les threads BLAS dans le process parent aussi
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    return _gram_pennylane_angles_mp(
+        X, Y,
+        weights=weights,
+        device_name=device_name,
+        tile_size=tile_size,
+        symmetric=symmetric,
+        n_workers=n_workers,
+    )

@@ -14,7 +14,6 @@ class ResidualMLPBlock(nn.Module):
         self.fc2 = nn.Linear(out_features, out_features)
         self.ln2 = nn.LayerNorm(out_features)
         self.dropout = nn.Dropout(dropout)
-
         if downsample or in_features != out_features:
             self.downsample = nn.Sequential(
                 nn.Linear(in_features, out_features),
@@ -78,7 +77,6 @@ class QuantumWorker:
         builder = QuantumCircuitBuilder(self.n_qubits, self.n_layers, self.device_name)
         return builder.eval_sample(sample_np, weights)
 
-
 class HybridQCNNBase(nn.Module):
     def __init__(self, input_size, hidden_sizes=None, n_qubits=4, n_layers=2,
                  dropout=0.3, parallel=True, device="cpu"):
@@ -90,13 +88,40 @@ class HybridQCNNBase(nn.Module):
         self.block3 = ResidualMLPBlock(hidden_sizes[1], hidden_sizes[2], downsample=True, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
         self.quantum_fc_input = nn.Linear(hidden_sizes[2], n_qubits)
+
         self.builder = QuantumCircuitBuilder(n_qubits=n_qubits, n_layers=n_layers)
-        self.quantum_layer = self.builder.create_layer()
+        self.quantum_layer = self.builder.create_layer()  # contient les 'weights'
         self.bn_q = nn.LayerNorm(n_qubits)
+
         self.n_qubits = n_qubits
         self.n_layers = n_layers
         self.parallel = parallel
         self.worker = QuantumWorker(n_qubits, n_layers)
+
+    # ---- MÉTHODES À AJOUTER (dé-indentées !) ----
+    def compute_angles(self, x: torch.Tensor) -> torch.Tensor:
+        """Passe MLP -> projection n_qubits -> tanh*π. Retourne [B, n_qubits]."""
+        self.eval()
+        with torch.no_grad():
+            x = self.block1(x)
+            x = self.block2(x)
+            x = self.block3(x)
+            x = self.dropout(x)
+            angles = torch.tanh(self.quantum_fc_input(x)) * np.pi
+        return angles
+
+    def get_entangler_weights(self) -> np.ndarray:
+        """Retourne les poids [n_layers, n_qubits] de la TorchLayer PennyLane."""
+        if not hasattr(self, "quantum_layer"):
+            raise AttributeError("quantum_layer absent : impossible de récupérer les poids d'entrelacement.")
+        try:
+            w = next(self.quantum_layer.parameters()).detach().cpu().numpy()
+        except StopIteration:
+            raise RuntimeError("La quantum_layer ne contient pas de paramètres 'weights'.")
+        if w.ndim != 2 or w.shape != (self.n_layers, self.n_qubits):
+            raise ValueError(f"Poids inattendus: shape={w.shape}, attendu=({self.n_layers},{self.n_qubits})")
+        return w
+    # ---------------------------------------------
 
     def forward_quantum(self, x, pool=None):
         x = self.block1(x)
@@ -127,6 +152,6 @@ class HybridQCNNBinaryClassifier(HybridQCNNBase):
         super().__init__(input_size, hidden_sizes, n_qubits, n_layers, dropout, parallel, device)
         self.final_fc = nn.Linear(n_qubits, 1)
     def forward(self, x, pool=None):
-        x = self.forward_quantum(x,pool)
+        x = self.forward_quantum(x, pool)
         x = self.final_fc(x)
         return torch.sigmoid(x)

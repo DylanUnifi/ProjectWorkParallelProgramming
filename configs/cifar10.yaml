@@ -1,0 +1,22 @@
+dataset:
+  name: cifar10
+  binary_classes: [3, 5]      # cat(3) vs dog(5) (plus classique)
+  # (si tu veux garder [3,8] de l'ancien YAML: remplace par [3,8])
+
+training:
+  batch_size: 256
+  kfold: 3
+  seed: 42
+
+svm:
+  n_trials: 20
+
+qcnn:
+  n_qubits: 10                # nécessite GPU pour rester rapide
+  n_layers: 2
+
+pennylane:
+  device: lightning.gpu       # Colab/serveur GPU
+  tile_size: 256
+  workers: 1                  # IMPORTANT: 1 seul process sur GPU
+  kernel_centering: true

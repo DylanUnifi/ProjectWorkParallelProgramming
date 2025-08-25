@@ -1,0 +1,4 @@
+numpy==2.3.2
+pybind11==3.0.1
+setuptools==78.1.1
+wheel==0.45.1

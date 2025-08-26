@@ -1,24 +1,32 @@
+# scripts/train_hybrid_qcnn_quantumkernel_patched.py
+
+# --- project root on sys.path (CLion/PyCharm safe) ---
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+# ------------------------------------------------------
+
 import os
 import argparse
 import random
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 from sklearn.metrics import (
     f1_score, accuracy_score, precision_score, recall_score,
-    balanced_accuracy_score, roc_auc_score
+    balanced_accuracy_score, roc_auc_score, precision_recall_curve
 )
-from tqdm import tqdm
 import wandb
 import optuna
-import matplotlib.pyplot as plt
 import yaml
 
 from data_loader.utils import load_dataset_by_name
 from models.hybrid_qcnn import HybridQCNNFeatures
+from models.svm_extension import EnhancedSVM  # OK without threshold methods (we manage the threshold here)
 from utils.logger import init_logger
-from models.svm_extension import EnhancedSVM
 
 # PennyLane-only backend
 try:
@@ -28,7 +36,7 @@ except Exception as e:
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# -------------------- Reproductibilité --------------------
+    # -------------------- Reproducibility --------------------
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
@@ -36,35 +44,77 @@ torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
-# -------------------- Utils --------------------
-def extract_angles(model, loader):
+
+# -------------------- Helpers --------------------
+def extract_angles(model, loader, dtype=np.float32):
     model.eval()
     angles, labels = [], []
     with torch.no_grad():
-        for batch_X, batch_y in tqdm(loader, desc="Extracting angles"):
+        for batch_X, batch_y in loader:
             batch_X = batch_X.view(batch_X.size(0), -1).to(DEVICE)
-            A = model.compute_angles(batch_X).detach().cpu().numpy()  # [B, n_qubits]
+            A = model.compute_angles(batch_X).detach().cpu().numpy().astype(dtype, copy=False)
             angles.append(A)
             labels.append(batch_y.detach().cpu().numpy())
     return np.vstack(angles), np.concatenate(labels)
 
+
 def _center_kernel_train(K: np.ndarray) -> np.ndarray:
-    """Double-centre un kernel carré K (Schölkopf)."""
+    """Double-center a square kernel K (Schölkopf)."""
+    K = np.asarray(K, dtype=np.float64, order="C")
     n = K.shape[0]
     H = np.eye(n) - np.ones((n, n)) / n
     return H @ K @ H
 
-def _center_kernel_test(K_test: np.ndarray, K_train: np.ndarray) -> np.ndarray:
+
+def _center_kernel_test(K_test: np.ndarray, K_train_uncentered: np.ndarray) -> np.ndarray:
+    """Center K_test relative to K_train not centered (Schölkopf)."""
+    Kt = np.asarray(K_test, dtype=np.float64, order="C")
+    Ku = np.asarray(K_train_uncentered, dtype=np.float64, order="C")
+    mean_cols = Ku.mean(axis=0, keepdims=True)
+    mean_rows = Ku.mean(axis=1, keepdims=True)
+    mean_all = Ku.mean()
+    Kt_c = Kt - np.ones((Kt.shape[0], 1)) @ mean_cols - np.ones((Kt.shape[0], 1)) @ mean_rows.T + mean_all
+    return Kt_c
+
+
+def dataset_labels_numpy(dataset) -> np.ndarray:
+    """Retrieves all labels from a Dataset (int64)."""
+    ys = np.empty(len(dataset), dtype=np.int64)
+    for i in range(len(dataset)):
+        _, y = dataset[i]
+        ys[i] = int(y)
+    return ys
+
+
+def stratified_subset_dataset(dataset, n_samples, seed=42):
+    ys = dataset_labels_numpy(dataset)
+    if n_samples is None or n_samples >= len(ys):
+        return dataset
+    sss = StratifiedShuffleSplit(n_splits=1, train_size=n_samples, random_state=seed)
+    idx, _ = next(sss.split(np.zeros_like(ys), ys))
+    return Subset(dataset, idx)
+
+
+def find_best_thr_decision(scores: np.ndarray, y_true: np.ndarray, min_recall: float = 0.10):
     """
-    Centre K_test (m×n) par rapport à K_train (n×n) déjà centré.
-    K_test_c = K_test - 1_m K̄cols - K̄rows^T 1_n + mean(K_train)
+    Find the best threshold on `decision_function` that maximizes F1
+    while imposing a minimum recall.
     """
-    n = K_train.shape[0]
-    mean_cols = K_train.mean(axis=0, keepdims=True)   # (1, n)
-    mean_rows = K_train.mean(axis=1, keepdims=True)   # (n, 1)
-    mean_all  = K_train.mean()                        # scalaire
-    m = K_test.shape[0]
-    return K_test - np.ones((m, 1)) @ mean_cols - mean_rows.T @ np.ones((1, n)) + mean_all
+    p, r, thr = precision_recall_curve(y_true, scores)
+    # `thr` a len = len(p) - 1 ; on étend pour itérer proprement
+    thr_ext = np.r_[thr, thr[-1] if thr.size else 0.0]
+    best_f1, best_thr = -1.0, 0.0
+    for pi, ri, ti in zip(p, r, thr_ext):
+        if ri >= min_recall:
+            f1 = 0.0 if (pi + ri) == 0 else 2 * pi * ri / (pi + ri)
+            if f1 > best_f1:
+                best_f1, best_thr = f1, ti
+    return float(best_thr)
+
+
+def binarize_by_threshold(scores: np.ndarray, thr: float) -> np.ndarray:
+    return (scores >= thr).astype(np.int64)
+
 
 # -------------------- Main --------------------
 def run_train(args):
@@ -76,136 +126,146 @@ def run_train(args):
     SAVE_DIR = os.path.join("engine/checkpoints", "qcnn_fidelity_kernel", EXPERIMENT_NAME)
     os.makedirs(SAVE_DIR, exist_ok=True)
 
-    wandb.init(project="qml_project", name=EXPERIMENT_NAME, config={**config, **vars(args)}, group=dataset_name)
+    wandb.init(project="qml_project", name=EXPERIMENT_NAME,
+               config={**config, **vars(args)}, group=dataset_name)
 
-    # Dataset (binaire)
+    # dtypes
+    feat_dtype = np.float32 if args.dtype == "float32" else np.float64
+    ret_dtype = np.float32 if args.return_dtype == "float32" else np.float64
+
+    # Binary dataset
     train_dataset, test_dataset = load_dataset_by_name(
         name=dataset_name,
-        binary_classes=config.get("dataset", {}).get("binary_classes", config.get("binary_classes", [3, 8]))
+        binary_classes=config.get("dataset", {}).get("binary_classes", config.get("binary_classes", [3, 8])),
+        grayscale=config.get("dataset", {}).get("grayscale", True),
+        root=config.get("dataset", {}).get("root", "./data"),
     )
 
-    # Subset optionnel
+    # Optional stratified subset
     if args.train_subset is not None:
-        indices = torch.randperm(len(train_dataset))[:args.train_subset]
-        train_dataset = Subset(train_dataset, indices)
+        train_dataset = stratified_subset_dataset(train_dataset, args.train_subset, seed=SEED)
 
-    # KFold
-    kfold = KFold(n_splits=config["training"]["kfold"], shuffle=True, random_state=SEED)
+    # Prepare StratifiedKFold (binary)
+    y_all = dataset_labels_numpy(train_dataset)
+    skf = StratifiedKFold(n_splits=config["training"]["kfold"], shuffle=True, random_state=SEED)
 
-    # Modèle (extract angles)
+    # Angle extraction model
     sample_X, _ = train_dataset[0]
     input_size = sample_X.numel()
     feature_extractor = HybridQCNNFeatures(input_size=input_size).to(DEVICE)
 
-    # Poids d’entrelacement (fixes)
-    W = next(feature_extractor.quantum_layer.parameters()).detach().cpu().numpy()  # [n_layers, n_qubits]
+    # Interlacing weights (fixed)
+    W = next(feature_extractor.quantum_layer.parameters()).detach().cpu().numpy()
 
-    # Paramètres PennyLane (priorité CLI > YAML)
-    pl_device  = args.pl_device  or config.get("pennylane", {}).get("device", "lightning.qubit")
+    # PennyLane settings
+    pl_device = args.pl_device or config.get("pennylane", {}).get("device", "lightning.qubit")
     pl_workers = args.pl_workers if args.pl_workers is not None else config.get("pennylane", {}).get("workers", 0)
-    tile_size  = args.tile_size  or config.get("pennylane", {}).get("tile_size", 128)
-    do_center  = args.kernel_centering or bool(config.get("pennylane", {}).get("kernel_centering", False))
+    tile_size = args.tile_size or config.get("pennylane", {}).get("tile_size", 128)
+    do_center = bool(args.kernel_centering or config.get("pennylane", {}).get("kernel_centering", False))
 
-    # Pré-extraction angles test
+    # Pre-extraction test angles
     test_loader = DataLoader(test_dataset, batch_size=config["training"]["batch_size"])
-    A_test, y_test = extract_angles(feature_extractor, test_loader)
+    A_test, y_test = extract_angles(feature_extractor, test_loader, dtype=feat_dtype)
     y_test = y_test.astype(np.int64)
 
-    for fold, (train_idx, val_idx) in enumerate(kfold.split(train_dataset)):
+    # thresholds per fold (to calculate an overall median)
+    per_fold_thresholds = []
+
+    # KFold loop
+    for fold, (train_idx, val_idx) in enumerate(skf.split(np.zeros_like(y_all), y_all)):
         init_logger(os.path.join(SAVE_DIR, "logs"), fold)
 
         train_subset = Subset(train_dataset, train_idx)
-        val_subset   = Subset(train_dataset, val_idx)
+        val_subset = Subset(train_dataset, val_idx)
 
         train_loader = DataLoader(train_subset, batch_size=config["training"]["batch_size"], shuffle=True)
-        val_loader   = DataLoader(val_subset,   batch_size=config["training"]["batch_size"])
+        val_loader = DataLoader(val_subset, batch_size=config["training"]["batch_size"])
 
-        A_train, y_train = extract_angles(feature_extractor, train_loader)
-        A_val,   y_val   = extract_angles(feature_extractor, val_loader)
+        A_train, y_train = extract_angles(feature_extractor, train_loader, dtype=feat_dtype)
+        A_val, y_val = extract_angles(feature_extractor, val_loader, dtype=feat_dtype)
         y_train = y_train.astype(np.int64)
-        y_val   = y_val.astype(np.int64)
+        y_val = y_val.astype(np.int64)
 
-        # ---------------- Kernels (Optuna) ----------------
-        print("🔹 Kernel train (PennyLane, mp)...")
-        K_train = compute_kernel_matrix(
-            A_train, weights=W, device_name=pl_device,
-            tile_size=tile_size, symmetric=True, n_workers=pl_workers
-        )
-        print("🔹 Kernel val (PennyLane, mp)...")
-        K_val = compute_kernel_matrix(
-            A_val, Y=A_train, weights=W, device_name=pl_device,
-            tile_size=tile_size, symmetric=False, n_workers=pl_workers
-        )
+        # ---------------- Kernels ----------------
+        print(f"🔹 Kernel train | fold {fold}")
+        K_train = compute_kernel_matrix(A_train, weights=W, device_name=pl_device,
+                                        tile_size=tile_size, symmetric=True, n_workers=pl_workers,
+                                        progress=True, desc=f"Fold {fold} | train").astype(ret_dtype, copy=False)
+
+        print(f"🔹 Kernel val | fold {fold}")
+        K_val = compute_kernel_matrix(A_val, Y=A_train, weights=W, device_name=pl_device,
+                                      tile_size=tile_size, symmetric=False, n_workers=pl_workers,
+                                      progress=True, desc=f"Fold {fold} | val").astype(ret_dtype, copy=False)
+
+        K_train_u = np.asarray(K_train, dtype=ret_dtype, order="C")
 
         if do_center:
-            K_train = _center_kernel_train(K_train)
-            K_val   = _center_kernel_test(K_val, K_train)
+            # centre train et val
+            K_train = _center_kernel_train(K_train_u.copy())
+            K_val = _center_kernel_test(K_val, K_train_u)
+            wandb.config.update({"kernel_centering": True}, allow_val_change=True)
 
-        # ---------------- Optuna (binaire) ----------------
+        # ---------------- Optuna (binary): minimizes 1 - F1 ----------------
         def objective(trial):
             C = trial.suggest_float("C", 1e-3, 1e3, log=True)
-            svm = EnhancedSVM(C=C, kernel='precomputed', probability=True)
+            svm = EnhancedSVM(C=C, kernel="precomputed", probability=True)
             svm.fit(K_train, y_train)
-            y_pred = svm.predict(K_val)
-            # si labels binaires {0,1}, utilise average="binary"
-            avg = "binary" if np.unique(y_val).size == 2 else "weighted"
-            return 1.0 - f1_score(y_val, y_pred, average=avg)
+            y_val_pred = svm.predict(K_val)
+            return 1.0 - f1_score(y_val, y_val_pred, average="binary")
 
         study = optuna.create_study(direction="minimize")
-        study.optimize(objective, n_trials=config.get("svm", {}).get("n_trials", 20))
-        best_C = study.best_params["C"]
+        study.optimize(objective, n_trials=config.get("svm", {}).get("n_trials", 50))
+        best_C = float(study.best_params["C"])
+        wandb.log({f"fold_{fold}/best_C": best_C})
+
+        # --------- Optimal threshold on the val (decision_function) ----------
+        svm_val = EnhancedSVM(C=best_C, kernel="precomputed", probability=True)
+        svm_val.fit(K_train, y_train)
+
+        # decision scores (plus stables que proba pour le seuil)
+        val_scores = svm_val.model.decision_function(K_val)
+        if val_scores.ndim > 1 and val_scores.shape[1] == 2:
+            val_scores = val_scores[:, 1]
+
+        best_thr = find_best_thr_decision(val_scores, y_val, min_recall=0.10)
+        wandb.log({f"fold_{fold}/svm_threshold": best_thr})
+        per_fold_thresholds.append(best_thr)
 
         # ---------------- Final: trainval/test ----------------
         A_trainval = np.vstack([A_train, A_val])
         y_trainval = np.concatenate([y_train, y_val]).astype(np.int64)
 
-        print("🔹 Kernel trainval (PennyLane, mp)...")
-        K_trainval = compute_kernel_matrix(
-            A_trainval, weights=W, device_name=pl_device,
-            tile_size=tile_size, symmetric=True, n_workers=pl_workers
-        )
-        print("🔹 Kernel test (PennyLane, mp)...")
-        K_test = compute_kernel_matrix(
-            A_test, Y=A_trainval, weights=W, device_name=pl_device,
-            tile_size=tile_size, symmetric=False, n_workers=pl_workers
-        )
+        print(f"🔹 Kernel trainval | fold {fold}")
+        K_trainval = compute_kernel_matrix(A_trainval, weights=W, device_name=pl_device,
+                                           tile_size=tile_size, symmetric=True, n_workers=pl_workers,
+                                           progress=True, desc=f"Fold {fold} | trainval").astype(ret_dtype, copy=False)
+        print(f"🔹 Kernel test | fold {fold}")
+        K_test = compute_kernel_matrix(A_test, Y=A_trainval, weights=W, device_name=pl_device,
+                                       tile_size=tile_size, symmetric=False, n_workers=pl_workers,
+                                       progress=True, desc=f"Fold {fold} | test").astype(ret_dtype, copy=False)
 
         if do_center:
-            K_trainval = _center_kernel_train(K_trainval)
-            K_test     = _center_kernel_test(K_test, K_trainval)
-            try:
-                wandb.config.update({"kernel_centering": True}, allow_val_change=True)
-            except Exception:
-                pass
+            K_trainval_u = np.asarray(K_trainval, dtype=ret_dtype, order="C")
+            K_trainval = _center_kernel_train(K_trainval_u.copy())
+            K_test = _center_kernel_test(K_test, K_trainval_u)
 
-        # Heatmap
-        plt.figure(figsize=(7, 5))
-        plt.imshow(K_trainval, cmap="viridis")
-        plt.title(f"Fidelity Kernel (trainval) - Fold {fold}")
-        plt.colorbar()
-        heatmap_path = os.path.join(SAVE_DIR, f"kernel_heatmap_fold_{fold}.png")
-        plt.savefig(heatmap_path, bbox_inches="tight")
-        wandb.log({f"kernel_heatmap_fold_{fold}": wandb.Image(heatmap_path)})
-
-        # SVM + métriques binaires
-        clf = EnhancedSVM(C=best_C, kernel='precomputed', probability=True)
+        # Final SVM (fit on trainval)
+        clf = EnhancedSVM(C=best_C, kernel="precomputed", probability=True)
         clf.fit(K_trainval, y_trainval)
+
+        # --- metrics without custom thresholds (predict = 0.0) ---
         y_pred = clf.predict(K_test)
+        acc = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average="binary")
+        precision = precision_score(y_test, y_pred, average="binary", zero_division=0)
+        recall = recall_score(y_test, y_pred, average="binary", zero_division=0)
+        bal_acc = balanced_accuracy_score(y_test, y_pred)
 
-        is_binary = (np.unique(y_test).size == 2)
-        avg = "binary" if is_binary else "weighted"
-        acc      = accuracy_score(y_test, y_pred)
-        f1       = f1_score(y_test, y_pred, average=avg)
-        precision= precision_score(y_test, y_pred, average=avg)
-        recall   = recall_score(y_test, y_pred, average=avg)
-        bal_acc  = balanced_accuracy_score(y_test, y_pred)
-
-        # AUC (binaire)
         try:
-            y_scores = clf.model.decision_function(K_test)
-            if y_scores.ndim > 1 and y_scores.shape[1] == 2:
-                y_scores = y_scores[:, 1]
-            auc = roc_auc_score(y_test, y_scores) if is_binary else 0.0
+            test_scores = clf.model.decision_function(K_test)
+            if test_scores.ndim > 1 and test_scores.shape[1] == 2:
+                test_scores = test_scores[:, 1]
+            auc = roc_auc_score(y_test, test_scores)
         except Exception:
             auc = 0.0
 
@@ -218,18 +278,48 @@ def run_train(args):
             f"fold_{fold}/qsvm_auc": auc,
         })
 
+        # --- metrics WITH optimal fold threshold (globalthr will come later) ---
+        y_pred_thr = binarize_by_threshold(test_scores, best_thr)
+        acc_g = accuracy_score(y_test, y_pred_thr)
+        f1_g = f1_score(y_test, y_pred_thr, average="binary")
+        precision_g = precision_score(y_test, y_pred_thr, average="binary", zero_division=0)
+        recall_g = recall_score(y_test, y_pred_thr, average="binary", zero_division=0)
+        bal_acc_g = balanced_accuracy_score(y_test, y_pred_thr)
+        # not identical because independent of the threshold
+        wandb.log({
+            f"fold_{fold}/qsvm_accuracy_globalthr": acc_g,
+            f"fold_{fold}/qsvm_f1_globalthr": f1_g,
+            f"fold_{fold}/qsvm_precision_globalthr": precision_g,
+            f"fold_{fold}/qsvm_recall_globalthr": recall_g,
+            f"fold_{fold}/qsvm_balanced_accuracy_globalthr": bal_acc_g,
+            f"fold_{fold}/qsvm_auc_globalthr": auc,
+        })
+
+    # ----- Overall median threshold (useful for subsequent runs) -----
+    if len(per_fold_thresholds) > 0:
+        thr_global = float(np.median(per_fold_thresholds))
+        wandb.log({f"global/svm_threshold_median": thr_global})
+
     wandb.finish()
+
 
 def build_argparser():
     p = argparse.ArgumentParser()
     p.add_argument("--config", type=str, required=True, help="Path to YAML config")
-    # PennyLane-only options
     p.add_argument("--pl-device", type=str, default=None, help="PennyLane device (lightning.qubit, lightning.gpu)")
     p.add_argument("--pl-workers", type=int, default=None, help="#processes (0 => cpu_count-1, 1 recommended on GPU)")
-    p.add_argument("--tile-size", type=int, default=None, help="Tile size for states/Gram (e.g., 128 CPU, 256 GPU)")
+    p.add_argument("--tile-size", type=int, default=None, help="Tile size for states/Gram")
     p.add_argument("--kernel-centering", action="store_true", help="Apply kernel centering before SVM")
-    p.add_argument("--train-subset", type=int, default=None, help="Subsample train for faster runs")
+    p.add_argument("--train-subset", type=int, default=None, help="Subsample train (stratified) for faster runs")
+
+    # dtypes
+    p.add_argument("--dtype", type=str, default="float32",
+                   choices=["float32", "float64"], help="dtype utilisé pour les features (angles)")
+    p.add_argument("--return-dtype", type=str, default="float64",
+                   choices=["float32", "float64"], help="dtype final des matrices kernel")
+
     return p
+
 
 if __name__ == "__main__":
     args = build_argparser().parse_args()

@@ -1,22 +1,44 @@
-# tools/benchmark_pl_kernel.py
-import argparse, itertools, math, os, time
-import numpy as np
+import cupy as cp
+cp.cuda.set_allocator(cp.cuda.MemoryPool().malloc)
+x = cp.ones((1,), dtype=cp.float32); del x
+cp.cuda.runtime.deviceSynchronize()
 
-# PennyLane-only kernel (ton fichier simplifié)
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]  # project root
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# --- ensure CUDA headers for NVRTC when launched from IDE (CLion/PyCharm) ---
+import os
+os.environ.setdefault("CUPY_NVRTC_OPTIONS", "-I/usr/local/cuda/include")
+os.environ["CPATH"] = "/usr/local/cuda/include:" + os.environ.get("CPATH", "")
+os.environ["CPLUS_INCLUDE_PATH"] = "/usr/local/cuda/include:" + os.environ.get("CPLUS_INCLUDE_PATH", "")
+# -----------------------------------------------------------------------------
+
+# tools/benchmark_pl_kernel.py
+import argparse, itertools, os, time
+import numpy as np
 from scripts.pipeline_backends import compute_kernel_matrix
 
 def pairs_count(n: int, symmetric: bool) -> int:
     return n * (n + 1) // 2 if symmetric else n * n
 
-def run_once(n_samples, n_qubits, tile_size, workers, device_name, symmetric, repeats, seed):
+def run_once(
+    n_samples, n_qubits, tile_size, workers, device_name,
+    symmetric, repeats, seed, layers, dtype, return_dtype, gram_backend
+):
     rng = np.random.default_rng(seed)
-    angles = rng.uniform(low=-np.pi, high=np.pi, size=(n_samples, n_qubits)).astype(np.float64)
+    np_dtype = np.float32 if dtype == "float32" else np.float64
+    angles = rng.uniform(low=-np.pi, high=np.pi, size=(n_samples, n_qubits)).astype(np_dtype)
 
-    # poids entangler (fixes, mais réalistes)
-    n_layers = 2
-    weights = rng.normal(loc=0.0, scale=0.1, size=(n_layers, n_qubits)).astype(np.float64)
+    # poids entangler (couches réglables)
+    weights = rng.normal(loc=0.0, scale=0.1, size=(layers, n_qubits)).astype(np_dtype)
 
-    # warmup (facultatif)
+    # dtype de sortie effectif (si return_dtype est None → identique à dtype)
+    return_dtype_eff = return_dtype if return_dtype in ("float32", "float64") else dtype
+
+    # warmup
     _ = compute_kernel_matrix(
         angles,
         weights=weights,
@@ -24,10 +46,13 @@ def run_once(n_samples, n_qubits, tile_size, workers, device_name, symmetric, re
         tile_size=tile_size,
         symmetric=symmetric,
         n_workers=workers,
+        dtype=dtype,
+        return_dtype=return_dtype,
+        gram_backend=gram_backend,
     )
 
     times = []
-    for r in range(repeats):
+    for _ in range(repeats):
         t0 = time.perf_counter()
         _ = compute_kernel_matrix(
             angles,
@@ -36,22 +61,28 @@ def run_once(n_samples, n_qubits, tile_size, workers, device_name, symmetric, re
             tile_size=tile_size,
             symmetric=symmetric,
             n_workers=workers,
+            dtype=dtype,
+            return_dtype=return_dtype,
+            gram_backend=gram_backend,  # <-- IMPORTANT: passer aussi ici
         )
-        dt = time.perf_counter() - t0
-        times.append(dt)
+        times.append(time.perf_counter() - t0)
 
-    t_mean = np.mean(times)
-    t_std  = np.std(times)
+    t_mean = float(np.mean(times))
+    t_std  = float(np.std(times))
     n_pairs = pairs_count(n_samples, symmetric)
-    throughput = n_pairs / t_mean  # pairs / s
+    throughput = n_pairs / t_mean  # pairs/s
 
     return dict(
+        device=device_name,
         n_samples=n_samples,
         n_qubits=n_qubits,
         tile_size=tile_size,
         workers=workers,
-        device=device_name,
         symmetric=symmetric,
+        layers=layers,
+        dtype=dtype,
+        return_dtype=return_dtype_eff,   # valeur effective écrite/affichée
+        gram_backend=gram_backend,       # NEW: traçabilité du GEMM
         time_s=round(t_mean, 4),
         std_s=round(t_std, 4),
         pairs=n_pairs,
@@ -60,59 +91,90 @@ def run_once(n_samples, n_qubits, tile_size, workers, device_name, symmetric, re
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark PennyLane fidelity-kernel (parallel, tiled).")
-    parser.add_argument("--samples", type=int, default=512, help="N (angles rows)")
-    parser.add_argument("--qubits", type=int, nargs="+", default=[4, 6, 8], help="List of n_qubits")
-    parser.add_argument("--tile-size", type=int, nargs="+", default=[32, 64, 128], help="Tile sizes to try")
-    parser.add_argument("--workers", type=int, nargs="+", default=[0, 4, 8], help="#processes (0 => cpu_count-1)")
-    parser.add_argument("--device", type=str, default="lightning.qubit", help="PennyLane device")
-    parser.add_argument("--symmetric", action="store_true", help="Compute symmetric K (Y=None)")
-    parser.add_argument("--repeats", type=int, default=3, help="Repeats per config")
+    parser.add_argument("--samples", type=int, default=512)
+    parser.add_argument("--qubits", type=int, nargs="+", default=[4, 6, 8])
+    parser.add_argument("--tile-size", type=int, nargs="+", default=[32, 64, 128])
+    parser.add_argument("--workers", type=int, nargs="+", default=[1, 4, 8])
+    parser.add_argument("--device", type=str, nargs="+", default=["lightning.qubit"])
+    parser.add_argument("--symmetric", action="store_true")
+    parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--layers", type=int, default=2)
+    parser.add_argument("--dtype", choices=["float32","float64"], default="float64")
+    parser.add_argument("--return-dtype", choices=["float32", "float64"], default=None)
+    parser.add_argument("--gram-backend", choices=["auto", "numpy", "cupy", "torch"], default="auto")
     args = parser.parse_args()
 
-    os.environ.setdefault("OMP_NUM_THREADS", "1")  # utile pour éviter sur-parallélisme interne
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
 
-    grid = list(itertools.product(args.qubits, args.tile_size, args.workers))
+    grid = list(itertools.product(args.device, args.qubits, args.tile_size, args.workers))
     results = []
 
-    print(f"\nBenchmark kernel | N={args.samples} | symmetric={args.symmetric} | device={args.device}")
+    print(f"\nBenchmark kernel | N={args.samples} | symmetric={args.symmetric} | devices={','.join(args.device)}")
     print(f"Grid size: {len(grid)} combinations\n")
-    print(f"{'nq':>3} {'tile':>4} {'wrk':>3}  {'time(s)':>8}  {'±sd':>6}  {'Mpairs/s':>9}")
-    print("-"*50)
+    print(f"{'device':<16} {'nq':>3} {'tile':>4} {'wrk':>3} {'L':>2} {'dtype':>7} {'ret':>7} {'gemm':>6}  {'time(s)':>8}  {'±sd':>6}  {'Mpairs/s':>9}")
+    print("-"*112)
 
-    for (nq, tile, wrk) in grid:
+    for (dev, nq, tile, wrk) in grid:
+        # GPU: force workers=1 (évite sur-parallélisme inutile/nocif)
+        if "gpu" in dev.lower() and wrk != 1:
+            continue
         try:
             r = run_once(
                 n_samples=args.samples,
                 n_qubits=nq,
                 tile_size=tile,
                 workers=wrk,
-                device_name=args.device,
+                device_name=dev,
                 symmetric=args.symmetric,
                 repeats=args.repeats,
                 seed=args.seed,
+                layers=args.layers,
+                dtype=args.dtype,
+                return_dtype=args.return_dtype,
+                gram_backend=args.gram_backend,
             )
             results.append(r)
-            print(f"{nq:>3} {tile:>4} {wrk:>3}  {r['time_s']:>8.3f}  {r['std_s']:>6.3f}  {r['Mpairs_per_s']:>9.3f}")
+            print(f"{r['device']:<16} {r['n_qubits']:>3} {r['tile_size']:>4} {r['workers']:>3} {r['layers']:>2} {r['dtype']:>7} {r['return_dtype']:>7} {r['gram_backend']:>6}  {r['time_s']:>8.3f}  {r['std_s']:>6.3f}  {r['Mpairs_per_s']:>9.3f}")
         except Exception as e:
-            print(f"{nq:>3} {tile:>4} {wrk:>3}  ERROR: {e}")
+            print(f"{dev:<16} {nq:>3} {tile:>4} {wrk:>3}  ERROR: {e}")
 
-    # tri et résumé meilleur score
     if results:
-        best = max(results, key=lambda x: x["Mpairs_per_s"])
-        print("\nBest configuration:")
-        print(best)
-
-        # CSV sommaire
         import csv
+        # best par device
+        best_per_device = {}
+        for r in results:
+            dev = r["device"]
+            if dev not in best_per_device or r["Mpairs_per_s"] > best_per_device[dev]["Mpairs_per_s"]:
+                best_per_device[dev] = r
+
+        print("\n=== Best per device ===")
+        for dev, r in best_per_device.items():
+            print(f"{dev:<16} -> {r['n_qubits']}q, tile {r['tile_size']}, wrk {r['workers']}, L {r['layers']}, dtype {r['dtype']}, ret {r['return_dtype']}, gemm {r['gram_backend']} : {r['Mpairs_per_s']} Mpairs/s")
+
+        if "lightning.qubit" in best_per_device and "lightning.gpu" in best_per_device:
+            cpu = best_per_device["lightning.qubit"]["Mpairs_per_s"]
+            gpu = best_per_device["lightning.gpu"]["Mpairs_per_s"]
+            if cpu > 0:
+                print(f"\nGPU/CPU speedup = {round(gpu/cpu, 2)}x")
+
+        # CSV avec ordre de colonnes stable (incluant layers/dtype/return_dtype/gram_backend)
+        fieldnames = [
+            "device", "n_samples", "n_qubits", "tile_size", "workers",
+            "symmetric", "layers", "dtype", "return_dtype", "gram_backend",
+            "time_s", "std_s", "pairs", "Mpairs_per_s",
+        ]
         out = "pl_kernel_benchmark.csv"
         with open(out, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(results[0].keys()))
-            w.writeheader(); w.writerows(results)
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for r in results:
+                row = {k: r.get(k, "") for k in fieldnames}
+                w.writerow(row)
         print(f"\nSaved CSV -> {out}")
 
 if __name__ == "__main__":
-    # important: for multiprocessing on some platforms
     try:
         import multiprocessing as mp
         mp.set_start_method("spawn", force=True)

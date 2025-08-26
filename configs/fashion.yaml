@@ -1,21 +1,23 @@
 dataset:
   name: fashion_mnist
-  binary_classes: [3, 8]      # Dress vs Bag (inchangé)
+  binary_classes: [3, 8]   # Pull vs Bag
+  grayscale: true
+  augment: false
+  root: ./data
+
+model:
+  n_qubits: 4
+  n_layers: 2   # short route → good starting point
 
 training:
-  batch_size: 256
+  batch_size: 64
   kfold: 3
-  seed: 42
-
-svm:
-  n_trials: 20                # Optuna (tune C uniquement)
-
-qcnn:
-  n_qubits: 6                 # angles = 6 qubits (au lieu de 4)
-  n_layers: 2                 # entangler layers (fixes, non entraînés)
 
 pennylane:
-  device: lightning.qubit     # CPU local
-  tile_size: 128
+  device: lightning.qubit
   workers: 4
+  tile_size: 128
   kernel_centering: true
+
+svm:
+  n_trials: 20

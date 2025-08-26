@@ -1,22 +1,23 @@
 dataset:
   name: cifar10
-  binary_classes: [3, 5]      # cat(3) vs dog(5) (plus classique)
-  # (si tu veux garder [3,8] de l'ancien YAML: remplace par [3,8])
+  binary_classes: [3, 8]   # Cat vs Ship, for example.
+  grayscale: true          # Keep it simple for QCNN
+  augment: true            # slight boost (flip/rotation/crop)
+  root: ./data
+
+model:
+  n_qubits: 8
+  n_layers: 4   # more complex dataset → deeper circuit
 
 training:
-  batch_size: 256
+  batch_size: 64
   kfold: 3
-  seed: 42
-
-svm:
-  n_trials: 20
-
-qcnn:
-  n_qubits: 10                # nécessite GPU pour rester rapide
-  n_layers: 2
 
 pennylane:
-  device: lightning.gpu       # Colab/serveur GPU
+  device: lightning.gpu
+  workers: 1
   tile_size: 256
-  workers: 1                  # IMPORTANT: 1 seul process sur GPU
   kernel_centering: true
+
+svm:
+  n_trials: 40

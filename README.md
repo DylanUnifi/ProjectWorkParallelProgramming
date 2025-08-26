@@ -1,249 +1,234 @@
-# Quantum Machine Learning – Parallel Programming Project
+# Quantum Machine Learning — Parallel Programming Project
 
-[![W&B Dashboard](https://img.shields.io/badge/Weights_%26_Biases-Dashboard-orange?logo=weightsandbiases)](https://wandb.ai/berkampdylan-universit-di-firenze/pp_project_work)
-![Datasets](https://img.shields.io/badge/Datasets-FashionMNIST%20%7C%20CIFAR10%20%7C%20SVHN-blue?logo=databricks)
-![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CUDA%20%7C%20OpenMP-green?logo=pytorch)
+[![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CUDA%20%7C%20OpenMP-green?logo=pytorch)](#)
+[![Benchmarks](https://img.shields.io/badge/Benchmarks-PL%20Kernel%20%7C%20CPU%20vs%20GPU-blue)](#)
+[![W&B](https://img.shields.io/badge/Weights_&_Biases-logging-orange?logo=weightsandbiases)](#-logging--artifacts)
 
-This project extends a **Quantum Machine Learning (QML) pipeline** with **hybrid parallelism** techniques using batching, multiprocessing and heterogeneous backends.  
-It was developed as part of the **Parallel Programming** course at the *University of Florence*, and builds on models from a prior QML project.
+Hybrid **quantum–classical** pipeline with a focus on **parallel** and **heterogeneous** computation of **quantum kernel matrices**.  
+Project developed in the *Parallel Programming* course (University of Florence).
 
----
-
-## 📑 Table of Contents
-- [🧠 Project Overview](#-project-overview)
-- [⚙️ Environment & Setup](#️-environment--setup)
-- [🚀 How to Run](#-how-to-run)
-- [🔁 Reproducibility](#-reproducibility)
-- [📊 Benchmark Results](#-benchmark-results)
-- [📈 Logging & Monitoring](#-logging--monitoring)
-- [📊 Visual Results](#-visual-results)
-- [🗺️ Pipeline Overview](#️-pipeline-overview)
-- [👤 Author](#-author)
-- [📌 References](#-references)
----
-
-## 🧠 Project Overview
-
-We explore multiple hybrid models combining classical deep learning with quantum circuits:
-
-- `train_hybrid_qcnn_quantumkernel.py`: Hybrid QCNN + Quantum Kernel SVM (sequential kernel computation).
-- `train_hybrid_qcnn_quantumkernel_patched.py`: Hybrid QCNN + Quantum Kernel SVM **with selectable HPC backends**.
-- `pipeline_backends.py`: Unified API for kernel matrix computation with multiple backends.
-
-The **quantum kernel computation** is the most expensive operation. We introduce **parallel and HPC computation** of the kernel matrix with:
-
-- `cpu` (NumPy tiling)  
-- `numba` (JIT, parallel loops)  
-- `torchcuda` (cuBLAS via PyTorch on GPU)  
-- `pycuda` (CuPy/cuBLAS, or custom CUDA kernels)  
-- `openmp` (compiled C++/pybind11 extension)  
+> Core idea: the **Gram matrix** \(K\) (state fidelity kernel) dominates training time. We accelerate it with tiling, multiprocessing and GPU backends (NumPy, CuPy, Torch/CUDA).
 
 ---
 
-## ⚙️ Environment & Setup
+## Table of Contents
+- [Overview](#overview)
+- [What’s new](#whats-new)
+- [Repo layout](#repo-layout)
+- [Setup](#setup)
+- [Quick start](#quick-start)
+- [Backends & knobs](#backends--knobs)
+- [Benchmarks (snapshot)](#benchmarks-snapshot)
+- [Datasets → angles](#datasets--angles)
+- [Logging & artifacts](#-logging--artifacts)
+- [Troubleshooting](#troubleshooting)
+- [License & citation](#license--citation)
 
-### Hardware
+---
 
-- **Machine**: University server  
-- **GPUs**: 2× NVIDIA RTX A2000 (12 GB each)  
-- **CPU**: Intel Xeon Silver 4314 (32 threads)  
-- **RAM**: 64 GB  
+## Overview
 
-### Software
+We provide two training scripts and a unified kernel backend:
 
-- **OS**: Ubuntu 24.04 LTS  
-- **Python**: 3.11 (Conda)  
-- **CUDA**: 12.x  
-- **Frameworks**:
-  - PyTorch 2.x
-  - PennyLane 0.36+
-  - scikit-learn, tqdm, wandb
-  - Numba, CuPy, PyCUDA
-  - pybind11 (for OpenMP extension)
+- `scripts/train_hybrid_qcnn_quantumkernel.py` — Hybrid **QCNN + SVM** (sequential kernel).
+- `scripts/train_hybrid_qcnn_quantumkernel_patched.py` — same model, **pluggable HPC backends**.
+- `scripts/pipeline_backends.py` — unified API to compute \(K\) with:
+  - **PennyLane / lightning.qubit** (CPU) and **lightning.gpu** (GPU) devices
+  - **Host matmul**: NumPy (CPU), **CuPy** (GPU), **Torch/CUDA** (GPU, *streaming path: states+GEMM entirely on GPU*)
+  - **Multiprocessing** (spawn-safe) and **tiling** to bound memory
 
-### 1. Environment Setup
+A dedicated tool, `tools/benchmark_pl_kernel.py`, sweeps configurations and reports **throughput** (Mpairs/s).
+
+---
+
+## What’s new
+
+- **Torch “streaming” GPU path**: state preparation **and** GEMM on GPU (zero host copies), triggered with `--gram-backend torch` and `--device lightning.gpu`.
+- **Typed dtypes** end-to-end: `--dtype {float32,float64}` for compute & `--return-dtype` for \(K\).
+- **Robust multiprocessing** (spawn) with explicit thread caps (`OMP_NUM_THREADS=1`).
+- **Dataset-friendly bench**:
+  - `--data-x/--data-y` load `.npy/.npz/.csv`  
+  - encode features → angles with `--encoder {minmax,zscore,identity}`, pad/truncate to `nq`
+  - symmetric \(K(X,X)\) or cross \(K(X,Y)\)
+
+---
+
+## Repo layout
+
+```
+scripts/
+  ├─ train_hybrid_qcnn_quantumkernel.py
+  ├─ train_hybrid_qcnn_quantumkernel_patched.py
+  └─ pipeline_backends.py        # unified kernel API (NumPy/CuPy/Torch, MP-safe)
+tools/
+  ├─ benchmark_pl_kernel.py      # grid search for kernel throughput
+  └─ run_experiments_all.sh
+configs/
+  └─ config_train_hybrid_qcnn_quantumkernel_*.yaml
+results/                          # plots (optional)
+```
+
+---
+
+## Setup
+
+### Environment
+
+- **OS**: Linux (tested on Ubuntu 24.04)
+- **Python**: 3.11
+- **CUDA**: 12.x recommended (for GPU paths)
 
 ```bash
-# Clone repo
+# Clone
 git clone https://github.com/DylanUnifi/qml-parallel-project.git
 cd qml-parallel-project
 
-# Create environment
+# Conda env
 conda create -n ProjectWork-ParallelProgramming python=3.11 -y
 conda activate ProjectWork-ParallelProgramming
 
-# Install dependencies
+# Base deps
 pip install -r requirements.txt
-pip install numba cupy-cuda12x pycuda pybind11
+
+# Optional: GPU backends (choose what you need)
+# CuPy (CUDA 12.x wheel)
+pip install "cupy-cuda12x"
+# Torch + CUDA (conda, recommended)
+conda install -c pytorch -c nvidia pytorch pytorch-cuda=12.1 -y
+# Excel export (if you write .xlsx)
+pip install openpyxl
 ```
 
-### 2. Compile OpenMP Extension
+> If you prefer conda-forge for CuPy/toolkit:  
+> `mamba install -c conda-forge cuda-toolkit=12.1 cupy`
+
+### (Optional) OpenMP C++ extension
+If you also use the C++ OpenMP path in your own models:
 
 ```bash
 cd models/backends
 python setup.py build_ext --inplace
 ```
 
-This generates `gram_omp.*.so` which enables the `openmp` backend.
-
 ---
 
-## 🚀 How to Run
+## Quick start
 
-### Hybrid QCNN + Quantum Kernel (sequential)
-
+### Train (sequential kernel)
 ```bash
-python scripts/train_hybrid_qcnn_quantumkernel.py configs/config_train_hybrid_qcnn_quantumkernel.yaml
+python scripts/train_hybrid_qcnn_quantumkernel.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml
 ```
 
-### Hybrid QCNN + Quantum Kernel (HPC backends)
+### Train (HPC backends)
 
+**CPU (NumPy tiling):**
 ```bash
-# CPU tiling
-python scripts/train_hybrid_qcnn_quantumkernel_patched.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml   --backend cpu --tile-size 128
-
-# Numba JIT
-python scripts/train_hybrid_qcnn_quantumkernel_patched.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml   --backend numba
-
-# Torch CUDA (GPU cuBLAS)
-python scripts/train_hybrid_qcnn_quantumkernel_patched.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml   --backend torchcuda --tile-size 256
-
-# PyCUDA (CuPy/cuBLAS)
-python scripts/train_hybrid_qcnn_quantumkernel_patched.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml   --backend pycuda
-
-# OpenMP (requires compilation)
-python scripts/train_hybrid_qcnn_quantumkernel_patched.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml   --backend openmp
+python scripts/train_hybrid_qcnn_quantumkernel_patched.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml   --backend cpu --tile-size 256
 ```
 
-### Full Multi-Dataset Experiment Pipeline
-
+**GPU (Torch streaming, no host copies):**
 ```bash
-bash scripts/run_experiments_all.sh
+python scripts/train_hybrid_qcnn_quantumkernel_patched.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml   --backend torchcuda --tile-size 2048
+```
+
+**GPU (CuPy/cuBLAS matmul):**
+```bash
+python scripts/train_hybrid_qcnn_quantumkernel_patched.py   --config configs/config_train_hybrid_qcnn_quantumkernel_fashion.yaml   --backend pycuda --tile-size 1024
+```
+
+### Stand-alone kernel benchmarks
+
+**CPU vs GPU, grid sweep**
+```bash
+python tools/benchmark_pl_kernel.py   --samples 1024   --qubits 6 10 12   --tile-size 64 128 256   --workers 1 8 12 16 24 32   --device lightning.qubit lightning.gpu   --symmetric   --layers 2   --dtype float32 --return-dtype float64   --gram-backend auto --repeats 5
+```
+
+**Dataset-driven bench**
+```bash
+python tools/benchmark_pl_kernel.py   --data-x data/features_train.npy   --encoder minmax --enc-alpha 1.0   --qubits 12   --tile-size 512   --workers 8   --device lightning.qubit   --symmetric   --layers 4   --dtype float32 --return-dtype float32   --gram-backend numpy --repeats 3
 ```
 
 ---
 
-## 🔁 Reproducibility
+## Backends & knobs
 
-To ensure consistent results:
-
-```python
-import torch, numpy as np, random
-seed = 42
-torch.manual_seed(seed)
-np.random.seed(seed)
-random.seed(seed)
-
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-```
-
-- Separate W&B runs for sequential and parallel experiments.  
-- Checkpoints and logs are stored under `engine/checkpoints/hybrid_qcnn/{experiment_name}/`.
-
----
-
-## 📊 Benchmark Results
-
-### Comparative Metrics
-
-| Dataset       | Mode       | F1 Score | AUC  | Balanced Acc | Training Time (s) | Speedup vs Seq |
-|---------------|------------|----------|------|--------------|-------------------|----------------|
-| Fashion-MNIST | Sequential | 0.79 | 0.84 | 0.80 | 520 | 1.0x |
-| Fashion-MNIST | Parallel   | 0.79 | 0.84 | 0.80 | 160 | **3.25x** |
-| CIFAR-10      | Sequential | 0.62 | 0.70 | 0.64 | 940 | 1.0x |
-| CIFAR-10      | Parallel   | 0.62 | 0.70 | 0.64 | 310 | **3.03x** |
-| SVHN          | Sequential | 0.68 | 0.75 | 0.69 | 780 | 1.0x |
-| SVHN          | Parallel   | 0.68 | 0.75 | 0.69 | 250 | **3.12x** |
-
-### Backend Comparison (Fashion-MNIST example)
-
-| Backend   | F1 Score | AUC  | Balanced Acc | Training Time (s) | Speedup vs Seq |
-|-----------|----------|------|--------------|-------------------|----------------|
-| cpu       | 0.79 | 0.84 | 0.80 | 160 | 3.2x |
-| numba     | 0.79 | 0.84 | 0.80 | 100 | 5.2x |
-| openmp    | 0.79 | 0.84 | 0.80 | 120 | 6.0x |
-| torchcuda | 0.79 | 0.84 | 0.80 | 60  | 8.6x |
-| pycuda    | 0.79 | 0.84 | 0.80 | 65  | 8.0x |
+- **Devices** (`--device`):
+  - `lightning.qubit` (CPU), `lightning.gpu` (GPU)
+- **Matmul backends** (`--gram-backend`):
+  - `numpy` (CPU)
+  - `cupy` (GPU cuBLAS; requires CuPy + CUDA headers)
+  - `torch` (GPU, **streaming**: states + GEMM on GPU)
+  - `auto` (choose best available)
+- **Parallelism / tiling**:
+  - `--workers` (processes; GPU forces 1)
+  - `--tile-size` (rows per block for states + GEMM)
+- **Precision**:
+  - `--dtype {float32,float64}` compute precision (and device `c_dtype`)
+  - `--return-dtype {float32,float64}` final \(K\) dtype
+- **Circuit**:
+  - `--layers` (BasicEntanglerLayers depth)
 
 ---
 
-## 📈 Logging & Monitoring
+## Benchmarks (snapshot)
 
-- **Weights & Biases (wandb)**:  
-  - Sequential and parallel runs logged under distinct projects.  
-  - Tracks accuracy, F1, runtime, speedup, and per-fold metrics.  
+**Host: “Papavero”** — Intel Xeon (32C/64T), CUDA 12.x GPU  
+*Measured Mpairs/s (higher = faster). Your numbers will vary slightly.*
 
----
+| Config (N, nq)             | Best CPU (NumPy)                    | Best GPU (Torch/CuPy)              |
+|----------------------------|-------------------------------------|------------------------------------|
+| **N=4096, nq=12**          | **~1.085 Mpairs/s** (`tile=512`, `workers=8`) | ~0.48 Mpairs/s (`tile=2048`)       |
+| **N=8192, nq=12**          | —                                   | **~0.94 Mpairs/s** (`tile=2048`)   |
 
-## 📊 Visual Results
-
-**Runtime Comparison (Fashion-MNIST)**  
-![Runtime Comparison](results/runtime_comparison_fashionmnist.png)
-
-**Speedup vs Sequential (Fashion-MNIST)**  
-![Speedup Plot](results/speedup_plot_fashionmnist.png)
-
----
-
-## 🗺️ Pipeline Overview
-
-```mermaid
-flowchart TD
-  subgraph IO [Data Ingestion]
-    A["Images (Fashion-MNIST / CIFAR-10 / SVHN)"]
-    B["Preprocessing (CPU/GPU)"]
-    A --> B
-  end
-  style IO fill:#f0f8ff,stroke:#4682b4,stroke-width:2px
-
-  subgraph FE [Embeddings]
-    C["Feature Extractor (CNN / Hybrid QCNN)"]
-    B --> C
-    D["Embeddings X (float32)"]
-    C --> D
-  end
-  style FE fill:#fff5ee,stroke:#ff7f50,stroke-width:2px
-
-  subgraph BK [Kernel Computation]
-    E["Tiling (block decomposition)"]
-    F{"Intra-tile Parallelism"}
-    D --> E --> F
-    F --> G["CPU / GPU Kernels (NumPy, Numba, OpenMP, cuBLAS, PyCUDA)"]
-  end
-  style BK fill:#fafad2,stroke:#daa520,stroke-width:2px
-
-  G --> H["Gram Matrix K"]
-
-  subgraph ML [Learning]
-    I["SVM / Baselines"]
-    H --> I
-  end
-  style ML fill:#f5f5f5,stroke:#696969,stroke-width:1.5px
-
-  J["Metrics & Logging (Acc / F1 / W&B)"]
-  I --> J
-  style J fill:#e6e6fa,stroke:#9370db,stroke-width:2px
-```
+**Key takeaways**
+- CPU excels on moderate \(N\) with **8–12 processes** and `tile≈512`.
+- GPU needs **large tiles** (`≥1024`) and benefits most at **large N**.
+- The **Torch streaming path** avoids CPU↔GPU ping-pong and is the recommended GPU mode.
 
 ---
 
-## 👤 Author
+## Datasets → angles
 
-**Dylan Fouepe**  
-Master's Degree in Artificial Intelligence – University of Florence  
-GitHub: [github.com/DylanUnifi](https://github.com/DylanUnifi)
+`benchmark_pl_kernel.py` can ingest features or angles:
+
+- `--data-x`, `--data-y`: `.npy/.npz/.csv/.tsv`
+- `--data-angles`: skip encoding (already angles \([-π, π]\))
+- `--encoder {minmax,zscore,identity}` + `--enc-alpha`
+- Auto **pad/truncate** to match `--qubits`.
+- If `--data-y` is provided, the run switches to **non symmetric** \(K(X,Y)\).
+
+---
+
+## 📦 Logging & artifacts
+
+- **Weights & Biases** (optional): metrics, confusion matrices, per-epoch timings.  
+  Set `WANDB_PROJECT` in your environment or config.
+- **Exports**: CSV and (optionally) Excel (`openpyxl`). If `openpyxl` is missing, we gracefully fall back to CSV (see training script note).
 
 ---
 
-## 📌 References
+## Troubleshooting
 
-- [PennyLane Documentation](https://docs.pennylane.ai/)  
-- [PyTorch Documentation](https://pytorch.org/docs/stable/index.html)  
-- [cuML (RAPIDS AI)](https://docs.rapids.ai/api/cuml/stable/)  
-- [Numba Documentation](https://numba.pydata.org/numba-doc/latest/user/index.html)  
-- [OpenMP Specification](https://www.openmp.org/specifications/)  
-- [PyCUDA Documentation](https://documen.tician.de/pycuda/)  
-
+- **`ModuleNotFoundError: openpyxl`**  
+  → `pip/conda install openpyxl`, or add a fallback to CSV in the writer section.
+- **CuPy error: `cuda_fp16.h` missing`**  
+  → Install **CUDA toolkit** headers (e.g. `mamba install -c conda-forge cuda-toolkit=12.1 cupy`) or switch to `--gram-backend torch`.
+- **GPU slower than CPU**  
+  - Increase `--tile-size` (e.g., 1024–3072 for 12–14 qubits).  
+  - Use `--gram-backend torch` (streaming).  
+  - Keep `--dtype float32` unless precision demands otherwise.
+- **High CPU contention**  
+  - Cap threads: `export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1`.  
+  - Try `--workers 8` on 32C/64T hosts.
 
 ---
+
+## License & citation
+
+- Code released for academic use within the Parallel Programming course.  
+- Please cite the repo and the upstream frameworks (PennyLane, PyTorch) if you build on it.
+
+---
+
+**Author**: Dylan Fouepe — Master’s in AI, University of Florence  
+GitHub: [@DylanUnifi](https://github.com/DylanUnifi)

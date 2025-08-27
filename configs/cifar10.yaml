@@ -1,0 +1,23 @@
+dataset:
+  name: cifar10
+  binary_classes: [3, 8]   # Cat vs Ship, for example.
+  grayscale: true          # Keep it simple for QCNN
+  augment: true            # slight boost (flip/rotation/crop)
+  root: ./data
+
+model:
+  n_qubits: 8
+  n_layers: 4   # more complex dataset → deeper circuit
+
+training:
+  batch_size: 64
+  kfold: 3
+
+pennylane:
+  device: lightning.gpu
+  workers: 1
+  tile_size: 256
+  kernel_centering: true
+
+svm:
+  n_trials: 40

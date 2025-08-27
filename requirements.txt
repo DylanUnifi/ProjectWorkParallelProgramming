@@ -1,0 +1,14 @@
+numpy==2.3.2
+
+torch~=2.7.1
+matplotlib~=3.10.0
+scikit-learn~=1.6.1
+pennylane~=0.42.3
+joblib~=1.4.2
+wandb~=0.21.0
+tqdm~=4.67.1
+yaml~=0.2.5
+pyyaml~=6.0.2
+optuna~=4.4.0
+pandas~=2.2.3
+torchvision~=0.20.1

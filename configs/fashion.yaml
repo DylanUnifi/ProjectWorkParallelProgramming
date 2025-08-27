@@ -1,0 +1,23 @@
+dataset:
+  name: fashion_mnist
+  binary_classes: [3, 8]   # Pull vs Bag
+  grayscale: true
+  augment: false
+  root: ./data
+
+model:
+  n_qubits: 4
+  n_layers: 2   # short route → good starting point
+
+training:
+  batch_size: 64
+  kfold: 3
+
+pennylane:
+  device: lightning.qubit
+  workers: 4
+  tile_size: 128
+  kernel_centering: true
+
+svm:
+  n_trials: 20

@@ -1,0 +1,23 @@
+dataset:
+  name: svhn
+  binary_classes: [3, 8]   # 3 vs 8
+  grayscale: true          # reduces difficulty
+  augment: false
+  root: ./data
+
+model:
+  n_qubits: 6
+  n_layers: 3
+
+training:
+  batch_size: 64
+  kfold: 3
+
+pennylane:
+  device: lightning.gpu     # if PennyLane GPU available
+  workers: 1
+  tile_size: 256
+  kernel_centering: true
+
+svm:
+  n_trials: 30

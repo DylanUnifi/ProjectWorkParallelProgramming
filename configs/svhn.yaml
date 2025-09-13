@@ -1,3 +1,5 @@
+experiment_name: "hybrid_qcnn_svm_svhn_exp"
+
 dataset:
   name: svhn
   binary_classes: [3, 8]   # 3 vs 8
@@ -10,14 +12,24 @@ model:
   n_layers: 3
 
 training:
-  batch_size: 64
+  batch_size: 32
+  epochs: 60
+  learning_rate: 0.0005
   kfold: 3
+  early_stopping: 15
+  scheduler: "StepLR"
+  scheduler_params:
+    step_size: 10
+    gamma: 0.5
 
 pennylane:
-  device: lightning.gpu     # if PennyLane GPU available
+  device: lightning.gpu     # utilise le GPU si dispo
   workers: 1
   tile_size: 256
   kernel_centering: true
+  gram_backend: auto        # auto|torch|cuda_ry|numpy|cupy
 
 svm:
-  n_trials: 30
+  n_trials: 30              # nombre d’essais Optuna pour trouver C/gamma
+  default_C: 1.0
+  default_gamma: "scale"

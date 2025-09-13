@@ -1,23 +1,35 @@
+experiment_name: "hybrid_qcnn_svm_cifar10_exp"
+
 dataset:
   name: cifar10
-  binary_classes: [3, 8]   # Cat vs Ship, for example.
-  grayscale: true          # Keep it simple for QCNN
-  augment: true            # slight boost (flip/rotation/crop)
+  binary_classes: [3, 8]     # Cat vs Ship (exemple)
+  grayscale: true            # simplifie l'entrée pour QCNN
+  augment: true              # flip/rotation/crop légers
   root: ./data
 
 model:
   n_qubits: 8
-  n_layers: 4   # more complex dataset → deeper circuit
+  n_layers: 4                # dataset plus dur → circuit plus profond
 
 training:
-  batch_size: 64
+  batch_size: 32
+  epochs: 100
+  learning_rate: 0.0005
   kfold: 3
+  early_stopping: 15
+  scheduler: "StepLR"        # null | StepLR | MultiStepLR | CosineAnnealingLR
+  scheduler_params:
+    step_size: 10
+    gamma: 0.5
 
 pennylane:
-  device: lightning.gpu
-  workers: 1
+  device: lightning.gpu      # GPU si dispo (sinon lightning.qubit)
+  workers: 1                 # éviter le sur-parallélisme sur GPU
   tile_size: 256
   kernel_centering: true
+  gram_backend: auto         # auto|torch|cuda_ry|numpy|cupy
 
 svm:
-  n_trials: 40
+  n_trials: 40               # Optuna (mettre 0 pour désactiver)
+  default_C: 1.0             # utilisés si n_trials=0
+  default_gamma: "scale"

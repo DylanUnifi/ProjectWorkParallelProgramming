@@ -1,0 +1,35 @@
+experiment_name: "hybrid_qcnn_svm_svhn_debug"
+
+dataset:
+  name: svhn
+  binary_classes: [3, 8]
+  grayscale: true
+  augment: false
+  root: ./data
+
+model:
+  n_qubits: 6
+  n_layers: 3
+
+training:
+  batch_size: 64
+  epochs: 8
+  learning_rate: 0.0005
+  kfold: 2
+  early_stopping: 6
+  scheduler: "StepLR"
+  scheduler_params:
+    step_size: 4
+    gamma: 0.5
+
+pennylane:
+  device: lightning.gpu       # si dispo, sinon passe à lightning.qubit
+  workers: 1
+  tile_size: 128
+  kernel_centering: true
+  gram_backend: auto
+
+svm:
+  n_trials: 5
+  default_C: 1.0
+  default_gamma: "scale"

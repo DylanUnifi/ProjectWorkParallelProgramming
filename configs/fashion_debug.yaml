@@ -1,0 +1,35 @@
+experiment_name: "hybrid_qcnn_svm_fashion_debug"
+
+dataset:
+  name: fashion_mnist
+  binary_classes: [3, 8]   # Pull vs Bag
+  grayscale: true
+  augment: false
+  root: ./data
+
+model:
+  n_qubits: 4
+  n_layers: 2
+
+training:
+  batch_size: 64
+  epochs: 5
+  learning_rate: 0.0005
+  kfold: 2
+  early_stopping: 5
+  scheduler: "StepLR"
+  scheduler_params:
+    step_size: 3
+    gamma: 0.5
+
+pennylane:
+  device: lightning.qubit     # CPU pour la stabilité en debug
+  workers: 2
+  tile_size: 64
+  kernel_centering: true
+  gram_backend: auto
+
+svm:
+  n_trials: 5                 # Optuna léger (mettre 0 pour désactiver)
+  default_C: 1.0
+  default_gamma: "scale"

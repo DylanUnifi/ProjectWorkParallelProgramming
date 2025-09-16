@@ -33,12 +33,13 @@ def create_qnode(n_qubits, n_layers, device_name="lightning.qubit"):
     dev = qml.device(device_name, wires=n_qubits, shots=None)
     @qml.qnode(dev, interface="torch", diff_method="adjoint")
     def qnode(inputs, weights):
-        if not isinstance(weights, dict) or "weights" not in weights:
-            raise ValueError("Weights must be dict with key 'weights'")
-        w = weights["weights"]
-        if w.ndim != 2:
-            raise ValueError(f"Weights tensor must be 2D, got shape {w.shape}")
-        inputs = inputs.flatten()
+        w = weights["weights"] if isinstance(weights, dict) else weights
+        if qml.math.ndim(w) != 2:
+            raise ValueError(f"Weights tensor must be 2D, got shape {qml.math.shape(w)}")
+        inputs = qml.math.asarray(inputs)
+        inputs = qml.math.ravel(inputs)
+        if qml.math.shape(inputs)[0] < n_qubits:
+            raise ValueError(f"inputs has length {qml.math.shape(inputs)[0]} < n_qubits={n_qubits}")
         for i in range(n_qubits):
             qml.RY(inputs[i], wires=i)
             qml.RZ(inputs[i], wires=i)
@@ -124,23 +125,31 @@ class HybridQCNNBase(nn.Module):
     # ---------------------------------------------
 
     def forward_quantum(self, x, pool=None):
+        # MLP -> angles
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
         x = self.dropout(x)
-        x = torch.tanh(self.quantum_fc_input(x)) * np.pi
-        weights_tensor = next(self.quantum_layer.parameters()).detach().to(x.device)
-        weights_dict = {"weights": weights_tensor}
-        samples_np = x.detach().cpu().numpy()
-        args_list = [(sample, weights_dict) for sample in samples_np]
-        if self.parallel and pool is not None:
-            results = pool.map(self.worker, args_list)
+        angles = torch.tanh(self.quantum_fc_input(x)) * np.pi  # [B, n_qubits]
+
+        if getattr(self, "use_torchlayer", True):
+            # ✅ chemin différentiable: TorchLayer (train/pre-train)
+            z = self.quantum_layer(angles)  # [B, n_qubits], expval Z_i
         else:
-            results = [self.worker(args) for args in args_list]
-        outputs = [torch.tensor(r, device=x.device) for r in results]
-        x = torch.stack(outputs, dim=0)
-        x = self.bn_q(x)
-        return x
+            # ⚠️ chemin non différentiable (inférence rapide éventuelle)
+            weights_tensor = next(self.quantum_layer.parameters())
+            weights_dict = {"weights": weights_tensor}
+            samples_np = angles.detach().cpu().numpy()
+            args_list = [(sample, weights_dict) for sample in samples_np]
+            if self.parallel and pool is not None:
+                results = pool.map(self.worker, args_list)
+            else:
+                results = [self.worker(args) for args in args_list]
+            z = torch.stack([torch.tensor(r, device=angles.device, dtype=angles.dtype) for r in results], dim=0)
+
+        z = self.bn_q(z)
+        return z
+
 
 class HybridQCNNFeatures(HybridQCNNBase):
     def forward(self, x, pool=None):

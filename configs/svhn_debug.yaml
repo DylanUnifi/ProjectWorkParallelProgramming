@@ -1,4 +1,4 @@
-experiment_name: "hybrid_qcnn_svm_svhn_debug"
+experiment_name: "hybrid_qcnn_kernel_svhn_debug"
 
 dataset:
   name: svhn

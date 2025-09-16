@@ -1,0 +1,26 @@
+experiment_name: "fashionmnist_hybrid_qcnn_svm_tiny_debug"
+
+dataset:
+  name: fashion_mnist
+  binary_classes: [3, 8]   # Pull vs Bag
+  grayscale: true
+  augment: false
+  root: ./data
+
+training:
+  batch_size: 32
+  epochs: 5
+  learning_rate: 1.0e-3
+  kfold: 2
+  early_stopping: 3
+
+scheduler: null
+
+pennylane:
+  device: "lightning.qubit"
+  workers: 0
+  tile_size: 32
+  kernel_centering: true
+
+svm:
+  n_trials: 10

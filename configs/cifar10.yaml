@@ -1,4 +1,4 @@
-experiment_name: "hybrid_qcnn_svm_cifar10_exp"
+experiment_name: "hybrid_qcnn_kernel_cifar10_exp"
 
 dataset:
   name: cifar10

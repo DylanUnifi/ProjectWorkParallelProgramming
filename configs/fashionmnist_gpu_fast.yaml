@@ -1,0 +1,28 @@
+experiment_name: "fashionmnist_hybrid_qcnn_svm_gpu_fast"
+binary_classes: [3, 8]
+
+dataset:
+  name: fashion_mnist
+  binary_classes: [3, 8]
+  grayscale: true
+  augment: false
+  root: ./data
+
+training:
+  batch_size: 256
+  epochs: 60
+  learning_rate: 1.0e-3
+  kfold: 3
+  early_stopping: 10
+
+scheduler: null
+
+svm:
+  n_trials: 40
+
+pennylane:
+  device: "lightning.gpu"
+  workers: 0
+  tile_size: 128
+  kernel_centering: true
+  gram_backend: auto

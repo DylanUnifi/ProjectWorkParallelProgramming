@@ -61,10 +61,10 @@ tools/
   ├─ benchmark_pl_kernel.py             # grid search for kernel throughput
   └─ run_experiments_all.sh
 configs/
-  ├─ config_fashion_debug.yaml
-  ├─ config_svhn_debug.yaml
-  ├─ config_cifar10_debug.yaml
-  └─ config_train_hybrid_qcnn_kernel_*.yaml
+  ├─ fashion_debug.yaml
+  ├─ svhn_debug.yaml
+  ├─ cifar10_debug.yaml
+  └─ fashion/svhn/cifar10*.yaml
 results/                                # plots (optional)
 ```
 
@@ -100,23 +100,42 @@ pip install openpyxl                      # Excel export
 
 ## Quick start
 
+---
+
+## Configs (datasets & debug)
+
+- `fashion.yaml` — full run, Fashion-MNIST  
+- `svhn.yaml` — full run, SVHN  
+- `cifar10.yaml` — full run, CIFAR-10  
+
+Debug versions (fast sanity checks):
+- `fashion_debug.yaml` (5 epochs, batch 64)  
+- `svhn_debug.yaml` (8 epochs, batch 64)  
+- `cifar10_debug.yaml` (10 epochs, batch 64)  
+
+---
+
 ### Train (RBF kernel)
 ```bash
 python scripts/train_hybrid_qcnn_svm_unified.py \
-  --config configs/config_train_hybrid_qcnn_kernel_fashion.yaml --kernel rbf
+  --config configs/config_train_hybrid_qcnn_kernel_fashion.yaml
+  --kernel rbf
 ```
 
 ### Train (Quantum kernel)
 ```bash
 python scripts/train_hybrid_qcnn_svm_unified.py \
   --config configs/config_train_hybrid_qcnn_kernel_fashion.yaml \
-  --kernel qkernel --pl-device lightning.gpu --kernel-centering --gram-backend auto
+  --kernel qkernel
+  --pl-device lightning.gpu
+  --kernel-centering
+  --gram-backend auto
 ```
 
 ### Debug mode (fast checks)
 ```bash
 python scripts/train_hybrid_qcnn_svm_unified.py \
-  --config configs/config_fashion_debug.yaml --kernel qkernel
+  --config configs/fashion_debug.yaml --kernel qkernel
 ```
 
 ---
@@ -126,7 +145,7 @@ python scripts/train_hybrid_qcnn_svm_unified.py \
 - **Devices** (`--pl-device`):  
   - `lightning.qubit` (CPU), `lightning.gpu` (GPU)
 - **Matmul backends** (`--gram-backend`):  
-  - `numpy`, `cupy`, `torch`, `auto`, `cuda_ry`
+  - `numpy`, `torch`, `auto`, `cuda_ry`
 - **Parallelism**:  
   - `--workers` (processes; GPU forces 1)
   - `--tile-size` (rows per block for states + GEMM)
@@ -136,29 +155,6 @@ python scripts/train_hybrid_qcnn_svm_unified.py \
 
 ---
 
-## Benchmarks (snapshot)
-
-**Host: “Papavero”** — Intel Xeon (32C/64T), CUDA 12.x GPU  
-
-| Config (N, nq)             | CPU (NumPy)             | GPU (Torch/CuPy)         |
-|-----------------------------|-------------------------|--------------------------|
-| **N=4096, nq=12**           | ~1.08 Mpairs/s          | ~0.48 Mpairs/s           |
-| **N=8192, nq=12**           | —                       | ~0.94 Mpairs/s           |
-
----
-
-## Configs (datasets & debug)
-
-- `config_train_hybrid_qcnn_kernel_fashion.yaml` — full run, Fashion-MNIST  
-- `config_train_hybrid_qcnn_kernel_svhn.yaml` — full run, SVHN  
-- `config_train_hybrid_qcnn_kernel_cifar10.yaml` — full run, CIFAR-10  
-
-Debug versions (fast sanity checks):
-- `config_fashion_debug.yaml` (5 epochs, batch 64)  
-- `config_svhn_debug.yaml` (8 epochs, batch 64)  
-- `config_cifar10_debug.yaml` (10 epochs, batch 64)  
-
----
 
 ## 🧪 Experiments Roadmap
 
@@ -167,9 +163,7 @@ Debug versions (fast sanity checks):
 - Run `tools/benchmark_pl_kernel.py` to compare:
   - **CPU (NumPy + multiprocessing)** vs **GPU (Torch streaming, CuPy)**.  
   - Vary `tile_size`, `workers`, precision (`float32` vs `float64`).  
-- Collect **Mpairs/s throughput** and identify optimal settings per device.  
-- Decide: which backend + tiling strategy to use for full training.
-
+- Collect **Mpairs/s throughput** and identify optimal settings per device. 
 ---
 
 ### Phase 2 — Sanity checks (debug datasets)
@@ -177,7 +171,7 @@ Debug versions (fast sanity checks):
 - **SVHN (3 vs 8)** → natural images, slightly harder.  
 - **CIFAR-10 (3 vs 8)** → stress test with augmentations.  
 
-👉 Configs: `config_fashion_debug.yaml`, `config_svhn_debug.yaml`, `config_cifar10_debug.yaml`.
+👉 Configs: `fashion_debug.yaml`, `svhn_debug.yaml`, `cifar10_debug.yaml`.
 
 ---
 
@@ -190,7 +184,7 @@ Debug versions (fast sanity checks):
 - **CIFAR-10 (Cat vs Ship)**  
   - Full-size QCNN (8 qubits, 4 layers).  
 
-👉 Configs: `config_train_hybrid_qcnn_kernel_fashion.yaml`, `config_train_hybrid_qcnn_kernel_svhn.yaml`, `config_train_hybrid_qcnn_kernel_cifar10.yaml`.
+👉 Configs: `fashion.yaml`, `svhn.yaml`, `cifar10.yaml`.
 
 ---
 
@@ -208,6 +202,16 @@ Debug versions (fast sanity checks):
 - **Exports**: CSV and Excel (`openpyxl`).
 
 ---
+
+## Benchmarks and Results
+
+**Host: “Papavero”** — Intel Xeon (32C/64T), CUDA 12.x GPU  
+
+| Config (N, nq)             | CPU (NumPy)             | GPU (Torch/CuPy)         |
+|-----------------------------|-------------------------|--------------------------|
+| **N=4096, nq=12**           | ~1.08 Mpairs/s          | ~0.48 Mpairs/s           |
+| **N=8192, nq=12**           | —                       | ~0.94 Mpairs/s           |
+
 
 ## Troubleshooting
 

@@ -65,7 +65,7 @@ configs/
   ├─ svhn_debug.yaml
   ├─ cifar10_debug.yaml
   └─ fashion/svhn/cifar10*.yaml
-results/                                # plots (optional)
+results/                                # plots
 ```
 
 ---

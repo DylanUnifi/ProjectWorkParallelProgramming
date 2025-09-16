@@ -1,35 +1,26 @@
-experiment_name: "hybrid_qcnn_kernel_cifar10_debug"
+experiment_name: "cifar10_hybrid_qcnn_svm_tiny_debug"
+binary_classes: [3, 5]
 
 dataset:
-  name: cifar10
-  binary_classes: [3, 8]      # Cat vs Ship (exemple)
-  grayscale: true
-  augment: true               # léger boost même en debug
-  root: ./data
-
-model:
-  n_qubits: 8
-  n_layers: 4
+  name: "cifar10"
+  binary_classes: [3, 5]
+  grayscale: false
+  root: "./data"
 
 training:
-  batch_size: 64
-  epochs: 10
-  learning_rate: 0.0005
+  batch_size: 32
+  epochs: 5
+  learning_rate: 1.0e-3
   kfold: 2
-  early_stopping: 6
-  scheduler: "StepLR"
-  scheduler_params:
-    step_size: 5
-    gamma: 0.5
+  early_stopping: 3
 
-pennylane:
-  device: lightning.gpu
-  workers: 1
-  tile_size: 128
-  kernel_centering: true
-  gram_backend: auto
+scheduler: null
 
 svm:
-  n_trials: 5
-  default_C: 1.0
-  default_gamma: "scale"
+  n_trials: 10
+
+pennylane:
+  device: "lightning.qubit"
+  workers: 0
+  tile_size: 32
+  kernel_centering: true

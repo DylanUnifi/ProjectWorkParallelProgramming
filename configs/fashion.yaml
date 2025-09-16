@@ -1,0 +1,26 @@
+experiment_name: "fashionmnist_hybrid_qcnn_svm_large_quality"
+binary_classes: [3, 8]
+
+dataset:
+  name: "fashion_mnist"
+  binary_classes: [3, 8]
+  grayscale: true
+  root: "./data"
+
+training:
+  batch_size: 256
+  epochs: 120
+  learning_rate: 8.0e-4
+  kfold: 5
+  early_stopping: 15
+
+scheduler: null
+
+svm:
+  n_trials: 60
+
+pennylane:
+  device: "lightning.gpu"
+  workers: 0
+  tile_size: 128
+  kernel_centering: true

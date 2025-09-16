@@ -118,14 +118,14 @@ Debug versions (fast sanity checks):
 ### Train (RBF kernel)
 ```bash
 python scripts/train_hybrid_qcnn_svm_unified.py \
-  --config configs/config_train_hybrid_qcnn_kernel_fashion.yaml
+  --config configs/fashion.yaml
   --kernel rbf
 ```
 
 ### Train (Quantum kernel)
 ```bash
 python scripts/train_hybrid_qcnn_svm_unified.py \
-  --config configs/config_train_hybrid_qcnn_kernel_fashion.yaml \
+  --config configs/fashion.yaml \
   --kernel qkernel
   --pl-device lightning.gpu
   --kernel-centering

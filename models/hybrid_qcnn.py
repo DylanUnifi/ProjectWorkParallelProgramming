@@ -91,7 +91,7 @@ class HybridQCNNBinaryClassifier(nn.Module):
         x = self.dropout(x)
         x = torch.tanh(self.quantum_fc_input(x)) * np.pi  # mapping [-π, π]
 
-        # Appel par échantillon (robuste, compatible anciens runs)
+        # Appel par échantillon (robuste)
         outputs = []
         for sample in x:
             q_out = self.quantum_layer(sample.unsqueeze(0))  # (1, n_qubits)
@@ -103,10 +103,10 @@ class HybridQCNNBinaryClassifier(nn.Module):
         return torch.sigmoid(x)
 
 # ------------------------------
-# 4) Extracteur de features pour ton pipeline QSVM
-#     - forward = renvoie les angles (B, n_qubits)
-#     - compute_angles = utilisé par ton script
-#     - get_entangler_weights = retourne (n_layers, n_qubits)
+# 4) Extracteur de features la pipeline QSVM
+#     - forward
+#     - compute_angles
+#     - get_entangler_weights
 # ------------------------------
 class HybridQCNNFeatures(nn.Module):
     def __init__(self, input_size, hidden_sizes=[32, 16, 8], n_qubits=4, n_layers=2, dropout=0.3):

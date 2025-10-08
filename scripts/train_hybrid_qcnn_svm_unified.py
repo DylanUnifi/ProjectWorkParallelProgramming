@@ -63,14 +63,15 @@ def _center_kernel_test(K_test, K_train_unc):
     mc = Ku.mean(axis=0, keepdims=True); mr = Ku.mean(axis=1, keepdims=True); ma = Ku.mean()
     return Kt - np.ones((Kt.shape[0],1)) @ mc - np.ones((Kt.shape[0],1)) @ mr.T + ma
 
-def find_best_thr_decision(scores, y_true, min_recall=0.10):
+def find_best_thr_decision(scores, y_true, min_recall=None):
     p, r, thr = precision_recall_curve(y_true, scores)
     thr_ext = np.r_[thr, thr[-1] if thr.size else 0.0]
     best_f1, best_thr = -1.0, 0.0
     for pi, ri, ti in zip(p, r, thr_ext):
-        if ri >= min_recall:
+        if (min_recall is None) or (ri >= min_recall):
             f1 = 0.0 if (pi + ri) == 0 else 2 * pi * ri / (pi + ri)
-            if f1 > best_f1: best_f1, best_thr = f1, float(ti)
+            if f1 > best_f1:
+                best_f1, best_thr = f1, float(ti)
     return best_thr
 
 def binarize_by_threshold(scores, thr):
@@ -82,7 +83,7 @@ def train_epoch(model, head, loader, opt, criterion):
     for X, y in tqdm(loader, desc="Pretrain (QCNN)", leave=False):
         X = X.view(X.size(0), -1).to(DEVICE); y = y.to(DEVICE).float()
         opt.zero_grad()
-        z = model(X)                 # ✅ chemin TorchLayer (diff) par défaut
+        z = model(X)                 # chemin TorchLayer (diff) par défaut
         logits = head(z).squeeze()
         loss = criterion(logits, y)
         loss.backward()
@@ -172,7 +173,7 @@ def run_train(args):
     sample_X, _ = train_dataset[0]
     input_size = sample_X.numel()
     feature_extractor = HybridQCNNFeatures(input_size=input_size).to(DEVICE)
-    feature_extractor.use_torchlayer = True  # ✅ on entraîne l’entangler
+    feature_extractor.use_torchlayer = True  # on entraîne l’entangler
 
     # petite tête MLP pour pré-train binaire
     with torch.no_grad():

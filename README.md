@@ -16,7 +16,7 @@ Project developed in the *Parallel Programming* course (University of Florence).
 - [Repo layout](#repo-layout)
 - [Setup](#setup)
 - [Backends & knobs](#backends--knobs)
-- [Snapschot](#Snapschot--Results)
+- [Throughputs Results](#Thoughputs--Results)
 - [Experiments Roadmap](#-experiments-roadmap)
 - [Logging & artifacts](#-logging--artifacts)
 - [Troubleshooting](#troubleshooting)
@@ -118,7 +118,7 @@ conda install -c pytorch -c nvidia pytorch pytorch-cuda=12.1 -y
 - Collect **Mpairs/s throughput** and identify optimal settings per device. 
 ---
 
-### Snapschot Results
+### Throughput Results
 
 **Host: “Papavero”** — Intel Xeon (32C/64T), CUDA 12.x GPU  
 

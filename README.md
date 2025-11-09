@@ -4,7 +4,7 @@
 [![Benchmarks](https://img.shields.io/badge/Benchmarks-PL%20Kernel%20%7C%20CPU%20vs%20GPU-blue)](#)
 [![W&B](https://img.shields.io/badge/Weights_&_Biases-logging-orange?logo=weightsandbiases)](#-logging--artifacts)
 
-SVM **quantum–classical** pipeline with a focus on **parallel** and **heterogeneous** computation of **quantum kernel matrices**.  
+SVM **quantum and classical training** for binary image classification with a focus on **parallel** and **heterogeneous** computation of **quantum kernel matrices**.  
 Project developed in the *Parallel Programming* course (University of Florence).
 
 > Core idea: the **Gram matrix** \(K\) (state fidelity kernel) dominates training time. We accelerate it with tiling, multiprocessing and GPU backends (NumPy, CuPy, Torch/CUDA).

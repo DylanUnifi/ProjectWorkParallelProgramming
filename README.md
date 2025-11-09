@@ -45,7 +45,7 @@ train_svm.py
 train_svm_qkernel.py.py
 quantumkernels/
   └─ compute_kernel.py               # unified kernel API (NumPy/CuPy/Torch)
-benchmark_pl_kernel.py             # grid search for kernel throughput
+benchmark_pl_kernel.py             # calculate kernel throughput
 run_experiments_all.sh
 configs/
   ├─ fashion_debug.yaml

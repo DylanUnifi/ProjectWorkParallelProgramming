@@ -13,12 +13,10 @@ Project developed in the *Parallel Programming* course (University of Florence).
 
 ## Table of Contents
 - [Overview](#overview)
-- [What’s new](#whats-new)
 - [Repo layout](#repo-layout)
 - [Setup](#setup)
 - [Backends & knobs](#backends--knobs)
-- [Benchmarks (snapshot)](#benchmarks-snapshot)
-- [Configs (datasets & debug)](#configs-datasets--debug)
+- [Snapschot](#Snapschot Results)
 - [Experiments Roadmap](#-experiments-roadmap)
 - [Logging & artifacts](#-logging--artifacts)
 - [Troubleshooting](#troubleshooting)

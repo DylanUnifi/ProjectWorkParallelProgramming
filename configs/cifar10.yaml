@@ -1,4 +1,4 @@
-experiment_name: "hybrid_qcnn_kernel_cifar10_exp"
+experiment_name: "svm_qkernel_cifar10_exp"
 
 dataset:
   name: cifar10
@@ -7,35 +7,12 @@ dataset:
   augment: true              # flip/rotation/crop légers
   root: ./data
 
-model:
-  n_qubits: 8
-  n_layers: 4                # dataset plus dur → circuit plus profond
-
-training:
-  batch_size: 128
-  pretrain_epochs: 40
-  epochs: 100
-  learning_rate: 0.0005
-  kfold: 3
-  early_stopping: 15
-  scheduler: "StepLR"        # null | StepLR | MultiStepLR | CosineAnnealingLR
-  scheduler_params:
-    step_size: 10
-    gamma: 0.5
-
-pretrain:
-  head_hidden: 256
-  dropout: 0.2
-  weight_decay: 1.0e-4
-  warmup_epochs: 3
-  val_split: 0.2
-
 pennylane:
   device: lightning.gpu      # GPU si dispo (sinon lightning.qubit)
   workers: 1                 # éviter le sur-parallélisme sur GPU
   tile_size: 256
   kernel_centering: true
-  gram_backend: auto         # auto|torch|cuda_ry|numpy|cupy
+  gram_backend: cuda_ry         # auto|torch|cuda_ry|numpy|cupy
 
 svm:
   n_trials: 40               # Optuna (mettre 0 pour désactiver)

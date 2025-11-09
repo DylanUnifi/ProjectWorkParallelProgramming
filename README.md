@@ -16,7 +16,7 @@ Project developed in the *Parallel Programming* course (University of Florence).
 - [Repo layout](#repo-layout)
 - [Setup](#setup)
 - [Backends & knobs](#backends--knobs)
-- [Snapschot](#Snapschot Results)
+- [Snapschot](#Snapschot--Results)
 - [Experiments Roadmap](#-experiments-roadmap)
 - [Logging & artifacts](#-logging--artifacts)
 - [Troubleshooting](#troubleshooting)

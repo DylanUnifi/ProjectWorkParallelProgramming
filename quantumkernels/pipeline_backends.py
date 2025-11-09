@@ -1,12 +1,9 @@
 # pipeline_backends.py — PennyLane kernels with RBF-like controls (angle_scale, re-embed, normalize)
-from typing import Optional, Any, Tuple, Callable
+from typing import Optional, Any, Callable
 import os
 import numpy as np
 
-try:
-    from tqdm import tqdm  # type: ignore
-except Exception:  # pragma: no cover
-    tqdm = None
+from tqdm import tqdm
 
 
 # =====================================================================
@@ -75,7 +72,7 @@ def _pl_worker_init(w_local: np.ndarray, device_name: str, nq: int,
     """Initializer called once per worker process."""
     global _pl_w, _pl_nq, _pl_device, _pl_qnode, _pl_float_dtype, _pl_complex_dtype
     global _pl_angle_scale, _pl_re_embed, _pl_embed_mode
-    _pl_w = _ensure_numpy(w_local, np.float32 if float_dtype_str == "float32" else np.float64)
+    _pl_w = _ensure_numpy(w_local, np.dtype(np.float32) if float_dtype_str == "float32" else np.dtype(np.float64))
     _pl_nq = int(nq)
     _pl_device = str(device_name)
     _pl_qnode = None

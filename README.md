@@ -114,19 +114,26 @@ conda install -c pytorch -c nvidia pytorch pytorch-cuda=12.1 -y
 ### Benchmarking & HPC scaling
 - **Objective**: understand how the kernel backends behave (independent of dataset difficulty).  
 - Run `tools/benchmark_pl_kernel.py` to compare:
-  - **CPU (NumPy + multiprocessing)** vs **GPU (Torch streaming, CuPy)**.  
+  - **CPU (NumPy + multiprocessing)** vs **GPU (Torch streaming, RAW-Cuda)**.  
   - Vary `tile_size`, `workers`, precision (`float32` vs `float64`).  
 - Collect **Mpairs/s throughput** and identify optimal settings per device. 
 ---
 
 ### Host Throughput Results
 
-**Host: “Papavero”** — Intel Xeon (32C/64T), CUDA 12.x GPU  
+**Host: “Laptop”** — Intel(R) Core(TM) Ultra 9 285H (16C/16T)  
 
-| Config (N, nq)             | CPU (NumPy)             | GPU (Torch/CuPy)         |
-|-----------------------------|-------------------------|--------------------------|
-| **N=4096, nq=12**           | ~1.08 Mpairs/s          | ~0.48 Mpairs/s           |
-| **N=8192, nq=12**           | —                       | ~0.94 Mpairs/s           | 
+| Config (N, nq)              | CPU (NumPy)             |
+|-----------------------------|-------------------------|
+| **N=4096, nq=12**           | ~1.08 Mpairs/s          |
+| **N=8192, nq=12**           | —                       |
+
+**Host: “WorkStation 1”** — Intel(R) Xeon(R) Silver 4314 CPU @ 2.40GHz (32C/64T) & NVIDIA RTX A2000 12GB
+
+| Config (N, nq)              | GPU (Torch)             | GPU (RAW-CUDA)  |
+|-----------------------------|-------------------------|-----------------|
+| **N=4096, nq=12**           | ~1.08 Mpairs/s          |                 |
+| **N=8192, nq=12**           | —                       |                 |
 
 
 ---

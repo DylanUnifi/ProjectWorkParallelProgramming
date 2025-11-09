@@ -1,4 +1,4 @@
-# Quantum Machine Learning — Parallel Programming Project
+# Parallel Programming Project
 
 [![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CUDA%20%7C%20OpenMP-green?logo=pytorch)](#)
 [![Benchmarks](https://img.shields.io/badge/Benchmarks-PL%20Kernel%20%7C%20CPU%20vs%20GPU-blue)](#)

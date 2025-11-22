@@ -9,14 +9,8 @@ Benchmark fidelity kernel: cuda_states vs torch
 - Fait varier la taille du dataset (N)
 """
 
-import os, sys, time, csv, itertools, argparse
-from pathlib import Path
+import os, time, csv, itertools, argparse
 import numpy as np
-
-# --- project root in sys.path (IDE safe) ---
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 # Limiter les threads BLAS pour stabiliser le bench CPU
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -25,19 +19,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 # Import API unifiée
-from scripts.pipeline_backends import compute_kernel_matrix
-
-
-def _maybe_setup_cupy_env():
-    """Prépare les includes CUDA pour les backends CuPy si nécessaire."""
-    os.environ.setdefault("CUPY_NVRTC_OPTIONS", "-I/usr/local/cuda/include")
-    os.environ["CPATH"] = "/usr/local/cuda/include:" + os.environ.get("CPATH", "")
-    os.environ["CPLUS_INCLUDE_PATH"] = "/usr/local/cuda/include:" + os.environ.get("CPLUS_INCLUDE_PATH", "")
-    try:
-        import cupy as cp  # noqa: F401
-    except Exception:
-        pass
-
+from quantumkernels import compute_kernel_matrix
 
 def pairs_count(n: int, symmetric: bool) -> int:
     return n * (n + 1) // 2 if symmetric else n * n
@@ -55,32 +37,36 @@ def parse_samples(args) -> list[int]:
 def run_once(
     X: np.ndarray,
     W: np.ndarray,
+    device_name: str,
+    tile_size: int,
     symmetric: bool,
+    n_workers: int,
     repeats: int,
     dtype: str,
     return_dtype: str | None,
     backend: str,
-) -> tuple[dict, np.ndarray]:
+) -> tuple[dict, np.ndarray | None]:
     """Exécute compute_kernel_matrix plusieurs fois et renvoie métriques + dernière matrice."""
     times = []
-    last_K = None
+    last_K: np.ndarray | None = None
     for _ in range(repeats):
         t0 = time.perf_counter()
         last_K = compute_kernel_matrix(
             X,
             weights=W,
-            device_name="lightning.qubit",      # << TOUJOURS CPU pour la simulation d'états
-            tile_size=min(512, X.shape[0]),     # sans impact sur cuda_states (param hérité)
+            device_name=device_name,      
+            tile_size=tile_size,
             symmetric=symmetric,
-            n_workers=1,                        # sûr et stable (spawn inutile ici)
+            n_workers=n_workers,                        
             dtype=dtype,
             return_dtype=return_dtype,
-            gram_backend=backend,               # << backend GEMM comparé: torch vs cuda_states
-            progress=False,
+            gram_backend=backend,
+            progress=True,
             desc=f"bench[{backend}]",
-            # paramètres additionnels tolérés (ignorés si non supportés)
             state_tile=min(512, X.shape[0]),    # utile pour cuda_states
-            tile_m="auto", tile_n="auto", tile_k="auto",
+            tile_m="auto", 
+            tile_n="auto", 
+            tile_k="auto",
         )
         times.append(time.perf_counter() - t0)
 
@@ -90,7 +76,7 @@ def run_once(
     throughput = n_pairs / t_mean if t_mean > 0 else 0.0
 
     metrics = dict(
-        device="lightning.qubit",  # device de simulation d'états
+        device=device_name,
         gram_backend=backend,
         n_samples=X.shape[0],
         n_qubits=X.shape[1],
@@ -106,9 +92,9 @@ def run_once(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Benchmark cuda_states vs torch (états simulés avec lightning.qubit).")
+    parser = argparse.ArgumentParser(description="Benchmark")
     # Variation de N
-    parser.add_argument("--samples", type=int, nargs="+", default=[256, 512, 1024, 2048],
+    parser.add_argument("--samples", type=int, nargs="+", default=[512, 1024, 2048, 4096, 8192, 16384],
                         help="Tailles N à tester (liste).")
     parser.add_argument("--samples-range", type=str, default=None,
                         help="Format: start:stop:step (ex: 256:4096:256).")
@@ -126,11 +112,7 @@ def main():
     args = parser.parse_args()
 
     # Backends à comparer: STRICTEMENT ceux demandés
-    backends = ["torch", "cuda_states"]
-
-    # Setup CuPy env si cuda_states est présent
-    if "cuda_states" in backends:
-        _maybe_setup_cupy_env()
+    backends = ["numpy", "torch", "cuda_states"]
 
     # Reproductibilité
     rng = np.random.default_rng(args.seed)

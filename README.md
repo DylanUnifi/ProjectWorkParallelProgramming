@@ -123,18 +123,7 @@ conda install -c pytorch -c nvidia pytorch pytorch-cuda=12.1 -y
 
 **Host: “Laptop”** — Intel(R) Core(TM) Ultra 9 285H (16C/16T)  
 
-| Config (N, nq)              | CPU (NumPy)             |
-|-----------------------------|-------------------------|
-| **N=4096, nq=12**           | ~1.08 Mpairs/s          |
-| **N=8192, nq=12**           | —                       |
-
 **Host: “WorkStation 1”** — Intel(R) Xeon(R) Silver 4314 CPU @ 2.40GHz (32C/64T) & NVIDIA RTX A2000 12GB
-
-| Config (N, nq)              | GPU (Torch)             | GPU (RAW-CUDA)  |
-|-----------------------------|-------------------------|-----------------|
-| **N=4096, nq=12**           | ~1.08 Mpairs/s          |                 |
-| **N=8192, nq=12**           | —                       |                 |
-
 
 ---
 

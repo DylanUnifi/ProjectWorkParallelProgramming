@@ -82,6 +82,58 @@ pip install "cupy-cuda12x"                # CuPy (CUDA 12.x)
 conda install -c pytorch -c nvidia pytorch pytorch-cuda=12.1 -y
 ```
 
+### Docker & Docker Compose (CPU + GPU)
+
+Python **3.12** images are provided for both CPU-only and GPU-capable hosts. W&B logging is forced **online** via `WANDB_MODE=online` in both images.
+
+#### CPU image
+```bash
+docker build -t parallel-programming:cpu -f Dockerfile .
+
+# Start an interactive container (VS Code devcontainers, bash, or Jupyter)
+docker run --rm -it \
+  -p 8888:8888 \
+  -v $(pwd):/app \
+  parallel-programming:cpu
+```
+
+#### GPU image
+```bash
+docker build -t parallel-programming:gpu -f Dockerfile.gpu .
+
+# Requires the NVIDIA Container Toolkit
+docker run --rm -it \
+  --gpus all \
+  -p 8888:8888 \
+  -v $(pwd):/app \
+  parallel-programming:gpu
+```
+
+> Both images include common image dependencies (`ffmpeg`, `libsm6`, `libxext6`, `libgl1`, `libglib2.0-0`) to support torchvision and Pillow-based pipelines.
+
+#### Docker Compose (CPU or GPU via profiles)
+
+Profiles let you select the target host without changing commands:
+
+```bash
+# CPU profile
+docker compose --profile cpu up --build
+
+# GPU profile (uses Dockerfile.gpu and requests all visible GPUs)
+docker compose --profile gpu up --build
+```
+
+Containers start in an interactive shell. To launch Jupyter inside an already running container:
+
+```bash
+# In another terminal
+docker compose exec app-cpu jupyter lab --ip 0.0.0.0 --no-browser --port 8888
+# or, for GPU
+docker compose exec app-gpu jupyter lab --ip 0.0.0.0 --no-browser --port 8888
+```
+
+For VS Code Remote Containers, attach to the running service (`app-cpu` or `app-gpu`) to gain a full dev shell.
+
 ---
 
 ## Backends & knobs

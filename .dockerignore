@@ -1,0 +1,30 @@
+# Version control
+.git
+.gitignore
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+
+# Virtual environments
+.env
+.venv
+
+# Build artifacts
+*.so
+*.dll
+*.egg-info
+
+# Data & outputs (optional mounts during runtime)
+results/
+wandb/
+logs/
+data/
+datasets/
+
+# OS/editor files
+.DS_Store
+*.swp

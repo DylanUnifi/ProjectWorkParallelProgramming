@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  app-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: projectwork:cpu
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - WANDB_MODE=online
+    ports:
+      - "8888:8888"
+    stdin_open: true
+    tty: true
+    profiles: ["cpu"]
+
+  app-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: projectwork:gpu
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - WANDB_MODE=online
+    ports:
+      - "8888:8888"
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    device_requests:
+      - driver: nvidia
+        count: -1
+        capabilities:
+          - gpu
+    profiles: ["gpu"]

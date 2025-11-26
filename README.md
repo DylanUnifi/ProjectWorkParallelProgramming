@@ -78,8 +78,8 @@ conda activate ProjectWorkParallelProgramming
 pip install -r requirements.txt
 
 # GPU backends
-pip install "cupy-cuda12x"                # CuPy (CUDA 12.x)
-conda install -c pytorch -c nvidia pytorch pytorch-cuda=12.1 -y
+pip install "cupy-cuda13x"                
+conda install -c pytorch -c nvidia pytorch pytorch-cuda -y
 ```
 
 ### Docker & Docker Compose (CPU + GPU)

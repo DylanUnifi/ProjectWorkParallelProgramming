@@ -19,7 +19,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 # Import API unifiée
-from quantumkernels import compute_kernel_matrix
+from scripts import compute_kernel_matrix
 
 def pairs_count(n: int, symmetric: bool) -> int:
     return n * (n + 1) // 2 if symmetric else n * n

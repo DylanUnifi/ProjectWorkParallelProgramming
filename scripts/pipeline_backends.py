@@ -40,7 +40,7 @@ def _normalize_diag_inplace(K: np.ndarray):
 
 def _setup_cupy():
     """Pool mémoire + includes NVRTC utiles pour RawModule."""
-    import cupy as cp  # type: ignore
+    import cupy as cp
     cp.cuda.set_allocator(cp.cuda.MemoryPool().malloc)
     _ = cp.ones((1,), dtype=cp.float32);
     del _

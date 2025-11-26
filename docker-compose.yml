@@ -1,46 +1,30 @@
 version: "3.9"
 
 services:
-  app-cpu:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: projectwork:cpu
-    working_dir: /app
-    volumes:
-      - .:/app
-    environment:
-      - WANDB_MODE=online
-    ports:
-      - "8888:8888"
-    stdin_open: true
-    tty: true
-    profiles: ["cpu"]
-
-  app-gpu:
+  trainer-gpu:
     build:
       context: .
       dockerfile: Dockerfile.gpu
-    image: projectwork:gpu
-    working_dir: /app
-    volumes:
-      - .:/app
+    image: quantum-ml-exam-gpu
+    runtime: nvidia
     environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - PYTHONUNBUFFERED=1
       - WANDB_MODE=online
+    devices:
+      - /dev/nvidia0
+      - /dev/nvidia1
+      - /dev/nvidia2
+      - /dev/nvidia3
+      - /dev/nvidia4
+      - /dev/nvidia5
+      - /dev/nvidia6
+      - /dev/nvidia7
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
     ports:
       - "8888:8888"
-    stdin_open: true
-    tty: true
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    device_requests:
-      - driver: nvidia
-        count: -1
-        capabilities:
-          - gpu
-    profiles: ["gpu"]
+    command: bash

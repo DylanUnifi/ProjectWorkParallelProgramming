@@ -1,31 +1,38 @@
-# Base image with Python 3.12 for CPU workloads
-FROM python:3.12-slim
+ARG BASE_IMAGE=nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+FROM ${BASE_IMAGE}
 
-# Prevent Python from writing .pyc files and ensure logs are flushed
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    WANDB_MODE=online
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV WANDB_MODE=online
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv git \
+    libgomp1 libgl1 libglib2.0-0 libjpeg-dev zlib1g-dev libpng-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# System dependencies for scientific Python stacks and image utilities
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    git \
-    ffmpeg \
-    libsm6 \
-    libxext6 \
-    libgl1 \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
 
-# Install Python dependencies first to leverage Docker layer caching
-COPY requirements.txt ./
+# Torch CUDA 12.4
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+ARG TORCH_SPEC="torch==2.3.1 torchvision==0.18.1"
+
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --extra-index-url ${TORCH_INDEX_URL} ${TORCH_SPEC}
+
+# CuPy CUDA 12.x (compatible avec 12.4 → 13.0 drivers)
+RUN pip install --no-cache-dir cupy-cuda12x==13.6.0
+
+# PennyLane + Lightning GPU
+RUN pip install --no-cache-dir pennylane pennylane-lightning pennylane-lightning[gpu]
+
+# Install rest of deps
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
 COPY . .
+ENV PYTHONPATH=/app
 
-# Default command opens a shell for interactive use (VS Code, Jupyter, bash)
 CMD ["bash"]

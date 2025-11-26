@@ -173,9 +173,7 @@ For VS Code Remote Containers, attach to the running service (`app-cpu` or `app-
 
 ### Host Throughput Results
 
-**Host: “Laptop”** — Intel(R) Core(TM) Ultra 9 285H (16C/16T)  
-
-**Host: “WorkStation 1”** — Intel(R) Xeon(R) Silver 4314 CPU @ 2.40GHz (32C/64T) & NVIDIA RTX A2000 12GB
+**Host: “WorkStation”** — Intel(R) Xeon(R) Silver 4314 CPU @ 2.40GHz (32C/64T) & NVIDIA RTX A2000 12GB
 
 ---
 

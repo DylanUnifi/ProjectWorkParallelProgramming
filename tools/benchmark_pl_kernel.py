@@ -95,7 +95,7 @@ def main():
     parser.add_argument("--qubits", type=int, nargs="+", default=[4, 6, 8])
     parser.add_argument("--tile-size", type=int, nargs="+", default=[32, 64, 128])
     parser.add_argument("--workers", type=int, nargs="+", default=[1, 4, 8])
-    parser.add_argument("--device", type=str, nargs="+", default=["lightning.qubit"])
+    parser.add_argument("--device", type=str, nargs="+", default=["lightning.qubit", "lightning.gpu"])
     parser.add_argument("--symmetric", action="store_true")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--seed", type=int, default=123)
@@ -139,6 +139,30 @@ def main():
             print(f"{r['device']:<16} {r['n_qubits']:>3} {r['tile_size']:>4} {r['workers']:>3} {r['layers']:>2} {r['dtype']:>7} {r['return_dtype']:>7} {r['gram_backend']:>6}  {r['time_s']:>8.3f}  {r['std_s']:>6.3f}  {r['Mpairs_per_s']:>9.3f}")
         except Exception as e:
             print(f"{dev:<16} {nq:>3} {tile:>4} {wrk:>3}  ERROR: {e}")
+
+    # === GPU vs CPU comparison ===
+    if any(r["device"]=="lightning.qubit" for r in results) and \
+    any(r["device"]=="lightning.gpu" for r in results):
+
+        best_cpu = max(
+            (r for r in results if r["device"]=="lightning.qubit"),
+            key=lambda r: r["Mpairs_per_s"]
+        )
+        best_gpu = max(
+            (r for r in results if r["device"]=="lightning.gpu"),
+            key=lambda r: r["Mpairs_per_s"]
+        )
+
+        speedup = best_gpu["Mpairs_per_s"] / best_cpu["Mpairs_per_s"]
+
+        print("\n=== CPU vs GPU comparison ===")
+        print(f"Best CPU  : {best_cpu['Mpairs_per_s']} Mpairs/s "
+            f"({best_cpu['n_qubits']}q tile={best_cpu['tile_size']})")
+        print(f"Best GPU  : {best_gpu['Mpairs_per_s']} Mpairs/s "
+            f"({best_gpu['n_qubits']}q tile={best_gpu['tile_size']})")
+
+        print(f"\nGPU is {speedup:.2f}× faster than CPU\n")
+
 
     if results:
         import csv

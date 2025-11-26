@@ -17,7 +17,7 @@ from data_loader.utils import load_dataset_by_name
 from models.svm_extension import EnhancedSVM
 from utils.scheduler import get_scheduler
 from utils.logger import init_logger
-from pipeline_backends import compute_kernel_matrix
+from scripts.pipeline_backends import compute_kernel_matrix
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEED = 42

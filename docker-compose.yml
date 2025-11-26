@@ -1,30 +1,32 @@
-version: "3.9"
-
 services:
   trainer-gpu:
     build:
       context: .
-      dockerfile: Dockerfile.gpu
-    image: quantum-ml-exam-gpu
+      dockerfile: Dockerfile
+    image: parallel-programming-exam-gpu
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - PYTHONUNBUFFERED=1
-      - WANDB_MODE=online
-    devices:
-      - /dev/nvidia0
-      - /dev/nvidia1
-      - /dev/nvidia2
-      - /dev/nvidia3
-      - /dev/nvidia4
-      - /dev/nvidia5
-      - /dev/nvidia6
-      - /dev/nvidia7
     volumes:
       - ./:/app
       - ./outputs:/app/outputs
     working_dir: /app
-    ports:
-      - "8888:8888"
+    command: bash
+
+  trainer-gpu25:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu25
+    image: parallel-programming-exam-gpu25
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
     command: bash

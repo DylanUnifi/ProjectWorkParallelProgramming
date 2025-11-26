@@ -1,5 +1,5 @@
 # Full DEVEL CUDA image (required for CuPy & nvrtc kernels)
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir --pre torch torchvision \
 # ----------------------------------------------------
 # CuPy (requires DEVEL image → OK)
 # ----------------------------------------------------
-RUN pip install --no-cache-dir cupy-cuda1x
+RUN pip install --no-cache-dir cupy-cuda13x
 
 # ----------------------------------------------------
 # PennyLane + Lightning GPU backend

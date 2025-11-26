@@ -1,20 +1,23 @@
-experiment_name: "svm_qkernel_cifar10_exp"
+# config/cifar10_qsvm_optimized.yaml
+experiment_name: "svm_qkernel_cifar10_blackwell_optimized"
 
 dataset:
   name: cifar10
-  binary_classes: [3, 8]     # Cat vs Ship (exemple)
-  grayscale: false            # simplifie l'entrée pour QCNN
-  augment: true              # flip/rotation/crop légers
+  binary_classes: [3, 8]     # Cat vs Ship
+  grayscale: true            # Simplifié pour quantum
   root: ./data
 
 pennylane:
-  device: lightning.gpu      # GPU si dispo (sinon lightning.qubit)
-  workers: 1                 # éviter le sur-parallélisme sur GPU
-  tile_size: 256
+  device: lightning.gpu      # ✅ Blackwell
+  workers: 1                 # GPU = 1 worker
+  layers: 2                  # ✅ Sweet spot
+  tile_size: 2048            # ✅ Grand batch pour GPU
   kernel_centering: true
-  gram_backend: cuda_ry         # auto|torch|cuda_ry|numpy|cupy
+  gram_backend: tensorcore   # ✅ OPTIMAL pour Blackwell!
 
 svm:
-  n_trials: 40               # Optuna (mettre 0 pour désactiver)
-  default_C: 1.0             # utilisés si n_trials=0
-  default_gamma: "scale"
+  use_pca: true              # ✅ Réduction dimensionnalité
+  pca_components: 10         # 10 qubits max
+  n_trials: 50               # Optuna trials
+
+cv_folds: 3                  # Cross-validation

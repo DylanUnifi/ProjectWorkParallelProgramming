@@ -1,15 +1,23 @@
-experiment_name: "svhn_hybrid_qcnn_svm_large_quality"
-binary_classes: [3, 8]
+# config/svhn_qsvm_cpu.yaml
+experiment_name: "svm_qkernel_svhn_cpu_96cores"
 
 dataset:
-  name: "svhn"
+  name: svhn
   binary_classes: [3, 8]
-  grayscale: false
-  root: "./data"
-
-svm:
-  n_trials: 60
+  grayscale: true            # ✅ Simplifié
+  root: ./data
 
 pennylane:
-  device: "lightning.gpu"
+  device: lightning.qubit    # ✅ CPU
+  workers: 96                # ✅ TES 96 CORES!
+  layers: 2
+  tile_size: 48              # ✅ Petit tile pour 96 workers
   kernel_centering: true
+  gram_backend: numpy        # ✅ CPU optimal
+
+svm:
+  use_pca: true
+  pca_components: 8          # 8 qubits (plus rapide CPU)
+  n_trials: 30
+
+cv_folds: 3

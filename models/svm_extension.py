@@ -1,181 +1,164 @@
 import os
-import joblib
-import numpy as np
-from typing import Optional, Union
-
 from sklearn.svm import SVC
-from sklearn.metrics import (
-    accuracy_score, f1_score, precision_score, recall_score,
-    roc_auc_score, balanced_accuracy_score
-)
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, balanced_accuracy_score
 from sklearn.base import BaseEstimator, ClassifierMixin
-
+import joblib
 import torch
 
 
 class EnhancedSVM(BaseEstimator, ClassifierMixin):
-    """
-    SVM enveloppée avec:
-      - support du kernel 'precomputed'
-      - class_weight configurable (par défaut "balanced")
-      - seuil de décision custom pour classification binaire
-      - helpers de sauvegarde/chargement et torch interop
-    """
     def __init__(
         self,
-        C: float = 1.0,
-        kernel: str = "precomputed",
-        gamma: Union[str, float] = "scale",
-        use_pca: bool = False,
-        pca_model: Optional[object] = None,
-        save_dir: Optional[str] = None,
-        probability: bool = True,
-        class_weight: Optional[Union[dict, str]] = "balanced",
-        decision_threshold: Optional[float] = None,  # seuil custom (binaire). None => predict() standard
-        random_state: Optional[int] = 42,
+        C=1.0,
+        kernel='rbf',
+        gamma='scale',
+        use_pca=False,
+        pca_model=None,
+        scaler=None,
+        save_path=None,
+        probability=False,
+        auto_transform=True,
+        use_gpu=False,
     ):
         self.C = C
         self.kernel = kernel
         self.gamma = gamma
         self.use_pca = use_pca
         self.pca_model = pca_model
-        self.save_dir = save_dir or "./checkpoints_svm"
+        self.scaler = scaler
+        self.save_path = save_path or './enhanced_svm.pkl'
+        self.auto_transform = auto_transform
+        self.use_gpu = use_gpu
         self.probability = probability
-        self.class_weight = class_weight
-        self.decision_threshold = decision_threshold
-        self.random_state = random_state
+        self.xp = None
+        self._xp_module_name = None
+        self.model = self._build_model()
 
-        self.model = SVC(
-            C=self.C,
-            kernel=self.kernel,
-            gamma=self.gamma,
-            probability=self.probability,
-            class_weight=self.class_weight,
-            random_state=self.random_state,
-        )
+    def _build_model(self):
+        # --- Priorité 1: Tenter CUDA (NVIDIA cuML/cuPy) si use_gpu=True ---
+        if self.use_gpu:
+            try:
+                import cupy as cp  # type: ignore
+                from cuml.svm import SVC as cuSVC  # type: ignore
 
-    # ---------- sklearn API ----------
+                self.xp = cp
+                self._xp_module_name = 'cupy'
+                print("[INFO] SVM: Utilisation du GPU CUDA (cuML).")
+                return cuSVC(C=self.C, kernel=self.kernel, gamma=self.gamma, probability=self.probability)
+            except Exception as e:
+                # Afficher l'avertissement et passer à la prochaine priorité
+                print(f"[Warning] GPU SVM CUDA (cuML) indisponible ({e}).")
+
+        # --- Priorité 2: Tenter l'accélération Intel/Optimisation XPU/CPU (sklearnex) ---
+        try:
+            from sklearnex import patch_sklearn, unpatch_sklearn
+            # S'assurer qu'aucun autre patch n'interfère, puis appliquer le patch Intel
+            unpatch_sklearn()
+            patch_sklearn()
+            print("[INFO] SVM: Utilisation de Scikit-learn accéléré par Intel (sklearnex).")
+        except ImportError:
+            print("[INFO] SVM: sklearnex non trouvé. Utilisation de Scikit-learn standard.")
+            # Si sklearnex n'est pas installé, la logique passe au Scikit-learn standard.
+            pass
+
+        # --- Priorité 3: CPU standard ou optimisé par Intel (si patch_sklearn a réussi) ---
+        import numpy as np
+        self.xp = np
+        self._xp_module_name = 'numpy'
+        
+        # SVC ici sera soit le SVC standard, soit le SVC patché par sklearnex
+        return SVC(C=self.C, kernel=self.kernel, gamma=self.gamma, probability=self.probability)
+
+    def _transform_input(self, X):
+        if not self.auto_transform:
+            return X
+        X_transformed = X
+        if self.scaler is not None:
+            X_transformed = self.scaler.transform(X_transformed)
+        if self.use_pca and self.pca_model is not None:
+            X_transformed = self.pca_model.transform(X_transformed)
+        if self.use_gpu and self.xp is not None:
+            try:
+                X_transformed = self.xp.asarray(X_transformed)
+            except Exception as e:
+                print(f"[Warning] Could not move data to GPU ({e}); continuing on CPU.")
+        return X_transformed
+
     def fit(self, X, y):
-        self.model.fit(X, y)
+        X_transformed = self._transform_input(X)
+        self.model.fit(X_transformed, y)
         return self
 
     def predict(self, X):
-        """
-        Par défaut, délègue à SVC.predict().
-        Si decision_threshold est défini ET problème binaire, utilise decision_function >= threshold.
-        """
-        if self.decision_threshold is None:
-            return self.model.predict(X)
-
-        # seuil custom → nécessite binaire
-        scores = self.decision_function(X)
-        y_pred = (scores >= float(self.decision_threshold)).astype(int)
-        return y_pred
+        X_transformed = self._transform_input(X)
+        preds = self.model.predict(X_transformed)
+        if hasattr(preds, "get"):
+            preds = preds.get()
+        return preds
 
     def predict_proba(self, X):
-        """Probabilités (nécessite probability=True au fit)."""
-        return self.model.predict_proba(X)
-
-    def decision_function(self, X):
-        """Expose la decision_function de SVC (utile pour choisir un seuil)."""
-        return self.model.decision_function(X)
-
-    def score(self, X, y, **kwargs):
-        return accuracy_score(y, self.predict(X))
-
-    # ---------- métriques ----------
-    def evaluate(self, X, y_true, average: Optional[str] = None):
         """
-        Calcule les métriques classiques. Si average=None:
-          - 'binary' si 2 classes, sinon 'weighted'.
-        Respecte le seuil custom s'il est défini.
+        Retourne les probabilités (uniquement si probability=True au fit)
         """
-        y_true = np.asarray(y_true)
-        num_labels = np.unique(y_true).size
-        if average is None:
-            average = "binary" if num_labels == 2 else "weighted"
+        X_transformed = self._transform_input(X)
+        probs = self.model.predict_proba(X_transformed)
+        if hasattr(probs, "get"):
+            probs = probs.get()
+        return probs
 
+    def evaluate(self, X, y_true):
         y_pred = self.predict(X)
-
         metrics = {
-            "accuracy": accuracy_score(y_true, y_pred),
-            "f1": f1_score(y_true, y_pred, average=average),
-            "precision": precision_score(y_true, y_pred, average=average),
-            "recall": recall_score(y_true, y_pred, average=average),
-            "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+            'accuracy': accuracy_score(y_true, y_pred),
+            'f1': f1_score(y_true, y_pred, average='weighted'),
+            'precision': precision_score(y_true, y_pred, average='weighted'),
+            'recall': recall_score(y_true, y_pred, average='weighted'),
+            'balanced_accuracy': balanced_accuracy_score(y_true, y_pred)
         }
 
-        # AUC seulement si binaire
         try:
-            if num_labels == 2:
-                # si probability=True, on peut utiliser predict_proba[:,1]
-                # sinon, decision_function comme score continu
-                if self.probability:
-                    y_score = self.predict_proba(X)[:, 1]
-                else:
-                    y_score = self.decision_function(X)
-                metrics["roc_auc"] = roc_auc_score(y_true, y_score)
-            else:
-                metrics["roc_auc"] = float("nan")
+            y_proba = self.predict_proba(X)[:, 1]
+            metrics['roc_auc'] = roc_auc_score(y_true, y_proba)
         except Exception as e:
             print(f"[Warning] Could not compute ROC AUC: {e}")
-            metrics["roc_auc"] = float("nan")
+            metrics['roc_auc'] = float('nan')
 
         return metrics
 
-    # ---------- seuil optimal ----------
-    def find_best_threshold(
-        self, X_val, y_val, metric: str = "f1", num_points: int = 201
-    ) -> float:
-        """
-        Cherche le meilleur seuil sur decision_function pour un problème binaire.
-        metric: 'f1' (par défaut). Peut être étendu si besoin.
-        """
-        y_val = np.asarray(y_val)
-        assert np.unique(y_val).size == 2, "best_threshold nécessite un problème binaire."
-
-        scores = self.decision_function(X_val)
-        t_min, t_max = float(scores.min()), float(scores.max())
-        thresholds = np.linspace(t_min, t_max, num_points)
-
-        best_t, best_val = thresholds[0], -np.inf
-        for t in thresholds:
-            y_pred = (scores >= t).astype(int)
-            if metric == "f1":
-                val = f1_score(y_val, y_pred)
-            else:
-                raise ValueError(f"metric '{metric}' non supportée")
-            if val > best_val:
-                best_val, best_t = val, float(t)
-
-        self.decision_threshold = best_t
-        return best_t
-
-    def set_threshold(self, t: Optional[float]):
-        """Définit (ou efface avec None) le seuil de décision custom."""
-        self.decision_threshold = None if t is None else float(t)
-
-    # ---------- sauvegarde / chargement ----------
-    def save(self, filename: str = "svm_model.pkl"):
-        os.makedirs(self.save_dir, exist_ok=True)
-        path = os.path.join(self.save_dir, filename)
-        joblib.dump(self, path)
-        print(f"Model saved: {path}")
-        return path
+    def save(self):
+        os.makedirs(self.save_path, exist_ok=True)
+        model_path = os.path.join(self.save_path, "svm_model.pkl")
+        xp_backup = self.xp
+        joblib.dump(self, model_path)
+        self.xp = xp_backup
+        print(f"✅ Modèle sauvegardé avec succès : {model_path}")
 
     @staticmethod
-    def load(path: str) -> "EnhancedSVM":
+    def load(path):
         return joblib.load(path)
 
-    # ---------- torch helpers ----------
-    @staticmethod
-    def _to_torch_tensor(X):
-        return torch.tensor(X, dtype=torch.float32, device="cuda" if torch.cuda.is_available() else "cpu")
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['xp'] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        try:
+            if self._xp_module_name == 'cupy':
+                import cupy as cp  # type: ignore
+                self.xp = cp
+            else:
+                import numpy as np
+                self.xp = np
+        except Exception:
+            import numpy as np
+            self.xp = np
+
+    def to_torch_tensor(self, X):
+        return torch.tensor(X, dtype=torch.float32).cuda() if torch.cuda.is_available() else torch.tensor(X)
 
     def predict_torch(self, X):
-        X_t = self._to_torch_tensor(X)
-        return self.predict(X_t.cpu().numpy())
-
-    def decision_function_torch(self, X):
-        X_t = self._to_torch_tensor(X)
-        return self.decision_function(X_t.cpu().numpy())
+        X_torch = self.to_torch_tensor(X)
+        X_cpu = X_torch.cpu().numpy()
+        return self.predict(X_cpu)

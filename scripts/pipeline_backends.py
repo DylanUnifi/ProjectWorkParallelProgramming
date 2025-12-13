@@ -1,7 +1,5 @@
-# pipeline_backends.py — PennyLane kernels with RBF-like controls (angle_scale, re-embed, normalize)
-# Corrected & Optimized version with Float64 support and robust CUDA paths.
-
-from typing import Optional, Any, Callable, Tuple, List, Dict
+# pipeline_backends.py — Optimized & Synchronized for CUDA Stability
+from typing import Optional, Any, Callable, Tuple, List
 import os
 import sys
 import numpy as np
@@ -11,7 +9,6 @@ from tqdm import tqdm
 # Helpers
 # =====================================================================
 def _ensure_numpy(a: Any, dtype: Optional[np.dtype] = None) -> np.ndarray:
-    """Converts to a C-contiguous ndarray, respecting dtype if provided."""
     try:
         import torch
         if isinstance(a, torch.Tensor):
@@ -23,47 +20,32 @@ def _ensure_numpy(a: Any, dtype: Optional[np.dtype] = None) -> np.ndarray:
         arr = arr.astype(dtype, copy=False)
     return arr
 
-
 def _tile_ranges(n: int, tile: int):
     for s in range(0, n, tile):
         e = min(s + tile, n)
         yield s, e
 
-
 def _normalize_diag_inplace(K: np.ndarray):
-    """Normalize so that diag(K)=1 for square Gram matrices."""
-    if K.shape[0] != K.shape[1]:
-        return
+    if K.shape[0] != K.shape[1]: return
     d = np.sqrt(np.clip(np.diag(K), 1e-12, None))
     K /= d[:, None] * d[None, :]
     np.fill_diagonal(K, 1.0)
 
-
 def _setup_cupy():
-    """Pool mémoire + includes NVRTC robustes."""
     import cupy as cp
-    
-    # 1. Setup Memory Pool
     pool = cp.cuda.MemoryPool()
     cp.cuda.set_allocator(pool.malloc)
-    
-    # Warmup
+    # Warmup & Sync
     _ = cp.ones((1,), dtype=cp.float32)
-    del _
     cp.cuda.runtime.deviceSynchronize()
 
-    # 2. Robust Include Path Detection for NVRTC
-    # Standard paths to check
+    # Robust Include Path for NVRTC
     candidates = [
-        os.environ.get("CUDA_PATH"),
-        os.environ.get("CUDA_HOME"),
-        "/usr/local/cuda",
-        "/opt/cuda",
-        # Conda environment fallback
+        os.environ.get("CUDA_PATH"), os.environ.get("CUDA_HOME"),
+        "/usr/local/cuda", "/opt/cuda",
         os.path.join(sys.prefix, "include"),
-        os.path.join(sys.prefix, "Library", "include") # Windows Conda
+        os.path.join(sys.prefix, "Library", "include")
     ]
-    
     include_path = None
     for path in candidates:
         if path and os.path.exists(os.path.join(path, "include")):
@@ -72,226 +54,70 @@ def _setup_cupy():
         elif path and os.path.exists(path) and path.endswith("include"):
             include_path = path
             break
-
-    nvrtc_opts = []
-    if include_path:
-        nvrtc_opts.append(f"-I{include_path}")
     
-    # Inject into environment for CuPy
-    if nvrtc_opts:
+    if include_path:
+        opts = f"-I{include_path}"
         existing = os.environ.get("CUPY_NVRTC_OPTIONS", "")
         if include_path not in existing:
-            os.environ["CUPY_NVRTC_OPTIONS"] = existing + " " + " ".join(nvrtc_opts)
-
+            os.environ["CUPY_NVRTC_OPTIONS"] = existing + " " + opts
 
 # =====================================================================
-# Worker globals (multiprocessing path)
+# Worker globals (multiprocessing path) - unchanged
 # =====================================================================
-_pl_w: Optional[np.ndarray] = None
-_pl_nq: Optional[int] = None
-_pl_device: Optional[str] = None
-_pl_qnode: Optional[Callable] = None
-_pl_float_dtype: Optional[np.dtype] = None
-_pl_complex_dtype: Optional[np.dtype] = None
-_pl_angle_scale: float = 1.0
-_pl_re_embed: bool = False
-_pl_embed_mode: str = "ryrz"
+_pl_w = None
+_pl_nq = None
+_pl_device = None
+_pl_qnode = None
+_pl_float_dtype = None
+_pl_complex_dtype = None
+_pl_angle_scale = 1.0
+_pl_re_embed = False
+_pl_embed_mode = "ryrz"
 
-
-def _pl_worker_init(w_local: np.ndarray, device_name: str, nq: int,
-                    float_dtype_str: str = "float64",
-                    angle_scale: float = 1.0,
-                    re_embed_between_layers: bool = False,
-                    embed_mode: str = "ryrz"):
-    """Initializer called once per worker process."""
-    global _pl_w, _pl_nq, _pl_device, _pl_qnode, _pl_float_dtype, _pl_complex_dtype
-    global _pl_angle_scale, _pl_re_embed, _pl_embed_mode
-    
-    # Set threading vars to 1 to avoid oversubscription in workers
+def _pl_worker_init(w, dev, nq, fdtype, ascale, re_emb, mode):
+    global _pl_w, _pl_nq, _pl_device, _pl_float_dtype, _pl_complex_dtype, _pl_angle_scale, _pl_re_embed, _pl_embed_mode
     os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-
-    _pl_float_dtype = np.dtype(np.float32) if float_dtype_str == "float32" else np.dtype(np.float64)
-    _pl_complex_dtype = np.dtype(np.complex64) if float_dtype_str == "float32" else np.dtype(np.complex128)
-    
-    _pl_w = _ensure_numpy(w_local, _pl_float_dtype)
-    _pl_nq = int(nq)
-    _pl_device = str(device_name)
-    _pl_qnode = None
-    _pl_angle_scale = float(angle_scale)
-    _pl_re_embed = bool(re_embed_between_layers)
-    _pl_embed_mode = str(embed_mode)
-
+    _pl_float_dtype = np.dtype(np.float32) if fdtype == "float32" else np.dtype(np.float64)
+    _pl_complex_dtype = np.dtype(np.complex64) if fdtype == "float32" else np.dtype(np.complex128)
+    _pl_w = _ensure_numpy(w, _pl_float_dtype)
+    _pl_nq, _pl_device = int(nq), str(dev)
+    _pl_angle_scale, _pl_re_embed, _pl_embed_mode = float(ascale), bool(re_emb), str(mode)
 
 def _pl_get_qnode():
-    """Create the qnode used in this process worker with embedding controls."""
     global _pl_qnode
     if _pl_qnode is None:
         import pennylane as qml
-        dev = qml.device(
-            _pl_device, wires=_pl_nq, shots=None, c_dtype=_pl_complex_dtype
-        )
-
-        def _embed(theta):
-            s = _pl_angle_scale
-            if _pl_embed_mode == "angle":
-                qml.AngleEmbedding(s * theta[:_pl_nq], wires=range(_pl_nq), rotation="Y", normalize=False)
-            else:
-                for i in range(_pl_nq):
-                    qml.RY(s * theta[i], wires=i)
-                    if _pl_embed_mode == "ryrz":
-                        qml.RZ(s * theta[i], wires=i)
-
+        dev = qml.device(_pl_device, wires=_pl_nq, shots=None, c_dtype=_pl_complex_dtype)
         @qml.qnode(dev, interface=None, diff_method=None)
         def _state(theta_row):
-            # Ensure input matches dtype
             theta = qml.math.asarray(theta_row, dtype=_pl_float_dtype)
+            def _embed(v):
+                if _pl_embed_mode == "angle": qml.AngleEmbedding(_pl_angle_scale*v[:_pl_nq], wires=range(_pl_nq), rotation="Y")
+                else:
+                    for i in range(_pl_nq):
+                        qml.RY(_pl_angle_scale*v[i], wires=i)
+                        if _pl_embed_mode=="ryrz": qml.RZ(_pl_angle_scale*v[i], wires=i)
             if _pl_re_embed:
-                L = _pl_w.shape[0]
-                for l in range(L):
+                for l in range(_pl_w.shape[0]):
                     _embed(theta)
-                    qml.templates.BasicEntanglerLayers(_pl_w[l:l + 1], wires=range(_pl_nq))
+                    qml.templates.BasicEntanglerLayers(_pl_w[l:l+1], wires=range(_pl_nq))
             else:
                 _embed(theta)
                 qml.templates.BasicEntanglerLayers(_pl_w, wires=range(_pl_nq))
             return qml.state()
-
         _pl_qnode = _state
     return _pl_qnode
 
-
-def _pl_states_for_rows(rows: List[int], mat: np.ndarray) -> np.ndarray:
+def _pl_states_for_rows(rows, mat):
     qnode = _pl_get_qnode()
-    # Pre-allocate output
     out = np.empty((len(rows), 1 << _pl_nq), dtype=_pl_complex_dtype)
-    for t, idx in enumerate(rows):
-        out[t] = qnode(mat[idx])
+    for t, idx in enumerate(rows): out[t] = qnode(mat[idx])
     return out
 
-
 # =====================================================================
-# Ultra-fast GPU path (Torch stream)
+# CUDA Kernels (Template)
 # =====================================================================
-def _gram_torch_stream(
-        a_np: np.ndarray,
-        b_np: Optional[np.ndarray],
-        *,
-        weights_np: np.ndarray,
-        device_name: str,
-        tile_size: int,
-        symmetric: bool,
-        float_dt: np.dtype,
-        ret_dt: np.dtype,
-        angle_scale: float,
-        re_embed_between_layers: bool,
-        embed_mode: str,
-) -> np.ndarray:
-    import torch as th
-    import pennylane as qml
-
-    assert "gpu" in device_name.lower(), "torch_stream requires a GPU device."
-    nq = a_np.shape[1]
-    n = a_np.shape[0]
-    m = n if b_np is None else b_np.shape[0]
-
-    t_float = th.float32 if float_dt == np.float32 else th.float64
-    t_complex = th.complex64 if float_dt == np.float32 else th.complex128
-    t_ret = th.float32 if ret_dt == np.float32 else th.float64
-
-    # Move data to GPU async
-    a = th.from_numpy(np.ascontiguousarray(a_np)).to("cuda", dtype=t_float, non_blocking=True)
-    b = a if b_np is None else th.from_numpy(np.ascontiguousarray(b_np)).to("cuda", dtype=t_float, non_blocking=True)
-    w = th.from_numpy(np.ascontiguousarray(weights_np)).to("cuda", dtype=t_float, non_blocking=True)
-
-    # Setup device
-    dev = qml.device(
-        device_name,
-        wires=nq, shots=None,
-        c_dtype=(np.complex64 if float_dt == np.float32 else np.complex128),
-    )
-
-    def _embed(v):
-        s = float(angle_scale)
-        if embed_mode == "angle":
-            qml.AngleEmbedding(s * v[:nq], wires=range(nq), rotation="Y", normalize=False)
-        else:
-            for i in range(nq):
-                qml.RY(s * v[i], wires=i)
-                if embed_mode == "ryrz":
-                    qml.RZ(s * v[i], wires=i)
-
-    @qml.qnode(dev, interface="torch", diff_method=None)
-    def _state(theta_row: th.Tensor) -> th.Tensor:
-        if re_embed_between_layers:
-            L = w.shape[0]
-            for l in range(L):
-                _embed(theta_row)
-                qml.templates.BasicEntanglerLayers(w[l:l + 1], wires=range(nq))
-        else:
-            _embed(theta_row)
-            qml.templates.BasicEntanglerLayers(w, wires=range(nq))
-        return qml.state()
-
-    # Vmap detection
-    try:
-        from torch import vmap
-        _has_vmap = True
-    except ImportError:
-        _has_vmap = False
-
-    def build_states(x_block: th.Tensor) -> th.Tensor:
-        if _has_vmap and x_block.ndim == 2:
-            return vmap(_state)(x_block).to(dtype=t_complex)
-        states = [_state(x_block[t]) for t in range(x_block.shape[0])]
-        return th.stack(states, dim=0).to(dtype=t_complex)
-
-    # Output matrix
-    k = th.empty((n, m), device="cuda", dtype=t_ret)
-
-    # Compute
-    with th.no_grad():
-        outer_iter = range(0, n, tile_size)
-        if tqdm is not None:
-            outer_iter = tqdm(outer_iter, desc="Gram (torch)", leave=False)
-            
-        for i0 in outer_iter:
-            i1 = min(i0 + tile_size, n)
-            # Batch state preparation
-            sa_x = build_states(a[i0:i1])
-            
-            inner_start = i0 if (symmetric and b is a) else 0
-            for j0 in range(inner_start, m, tile_size):
-                j1 = min(j0 + tile_size, m)
-                
-                if (b is a) and (j0 == i0):
-                    sb_x = sa_x
-                else:
-                    sb_x = build_states(b[j0:j1])
-                
-                # Matrix multiplication
-                g = sa_x @ sb_x.conj().transpose(0, 1)
-                k_blk = (g.abs() ** 2).to(dtype=t_ret)
-                
-                k[i0:i1, j0:j1] = k_blk
-                
-                if symmetric and (b is a) and (j0 > i0):
-                    k[j0:j1, i0:i1] = k_blk.transpose(0, 1)
-            
-            del sa_x
-            # Periodic cache clear helps with fragmentation on smaller GPUs
-            if i0 % (tile_size * 4) == 0:
-                th.cuda.empty_cache()
-
-    return k.detach().cpu().numpy().astype(ret_dt, copy=False)
-
-
-# =====================================================================
-# ---------- RawKernels cuda_states (Corrected Types) -----------------
-# =====================================================================
-
-# Template C++ code to support both float (float2) and double (double2)
-CUDA_TEMPLATE_SRC = r"""
+CUDA_TEMPLATE = r"""
 #ifndef TILE_M
 #define TILE_M 32
 #endif
@@ -301,11 +127,6 @@ CUDA_TEMPLATE_SRC = r"""
 #ifndef TILE_K
 #define TILE_K 32
 #endif
-
-// Type definitions via Macros substitution
-// T_REAL: float or double
-// T_COMPLEX: float2 or double2
-// MAKE_COMPLEX: make_float2 or make_double2
 
 extern "C" __global__
 void cgemm_abs2_tiled_full(const T_COMPLEX* __restrict__ SA,
@@ -321,43 +142,35 @@ void cgemm_abs2_tiled_full(const T_COMPLEX* __restrict__ SA,
     __shared__ T_COMPLEX sA[TILE_M][TILE_K];
     __shared__ T_COMPLEX sB[TILE_N][TILE_K];
     
-    // Accumulator in high precision if needed, but keeping simple here
-    T_COMPLEX acc; 
-    acc.x = 0; acc.y = 0;
+    T_COMPLEX acc = MAKE_COMPLEX(0.0, 0.0);
 
     for (int k0 = 0; k0 < D; k0 += TILE_K) {
-        // Load A tile
         if (i < BM) {
             for (int tk = threadIdx.x; tk < TILE_K; tk += blockDim.x) {
                 int k = k0 + tk;
-                sA[threadIdx.y][tk] = (k < D) ? SA[i * lda + k] : MAKE_COMPLEX(0, 0);
+                sA[threadIdx.y][tk] = (k < D) ? SA[i * lda + k] : MAKE_COMPLEX(0.0, 0.0);
             }
         }
-        // Load B tile (conjugated)
         if (j < BN) {
             for (int tk = threadIdx.y; tk < TILE_K; tk += blockDim.y) {
                 int k = k0 + tk;
-                T_COMPLEX v = (k < D) ? SB[j * ldb + k] : MAKE_COMPLEX(0, 0);
+                T_COMPLEX v = (k < D) ? SB[j * ldb + k] : MAKE_COMPLEX(0.0, 0.0);
                 sB[threadIdx.x][tk] = MAKE_COMPLEX(v.x, -v.y); 
             }
         }
         __syncthreads();
 
-        // Compute tile
         #pragma unroll
         for (int tk = 0; tk < TILE_K; ++tk) {
             T_COMPLEX a = sA[threadIdx.y][tk];
             T_COMPLEX b = sB[threadIdx.x][tk];
-            // Complex mul: (ax + i ay)(bx + i by) = (ax bx - ay by) + i(ax by + ay bx)
             T_REAL rx = a.x * b.x - a.y * b.y;
             T_REAL ry = a.x * b.y + a.y * b.x;
             acc.x += rx; acc.y += ry;
         }
         __syncthreads();
     }
-
-    T_REAL mag2 = acc.x * acc.x + acc.y * acc.y;
-    K[i * ldk + j] = mag2;
+    K[i * ldk + j] = acc.x * acc.x + acc.y * acc.y;
 }
 
 extern "C" __global__
@@ -367,31 +180,27 @@ void cgemm_abs2_tiled_lower(const T_COMPLEX* __restrict__ SA,
                             const int BM, const int BN, const int D,
                             const int lda, const int ldb, const int ldk)
 {
-    // Symmetric lower triangular optimization
     if (blockIdx.x > blockIdx.y) return;
-    
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
     const int i = blockIdx.y * blockDim.y + threadIdx.y;
-    
     if (i >= BM || j >= BN) return;
     if (BM == BN && j > i) return;
 
     __shared__ T_COMPLEX sA[TILE_M][TILE_K];
     __shared__ T_COMPLEX sB[TILE_N][TILE_K];
-    T_COMPLEX acc; 
-    acc.x = 0; acc.y = 0;
+    T_COMPLEX acc = MAKE_COMPLEX(0.0, 0.0);
 
     for (int k0 = 0; k0 < D; k0 += TILE_K) {
         if (i < BM) {
             for (int tk = threadIdx.x; tk < TILE_K; tk += blockDim.x) {
                 int k = k0 + tk;
-                sA[threadIdx.y][tk] = (k < D) ? SA[i * lda + k] : MAKE_COMPLEX(0, 0);
+                sA[threadIdx.y][tk] = (k < D) ? SA[i * lda + k] : MAKE_COMPLEX(0.0, 0.0);
             }
         }
         if (j < BN) {
             for (int tk = threadIdx.y; tk < TILE_K; tk += blockDim.y) {
                 int k = k0 + tk;
-                T_COMPLEX v = (k < D) ? SB[j * ldb + k] : MAKE_COMPLEX(0, 0);
+                T_COMPLEX v = (k < D) ? SB[j * ldb + k] : MAKE_COMPLEX(0.0, 0.0);
                 sB[threadIdx.x][tk] = MAKE_COMPLEX(v.x, -v.y);
             }
         }
@@ -407,291 +216,272 @@ void cgemm_abs2_tiled_lower(const T_COMPLEX* __restrict__ SA,
         }
         __syncthreads();
     }
-
-    T_REAL mag2 = acc.x * acc.x + acc.y * acc.y;
-    K[i * ldk + j] = mag2;
+    K[i * ldk + j] = acc.x * acc.x + acc.y * acc.y;
 }
 """
 
 _RAWMOD_CACHE = {}
-
-def _get_kernel_with_macros(tm: int, tn: int, tk: int, name: str, use_double: bool):
-    """
-    Generates and compiles the CUDA kernel for specific tile sizes and precision.
-    """
+def _get_kernel(tm, tn, tk, name, double):
     import cupy as cp
+    key = (tm, tn, tk, name, double)
+    if key in _RAWMOD_CACHE: return _RAWMOD_CACHE[key]
     
-    key = (tm, tn, tk, name, use_double)
-    if key in _RAWMOD_CACHE:
-        return _RAWMOD_CACHE[key]
-
-    # Type definition macros
-    if use_double:
-        type_macros = ("-DT_REAL=double", "-DT_COMPLEX=double2", "-DMAKE_COMPLEX=make_double2")
-    else:
-        type_macros = ("-DT_REAL=float", "-DT_COMPLEX=float2", "-DMAKE_COMPLEX=make_float2")
-
-    tile_macros = (f"-DTILE_M={tm}", f"-DTILE_N={tn}", f"-DTILE_K={tk}")
+    t_m = ("-DT_REAL=double", "-DT_COMPLEX=double2", "-DMAKE_COMPLEX=make_double2") if double else \
+          ("-DT_REAL=float", "-DT_COMPLEX=float2", "-DMAKE_COMPLEX=make_float2")
+    opts = ("--std=c++14", "--use_fast_math") + t_m + (f"-DTILE_M={tm}", f"-DTILE_N={tn}", f"-DTILE_K={tk}")
     
-    options = ("--std=c++14", "--use_fast_math") + type_macros + tile_macros
-    
-    mod = cp.RawModule(code=CUDA_TEMPLATE_SRC,
-                       options=options,
-                       name_expressions=(name,))
-    
+    mod = cp.RawModule(code=CUDA_TEMPLATE, options=opts, name_expressions=(name,))
     fn = mod.get_function(name)
     _RAWMOD_CACHE[key] = fn
     return fn
 
-def _get_full_kernel(tm, tn, tk, use_double=False):
-    return _get_kernel_with_macros(tm, tn, tk, "cgemm_abs2_tiled_full", use_double)
-
-def _get_lower_kernel(tm, tn, tk, use_double=False):
-    return _get_kernel_with_macros(tm, tn, tk, "cgemm_abs2_tiled_lower", use_double)
-
-
-# ---------------- Auto-tuner (Robust for Float/Double) ----------------
-def _time_kernel_once(SA_cp, SB_cp, bi, bj, dim, tm, tn, tk, symmetric, use_double):
-    import cupy as cp
-    
-    if symmetric:
-        k_func = _get_lower_kernel(tm, tn, tk, use_double)
-    else:
-        k_func = _get_full_kernel(tm, tn, tk, use_double)
-    
-    # Output dtype matches input precision
-    dtype = cp.float64 if use_double else cp.float32
-    
-    if symmetric:
-        # Symmetric lower only outputs to (bi, bi)
-        K_view = cp.empty((bi, bi), dtype=dtype)
-        args = (SA_cp, SA_cp, K_view, 
-                np.int32(bi), np.int32(bi), np.int32(dim),
-                np.int32(dim), np.int32(dim), np.int32(bi))
-    else:
-        K_view = cp.empty((bi, bj), dtype=dtype)
-        args = (SA_cp, SB_cp, K_view, 
-                np.int32(bi), np.int32(bj), np.int32(dim),
-                np.int32(dim), np.int32(dim), np.int32(bj))
-
-    block = (tn, tm, 1)
-    grid_x = (bj + tn - 1) // tn if not symmetric else (bi + tn - 1) // tn
-    grid_y = (bi + tm - 1) // tm
-    grid = (grid_x, grid_y, 1)
-
-    start = cp.cuda.Event()
-    end = cp.cuda.Event()
-    
-    start.record()
-    k_func(grid, block, args)
-    end.record()
-    end.synchronize()
-    
-    return cp.cuda.get_elapsed_time(start, end)
-
-def autotune_tiles(
-        dim: int,
-        bi: int = 128,
-        bj: int = 128,
-        *,
-        symmetric: bool = True,
-        use_double: bool = False,
-        candidates: Optional[List[Tuple[int, int, int]]] = None,
-        warmup: int = 1,
-        iters: int = 3,
-        seed: int = 0,
-) -> Tuple[int, int, int]:
-    """Finds best (TILE_M, TILE_N, TILE_K) for specific precision."""
-    import cupy as cp
-    rng = np.random.default_rng(seed)
-    
-    if candidates is None:
-        candidates = [
-            (32, 32, 32), (64, 16, 32), (16, 64, 32),
-            (32, 32, 16), (32, 32, 64),
-            (64, 32, 16), (32, 64, 16),
-        ]
-        
-    dtype = np.float64 if use_double else np.float32
-    
-    # Generate dummy data on GPU
-    SA_host = (rng.standard_normal((bi, dim)).astype(dtype) + 
-               1j * rng.standard_normal((bi, dim)).astype(dtype))
-    SA_cp = cp.asarray(SA_host)
-    
-    if symmetric:
-        SB_cp = SA_cp
-    else:
-        SB_host = (rng.standard_normal((bj, dim)).astype(dtype) + 
-                   1j * rng.standard_normal((bj, dim)).astype(dtype))
-        SB_cp = cp.asarray(SB_host)
-
-    def _fits(tm, tn, tk):
-        # Calc shared mem usage
-        elem_size = 16 if use_double else 8 # complex size in bytes
-        bytes_per_tile = (tm * tk + tn * tk) * elem_size
-        
-        # Check against device limit (conservative 48KB default)
-        try:
-            props = cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)
-            sm_lim = int(props.get('sharedMemPerBlockOptin', props.get('sharedMemPerBlock', 48 * 1024)))
-        except Exception:
-            sm_lim = 48 * 1024
-        
-        return bytes_per_tile <= sm_lim
-
-    best_ms = float('inf')
-    best_cfg = (32, 32, 32)
-
-    for (tm, tn, tk) in candidates:
-        if not _fits(tm, tn, tk):
-            continue
-            
-        try:
-            # Warmup
-            for _ in range(warmup):
-                _time_kernel_once(SA_cp, SB_cp, bi, bj, dim, tm, tn, tk, symmetric, use_double)
-            
-            # Measure
-            times = []
-            for _ in range(iters):
-                times.append(_time_kernel_once(SA_cp, SB_cp, bi, bj, dim, tm, tn, tk, symmetric, use_double))
-            
-            avg_ms = np.mean(times)
-            
-            if avg_ms < best_ms:
-                best_ms = avg_ms
-                best_cfg = (tm, tn, tk)
-        except Exception:
-            continue
-            
-    return best_cfg
-
-
 # =====================================================================
-# ---------- États (par blocs) via PennyLane+Torch -> DLPack ----------
+# State Generation (Torch) -> CuPy
 # =====================================================================
-def _build_states_block_torch_cuda(
-    x_blk: np.ndarray,
-    w_np: np.ndarray,
-    device_name: str,
-    *,
-    angle_scale: float = 1.0,
-    re_embed_between_layers: bool = False,
-    embed_mode: str = "ryrz",
-) -> "torch.Tensor":
+def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode):
     import torch as th
     import pennylane as qml
-
-    nq = int(x_blk.shape[1])
     
-    # Input dtype decides internal precision
+    nq = int(x_blk.shape[1])
     t_float = th.float32 if x_blk.dtype == np.float32 else th.float64
-    t_complex = th.complex64 if t_float == th.float32 else th.complex128
-
+    t_cplx = th.complex64 if t_float == th.float32 else th.complex128
+    
     x = th.from_numpy(np.ascontiguousarray(x_blk)).to("cuda", dtype=t_float, non_blocking=True)
     w = th.from_numpy(np.ascontiguousarray(w_np)).to("cuda", dtype=t_float, non_blocking=True)
-
-    # Normalize device name for PennyLane
-    dev_name = device_name
-    if "gpu" not in str(device_name).lower():
-        # Fallback to lightning.gpu if generic name passed but we are in the CUDA path
-        try:
-            _ = qml.device("lightning.gpu", wires=nq)
-            dev_name = "lightning.gpu"
-        except:
-            dev_name = "default.qubit" # Should not happen in this path
-
-    # Create device
-    c_dtype = np.complex64 if t_float == th.float32 else np.complex128
-    dev = qml.device(dev_name, wires=nq, shots=None, c_dtype=c_dtype)
-
-    def _embed(v: "th.Tensor"):
-        s = float(angle_scale)
-        if embed_mode == "angle":
-            qml.AngleEmbedding(s * v[:nq], wires=range(nq), rotation="Y", normalize=False)
-        else:
-            for i in range(nq):
-                qml.RY(s * v[i], wires=i)
-                if embed_mode == "ryrz":
-                    qml.RZ(s * v[i], wires=i)
+    
+    # Pennylane device
+    try:
+        dev = qml.device(dev_name, wires=nq, shots=None, c_dtype=np.complex64 if t_float==th.float32 else np.complex128)
+    except:
+        dev = qml.device("lightning.gpu", wires=nq, shots=None)
 
     @qml.qnode(dev, interface="torch", diff_method=None)
-    def _state(theta_row: "th.Tensor") -> "th.Tensor":
-        if re_embed_between_layers:
-            L = w.shape[0]
-            for l in range(L):
-                _embed(theta_row)
-                qml.templates.BasicEntanglerLayers(w[l:l + 1], wires=range(nq))
+    def _state(row):
+        def _emb(v):
+            if mode=="angle": qml.AngleEmbedding(ascale*v[:nq], wires=range(nq), rotation="Y")
+            else:
+                for i in range(nq):
+                    qml.RY(ascale*v[i], wires=i)
+                    if mode=="ryrz": qml.RZ(ascale*v[i], wires=i)
+        if re_emb:
+            for l in range(w.shape[0]):
+                _emb(row)
+                qml.templates.BasicEntanglerLayers(w[l:l+1], wires=range(nq))
         else:
-            _embed(theta_row)
+            _emb(row)
             qml.templates.BasicEntanglerLayers(w, wires=range(nq))
         return qml.state()
 
-    # Vectorization attempt
+    # Vmap or loop
     try:
         from torch import vmap
-        states = vmap(_state)(x).to(dtype=t_complex)
-    except Exception:
-        # Fallback loop
-        states = th.stack([_state(x[i]) for i in range(x.shape[0])], dim=0).to(dtype=t_complex)
-
-    if states.device.type != "cuda":
-        states = states.to("cuda", non_blocking=True)
+        states = vmap(_state)(x)
+    except:
+        states = th.stack([_state(x[i]) for i in range(x.shape[0])])
+    
+    states = states.to(dtype=t_cplx)
+    
+    # --- CRITICAL FIX: Synchronize PyTorch stream ---
+    # Ensures data is fully written to VRAM before CuPy reads it
+    th.cuda.synchronize() 
+    # ------------------------------------------------
+    
     return states
 
-
-def _torch_cuda_to_cupy(t: "torch.Tensor"):
-    """Zero-copy Torch CUDA -> CuPy via DLPack with robust fallback."""
+def _torch_cuda_to_cupy(t):
     import cupy as cp
-    import warnings
-
-    # Sync logical device
-    try:
-        if hasattr(t, "device") and t.device.type == "cuda":
-            dev_id = int(t.device.index or 0)
-            cp.cuda.Device(dev_id).use()
-    except Exception:
-        pass
-
-    # Modern API
-    try:
-        return cp.from_dlpack(t)
-    except Exception:
-        pass
-
-    # Legacy API
-    try:
-        from torch.utils.dlpack import to_dlpack
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return cp.from_dlpack(to_dlpack(t))
-    except Exception:
-        # CPU Fallback
-        return cp.asarray(t.detach().cpu().numpy())
-
+    # We assume strict synchronization was done before calling this
+    return cp.from_dlpack(t)
 
 # =====================================================================
-# CPU / generic path (NumPy or multiprocessing)
+# Main Compute Function
 # =====================================================================
-def _gram_pennylane_angles_mp(
-        A: Any,
-        B: Optional[Any] = None,
-        *,
-        weights: np.ndarray,
-        device_name: str = "lightning.qubit",
-        tile_size: int = 64,
-        symmetric: bool = True,
-        n_workers: int = 0,
-        dtype: Optional[str] = None,
-        return_dtype: Optional[str] = None,
-        progress: bool = False,
-        desc: str = "Gram",
-        angle_scale: float = 1.0,
-        re_embed_between_layers: bool = False,
-        embed_mode: str = "ryrz",
-) -> np.ndarray:
-    """CPU Multiprocessing Kernel."""
+def compute_kernel_matrix(
+        X: Any, Y: Optional[Any] = None, *, weights: np.ndarray,
+        device_name: str = "lightning.qubit", tile_size: int = 64, symmetric: bool = True,
+        n_workers: int = 0, dtype: str = "float32", return_dtype: str = "float32",
+        gram_backend: str = "auto", progress: bool = False, desc: str = "Gram",
+        angle_scale: float = 1.0, re_embed_between_layers: bool = False, embed_mode: str = "ryrz",
+        normalize: bool = False, jitter: float = 0.0,
+        # cuda_states params
+        state_tile: int = 8192, tile_m="auto", tile_n="auto", tile_k="auto"
+):
+    # Dtype Resolution
+    f_dt = np.float32 if dtype=="float32" else np.float64
+    r_dt = np.float32 if return_dtype=="float32" else np.float64
+    is_double = (f_dt == np.float64)
+
+    # 1. CUDA_STATES Backend (High Perf)
+    if gram_backend == "cuda_states":
+        import cupy as cp
+        try: _setup_cupy()
+        except: pass
+        
+        A = _ensure_numpy(X, f_dt)
+        B = A if Y is None else _ensure_numpy(Y, f_dt)
+        w = _ensure_numpy(weights, f_dt)
+        n, nq = A.shape
+        m = B.shape[0]
+        dim = 1 << nq
+
+        # Tile defaults
+        tm, tn, tk = (32, 32, 32)
+        if tile_m != "auto": tm, tn, tk = int(tile_m), int(tile_n), int(tile_k)
+        
+        # Output setup
+        K_cp = cp.empty((n, m), dtype=cp.float64 if is_double else cp.float32)
+        
+        # Precompute B tiles
+        j_ranges = list(_tile_ranges(m, state_tile))
+        b_cache = {}
+        
+        # Progress bars
+        it_b = tqdm(j_ranges, desc="Cache B", leave=False) if (progress and Y is not None) else j_ranges
+        for j0, j1 in it_b:
+            s_th = _build_states_block_torch_cuda(B[j0:j1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
+            b_cache[(j0, j1)] = _torch_cuda_to_cupy(s_th)
+        
+        # Main Loop
+        i_ranges = list(_tile_ranges(n, state_tile))
+        it_a = tqdm(i_ranges, desc=desc, leave=False) if progress else i_ranges
+        
+        for i0, i1 in it_a:
+            s_a_th = _build_states_block_torch_cuda(A[i0:i1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
+            s_a_cp = _torch_cuda_to_cupy(s_a_th)
+            
+            # Inner loop
+            relevant_j = [ (j0, j1) for (j0, j1) in j_ranges if (not symmetric or j1 > i0) ]
+            for j0, j1 in relevant_j:
+                s_b_cp = b_cache.get((j0, j1))
+                if s_b_cp is None: # Lazy load self-symmetric
+                    s_b_cp = b_cache[(j0, j1)] = s_a_cp
+                
+                bi, bj = int(i1-i0), int(j1-j0)
+                
+                # Kernel Selection
+                use_lower = (symmetric and (Y is None) and j0==i0)
+                if use_lower:
+                    k_fn = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_lower", is_double)
+                else:
+                    k_fn = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_full", is_double)
+                
+                # Launch
+                grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
+                block = (tn, tm, 1)
+                
+                # View on K
+                k_view = K_cp[i0:i1, j0:j1]
+                ldk = m # stride in elements
+                
+                # We need continuous K view? No, RawKernel can write with stride
+                # But K_cp is contiguous (n, m). Stride row is m.
+                # However cupy view might not be simple pointer.
+                # Safer: write to temp, copy. Or pass pointer arithmetic.
+                # For safety/simplicity with tiling:
+                
+                # Let's trust CuPy pointer arithmetic for sub-view if contiguous-ish
+                # Actually, K_cp[i0:i1, j0:j1] is NOT contiguous in memory usually.
+                # IT IS BETTER TO COMPUTE IN TEMP AND COPY.
+                
+                out_tile = cp.empty((bi, bj), dtype=K_cp.dtype)
+                k_fn(grid, block, (s_a_cp, s_b_cp, out_tile, bi, bj, dim, dim, dim, bj)) # ldk=bj for temp
+                
+                K_cp[i0:i1, j0:j1] = out_tile
+                if symmetric and (Y is None) and j0 > i0:
+                    K_cp[j0:j1, i0:i1] = out_tile.T
+            
+            del s_a_cp # free vram
+            
+        K = K_cp.get().astype(r_dt)
+        if normalize and Y is None: _normalize_diag_inplace(K)
+        return K
+
+    # 2. TORCH Backend (Fallback)
+    if gram_backend in ["torch", "auto"] and "gpu" in device_name:
+        import torch as th
+        try:
+            return _gram_torch_stream(
+                _ensure_numpy(X, f_dt), _ensure_numpy(Y, f_dt) if Y is not None else None,
+                weights_np=_ensure_numpy(weights, f_dt), device_name=device_name,
+                tile_size=tile_size, symmetric=symmetric, float_dt=f_dt, ret_dt=r_dt,
+                angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers, embed_mode=embed_mode
+            )
+        except Exception as e:
+            if gram_backend=="torch": raise e
+            
+    # 3. CPU Backend
+    return _gram_pennylane_angles_mp(
+        X, Y, weights=weights, device_name=device_name, tile_size=tile_size,
+        symmetric=symmetric, n_workers=n_workers, dtype=str(f_dt), return_dtype=str(r_dt),
+        progress=progress, desc=desc, angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers, embed_mode=embed_mode
+    )
+
+# Torch stream implementation
+def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric, float_dt, ret_dt, angle_scale, re_embed_between_layers, embed_mode):
+    import torch as th
+    import pennylane as qml
+    
+    n, nq = a_np.shape
+    m = n if b_np is None else b_np.shape[0]
+    
+    # Types
+    tf = th.float32 if float_dt==np.float32 else th.float64
+    tc = th.complex64 if float_dt==np.float32 else th.complex128
+    
+    # Move to GPU
+    a = th.from_numpy(a_np).to("cuda", dtype=tf)
+    b = a if b_np is None else th.from_numpy(b_np).to("cuda", dtype=tf)
+    w = th.from_numpy(weights_np).to("cuda", dtype=tf)
+    
+    # QNode
+    try: dev = qml.device(device_name, wires=nq, shots=None, c_dtype=(np.complex64 if float_dt==np.float32 else np.complex128))
+    except: dev = qml.device("lightning.gpu", wires=nq, shots=None)
+    
+    @qml.qnode(dev, interface="torch", diff_method=None)
+    def _state(row):
+        def _emb(v):
+            if embed_mode=="angle": qml.AngleEmbedding(float(angle_scale)*v[:nq], wires=range(nq), rotation="Y")
+            else:
+                for i in range(nq):
+                    qml.RY(float(angle_scale)*v[i], wires=i)
+                    if embed_mode=="ryrz": qml.RZ(float(angle_scale)*v[i], wires=i)
+        if re_embed_between_layers:
+            for l in range(w.shape[0]):
+                _emb(row)
+                qml.templates.BasicEntanglerLayers(w[l:l+1], wires=range(nq))
+        else:
+            _emb(row)
+            qml.templates.BasicEntanglerLayers(w, wires=range(nq))
+        return qml.state()
+
+    try: from torch import vmap; build = lambda x: vmap(_state)(x).to(dtype=tc)
+    except: build = lambda x: th.stack([_state(x[i]) for i in range(len(x))]).to(dtype=tc)
+
+    k = th.empty((n, m), device="cuda", dtype=tf)
+    
+    with th.no_grad():
+        for i0 in range(0, n, tile_size):
+            i1 = min(i0+tile_size, n)
+            sa = build(a[i0:i1])
+            j_start = i0 if (symmetric and b_np is None) else 0
+            for j0 in range(j_start, m, tile_size):
+                j1 = min(j0+tile_size, m)
+                sb = sa if (b_np is None and j0==i0) else build(b[j0:j1])
+                
+                # Gram block
+                res = (sa @ sb.conj().T).abs().square()
+                k[i0:i1, j0:j1] = res
+                if symmetric and b_np is None and j0 > i0:
+                    k[j0:j1, i0:i1] = res.T
+            del sa
+            th.cuda.empty_cache()
+            
+    return k.cpu().numpy().astype(ret_dt)
+
+def _gram_pennylane_angles_mp(*args, **kwargs):
+    # Dummy fallback if needed, but assuming user uses GPU
+    # You can keep your existing CPU implementation here
+        """CPU Multiprocessing Kernel."""
     import multiprocessing as mp
     import pennylane as qml
 

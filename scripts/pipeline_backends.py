@@ -1,4 +1,4 @@
-# pipeline_backends.py — Optimized, Synchronized & Vmap-Free
+# pipeline_backends.py — Optimized, Synchronized, Vmap-Free & Numerically Safe
 from typing import Optional, Any, Callable
 import os
 import sys
@@ -27,6 +27,7 @@ def _tile_ranges(n: int, tile: int):
 
 def _normalize_diag_inplace(K: np.ndarray):
     if K.shape[0] != K.shape[1]: return
+    # Clip pour éviter les racines de nombres négatifs minuscules
     d = np.sqrt(np.clip(np.diag(K), 1e-12, None))
     K /= d[:, None] * d[None, :]
     np.fill_diagonal(K, 1.0)
@@ -73,13 +74,17 @@ _pl_re_embed = False
 _pl_embed_mode = "ryrz"
 
 def _pl_worker_init(w, dev, nq, fdtype, ascale, re_emb, mode):
-    global _pl_w, _pl_nq, _pl_device, _pl_float_dtype, _pl_complex_dtype, _pl_angle_scale, _pl_re_embed, _pl_embed_mode
+    global _pl_w, _pl_nq, _pl_device, _pl_qnode, _pl_float_dtype, _pl_complex_dtype, _pl_angle_scale, _pl_re_embed, _pl_embed_mode
     os.environ["OMP_NUM_THREADS"] = "1"
     _pl_float_dtype = np.dtype(np.float32) if fdtype == "float32" else np.dtype(np.float64)
     _pl_complex_dtype = np.dtype(np.complex64) if fdtype == "float32" else np.dtype(np.complex128)
     _pl_w = _ensure_numpy(w, _pl_float_dtype)
     _pl_nq, _pl_device = int(nq), str(dev)
     _pl_angle_scale, _pl_re_embed, _pl_embed_mode = float(ascale), bool(re_emb), str(mode)
+    
+    # --- BUG FIX: Reset QNode to force device recreation on param change ---
+    _pl_qnode = None 
+    # ---------------------------------------------------------------------
 
 def _pl_get_qnode():
     global _pl_qnode
@@ -274,13 +279,10 @@ def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode):
 
     # --- ATTEMPT NATIVE BATCHING (FASTEST, NO VMAP) ---
     try:
-        # Try passing the full batch directly (Lightning GPU supports this)
         states = _state(x)
-        # Check if output is correct shape (Batch, 2^N)
         if states.ndim != 2 or states.shape[0] != x.shape[0]:
             raise ValueError("Batching not natively supported")
     except:
-        # Fallback to stack loop (Robust)
         states = th.stack([_state(x[i]) for i in range(x.shape[0])])
     
     states = states.to(device="cuda", dtype=t_cplx, non_blocking=False)
@@ -333,9 +335,7 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
         return qml.state()
 
     try: 
-        # Native batch attempt
         build = lambda x: _state(x).to(dtype=tc)
-        # Quick test
         _ = build(a[:2])
     except: 
         build = lambda x: th.stack([_state(x[i]) for i in range(len(x))]).to(dtype=tc)
@@ -475,7 +475,16 @@ def compute_kernel_matrix(
             
             del s_a_cp
             
+        # Synchronisation explicite avant lecture
+        cp.cuda.runtime.deviceSynchronize()
         K = K_cp.get().astype(r_dt)
+        
+        # --- PROTECTION ANTI-CRASH (NEW) ---
+        if not np.all(np.isfinite(K)):
+            print("⚠️ Matrice corrompue (NaN/Inf) détectée dans le backend cuda_states. Réparation...")
+            K = np.nan_to_num(K, nan=0.0, posinf=1.0, neginf=0.0)
+        # -----------------------------------
+
         if normalize and Y is None: 
             if jitter > 0: K += jitter * np.eye(n, dtype=K.dtype)
             _normalize_diag_inplace(K)

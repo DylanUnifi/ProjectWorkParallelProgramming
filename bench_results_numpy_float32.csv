@@ -1,0 +1,2 @@
+device,n_samples,n_qubits,tile_size,state_tile,workers,symmetric,layers,dtype,gram_backend,time_s,std_s,Mpairs_per_s,max_vram_gb
+lightning.qubit,100,12,128,4096,48,False,2,float32,numpy,2.6561,0.0098,0.004,0.0

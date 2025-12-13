@@ -20,6 +20,6 @@ pennylane:
 svm:
   use_pca: true
   pca_components: 10
-  n_trials: 40
+  n_trials: 30
 
 cv_folds: 3

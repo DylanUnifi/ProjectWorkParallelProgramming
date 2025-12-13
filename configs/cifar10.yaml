@@ -22,6 +22,6 @@ pennylane:
 svm:
   use_pca: true
   pca_components: 10
-  n_trials: 50               # Optuna trials
+  n_trials: 30               # Optuna trials
 
 cv_folds: 3

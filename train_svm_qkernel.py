@@ -201,17 +201,25 @@ def train_fold(
     # ── Optimisation SVM (C) avec Optuna ──
     print(f"🔍 Optimizing C (Optuna)...")
     def objective(trial):
-        C = trial.suggest_float("C", 1e-3, 1e4, log=True)
+        C = trial.suggest_float('C', 0.1, 10.0, log=True)
         print(f"🔄 Trial {trial.number}: Training with C={C:.2e}...")  # <--- AJOUT
         
-        svm = EnhancedSVM(C=C, kernel="precomputed", probability=True, class_weight="balanced")
+        svm = EnhancedSVM(
+            C=C,
+            kernel="precomputed",
+            probability=True,
+            class_weight="balanced", # Indispensable
+            max_iter=50000,          # Augmenté pour la convergence
+            tol=1e-4,
+            cache_size=4000
+        )
         # ...
         svm.fit(K_train, y_train)
         # Score sur validation
         y_pred = svm.predict(K_val)
         return 1.0 - f1_score(y_val, y_pred, average="binary")
 
-    study = optuna.create_study(direction="minimize")
+    study = optuna.create_study(direction="maximize")
     # Activez la barre de progression pour voir l'avancement
     study.optimize(objective, n_trials=config.get("svm", {}).get("n_trials", 20), show_progress_bar=True)
     best_C = study.best_params["C"]

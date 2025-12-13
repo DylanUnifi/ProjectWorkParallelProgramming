@@ -1,0 +1,2 @@
+device,n_samples,n_qubits,tile_size,state_tile,workers,symmetric,layers,dtype,gram_backend,time_s,std_s,Mpairs_per_s,max_vram_gb
+lightning.gpu,20000,10,10000,10000,1,False,2,float32,torch,186.6359,0.4023,2.143,1.864

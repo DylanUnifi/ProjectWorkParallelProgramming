@@ -27,26 +27,26 @@ Thumbs.db
 # --- Logs & Debug ---
 *.log
 logs/
-logs_*/           # Pour ignorer logs_fashion_grid, logs_cifar10_grid, etc.
-wandb/            # Dossier local de Weights & Biases (très lourd)
+logs_*/           # Ignore tous les dossiers de logs (logs_fashion_grid, etc.)
+wandb/            # Dossier local de Weights & Biases (Lourd !)
 
 # --- Données & Résultats ---
 data/
 datasets/
 results/
-outputs/          # Volume monté dans docker-compose
+outputs/          # Volume monté Docker
 
 # --- Checkpoints & Modèles ---
 checkpoints/
-checkpoints_svm/  # Dossier par défaut de votre EnhancedSVM
+checkpoints_svm/  # Dossier par défaut de EnhancedSVM
 *.pt
 *.pth
 *.pkl
 *.ckpt
 
-# --- Caches Spécifiques au Projet ---
-kernel_cache/     # CRITIQUE : Ignore les matrices .npy (centaines de Mo)
-*.npy             # Ignore tous les fichiers numpy isolés
+# --- Caches Spécifiques au Projet (IMPORTANT) ---
+kernel_cache/     # EXCLU : Matrices de kernel quantique (.npy)
+*.npy             # Sécurité : Ignore tous les fichiers numpy isolés
 
 # --- Docker ---
-.dockerignore     # Optionnel, parfois on veut le versionner, parfois non. Gardez-le si vous voulez.
+.dockerignore

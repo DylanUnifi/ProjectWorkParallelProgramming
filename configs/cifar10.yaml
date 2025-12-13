@@ -1,23 +1,27 @@
 # config/cifar10_qsvm_optimized.yaml
-experiment_name: "svm_qkernel_cifar10_blackwell_optimized"
+experiment_name: "svm_qkernel_cifar10_blackwell_float64"
 
 dataset:
   name: cifar10
   binary_classes: [3, 8]     # Cat vs Ship
-  grayscale: true            # Simplifié pour quantum
+  grayscale: true
   root: ./data
 
 pennylane:
-  device: lightning.gpu      # ✅ Blackwell
-  workers: 1                 # GPU = 1 worker
-  layers: 2                  # ✅ Sweet spot
-  tile_size: 2048            # ✅ Grand batch pour GPU
+  device: lightning.gpu
+  workers: 1                 # GPU = 1 worker (le parallélisme est interne au GPU)
+  layers: 2
+  # Avec 96GB VRAM, on peut traiter des blocs énormes.
+  # 10000 * 10000 * 8 bytes (complex128) ~= 1.6 GB. C'est large !
+  tile_size: 10000           
   kernel_centering: true
-  gram_backend: tensorcore   # ✅ OPTIMAL pour Blackwell!
+  gram_backend: cuda_states  # ✅ Backend validé
+  angle_scale: 1.5           # ✅ Meilleur résultat observé
+  embed_mode: ryrz
 
 svm:
-  use_pca: true              # ✅ Réduction dimensionnalité
-  pca_components: 10         # 10 qubits max
+  use_pca: true
+  pca_components: 10
   n_trials: 50               # Optuna trials
 
-cv_folds: 3                  # Cross-validation
+cv_folds: 3

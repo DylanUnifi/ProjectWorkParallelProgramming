@@ -1,5 +1,5 @@
-# pipeline_backends.py — Optimized & Synchronized for CUDA Stability
-from typing import Optional, Any, Callable, Tuple, List
+# pipeline_backends.py — Optimized, Synchronized & Vmap-Free
+from typing import Optional, Any, Callable
 import os
 import sys
 import numpy as np
@@ -35,11 +35,9 @@ def _setup_cupy():
     import cupy as cp
     pool = cp.cuda.MemoryPool()
     cp.cuda.set_allocator(pool.malloc)
-    # Warmup & Sync
     _ = cp.ones((1,), dtype=cp.float32)
     cp.cuda.runtime.deviceSynchronize()
 
-    # Robust Include Path for NVRTC
     candidates = [
         os.environ.get("CUDA_PATH"), os.environ.get("CUDA_HOME"),
         "/usr/local/cuda", "/opt/cuda",
@@ -62,7 +60,7 @@ def _setup_cupy():
             os.environ["CUPY_NVRTC_OPTIONS"] = existing + " " + opts
 
 # =====================================================================
-# Worker globals (multiprocessing path)
+# Worker globals
 # =====================================================================
 _pl_w = None
 _pl_nq = None
@@ -90,9 +88,7 @@ def _pl_get_qnode():
         try:
             dev = qml.device(_pl_device, wires=_pl_nq, shots=None, c_dtype=_pl_complex_dtype)
         except:
-            # Fallback for older PennyLane versions or if c_dtype not supported
             dev = qml.device(_pl_device, wires=_pl_nq, shots=None)
-            
         @qml.qnode(dev, interface=None, diff_method=None)
         def _state(theta_row):
             theta = qml.math.asarray(theta_row, dtype=_pl_float_dtype)
@@ -120,7 +116,7 @@ def _pl_states_for_rows(rows, mat):
     return out
 
 # =====================================================================
-# CUDA Kernels (Template)
+# CUDA Kernels
 # =====================================================================
 CUDA_TEMPLATE = r"""
 #ifndef TILE_M
@@ -241,7 +237,7 @@ def _get_kernel(tm, tn, tk, name, double):
     return fn
 
 # =====================================================================
-# State Generation (Torch) -> CuPy
+# State Generation (Torch) -> CuPy (FIXED & BATCHED)
 # =====================================================================
 def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode):
     import torch as th
@@ -276,19 +272,22 @@ def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode):
             qml.templates.BasicEntanglerLayers(w, wires=range(nq))
         return qml.state()
 
+    # --- ATTEMPT NATIVE BATCHING (FASTEST, NO VMAP) ---
     try:
-        from torch import vmap
-        states = vmap(_state)(x)
+        # Try passing the full batch directly (Lightning GPU supports this)
+        states = _state(x)
+        # Check if output is correct shape (Batch, 2^N)
+        if states.ndim != 2 or states.shape[0] != x.shape[0]:
+            raise ValueError("Batching not natively supported")
     except:
+        # Fallback to stack loop (Robust)
         states = th.stack([_state(x[i]) for i in range(x.shape[0])])
     
-    # Force le déplacement sur GPU (au cas où la simulation s'est faite sur CPU)
-    # et assure le bon type complexe
     states = states.to(device="cuda", dtype=t_cplx, non_blocking=False)
     
-    # --- SYNC CORRECTION ---
+    # --- CRITICAL FIX: SYNC ---
     th.cuda.synchronize()
-    # -----------------------
+    # --------------------------
     
     return states
 
@@ -333,8 +332,13 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
             qml.templates.BasicEntanglerLayers(w, wires=range(nq))
         return qml.state()
 
-    try: from torch import vmap; build = lambda x: vmap(_state)(x).to(dtype=tc)
-    except: build = lambda x: th.stack([_state(x[i]) for i in range(len(x))]).to(dtype=tc)
+    try: 
+        # Native batch attempt
+        build = lambda x: _state(x).to(dtype=tc)
+        # Quick test
+        _ = build(a[:2])
+    except: 
+        build = lambda x: th.stack([_state(x[i]) for i in range(len(x))]).to(dtype=tc)
 
     k = th.empty((n, m), device="cuda", dtype=tf)
     
@@ -361,7 +365,6 @@ def _gram_pennylane_angles_mp(
 ):
     import multiprocessing as mp
     
-    # Resolve dtypes properly
     f_dt = np.dtype(np.float32) if dtype=="float32" else np.dtype(np.float64)
     r_dt = np.dtype(np.float32) if return_dtype=="float32" else np.dtype(np.float64)
     
@@ -387,6 +390,7 @@ def _gram_pennylane_angles_mp(
         ctx = mp.get_context("spawn")
         from functools import partial
         with ctx.Pool(processes=n_workers, initializer=_pl_worker_init, initargs=initargs) as pool:
+            from functools import partial
             sa = np.concatenate(list(pool.imap(partial(_pl_states_for_rows, mat=A), ra)), axis=0)
             sb = sa if (B is A) else np.concatenate(list(pool.imap(partial(_pl_states_for_rows, mat=B), rb)), axis=0)
             

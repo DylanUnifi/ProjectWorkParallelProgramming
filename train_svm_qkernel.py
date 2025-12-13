@@ -382,7 +382,7 @@ if __name__ == "__main__":
     p.add_argument("--pl-workers", type=int, default=None)
     p.add_argument("--tile-size", type=int, default=None)
     p.add_argument("--gram-backend", type=str, default="auto", 
-                   choices=["auto", "numpy", "torch", "cuda_states", "cupy"])
+                   choices=["auto", "numpy", "torch", "cuda_states"])
     p.add_argument("--dtype", type=str, default="float32")
     p.add_argument("--return-dtype", type=str, default="float32")
     

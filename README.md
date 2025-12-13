@@ -1,240 +1,197 @@
+````markdown
 # Parallel Programming Project
 
-[![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CUDA%20%7C%20OpenMP-green?logo=pytorch)](#)
-[![Benchmarks](https://img.shields.io/badge/Benchmarks-PL%20Kernel%20%7C%20CPU%20vs%20GPU-blue)](#)
+[![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CuPy%20%7C%20CUDA-green?logo=pytorch)](#)
+[![Hardware](https://img.shields.io/badge/Hardware-NVIDIA%20RTX%206000%20(96GB)%20%7C%20AMD%20EPYC%2074F3-red)](#-hardware-specs)
 [![W&B](https://img.shields.io/badge/Weights_&_Biases-logging-orange?logo=weightsandbiases)](#-logging--artifacts)
 
 SVM **quantum and classical training** for binary image classification with a focus on **parallel** and **heterogeneous** computation of **quantum kernel matrices**.  
 Project developed in the *Parallel Programming* course (University of Florence).
 
-> Core idea: the **Gram matrix** \(K\) (state fidelity kernel) dominates training time. We accelerate it with tiling, multiprocessing and GPU backends (NumPy, CuPy, Torch/CUDA).
+> **Core Innovation:** We implemented a custom **High-Performance Backend** (`cuda_states`) using Raw CUDA Kernels via CuPy and Zero-Copy memory transfer (DLPack) to bypass standard library overheads.
 
 ---
 
 ## Table of Contents
 - [Overview](#overview)
 - [Repo layout](#repo-layout)
+- [High-Performance Architecture](#-high-performance-architecture)
+- [Hardware Specs](#-hardware-specs)
 - [Setup](#setup)
 - [Backends & knobs](#backends--knobs)
-- [Experiments Roadmap](#-experiments-roadmap)
-- [Host Throughput Results](#host-throughput-results)
-- [Reporting](#reporting)
+- [Training & Usage](#-training--usage)
+- [Benchmarking](#benchmarking)
 - [Logging & artifacts](#-logging--artifacts)
-- [Troubleshooting](#troubleshooting)
 - [License & citation](#license--citation)
 
 ---
 
 ## Overview
 
-We provide SVM binary classification of classical images dataset with rbf kernel and computed quantum kernel:
+We provide SVM binary classification of classical images dataset (CIFAR-10, Fashion-MNIST, SVHN) using Quantum Kernels computed on GPU:
 
-- `scripts/train_svm_qkernel.py` — **script** for SVM Quantum kernels training.
-- `scripts/train_svm.py` — **script** for SVM RBF kernel training.
-- `quantumkernels/compute_kernel.py` — unified API to compute \(K\) with:
-  - **PennyLane / lightning.qubit** (CPU) and **lightning.gpu** (GPU)
-  - **Host matmul**: NumPy (CPU), **CuPy** (GPU), **Torch/CUDA** (GPU, *streaming path: states+GEMM entirely on GPU*)
-  - **Multiprocessing** (spawn-safe) and **tiling** to bound memory
-- `benchmark_pl_kernel.py` — sweeps configurations and reports **throughput** (Mpairs/s).
+- `scripts/train_svm_qkernel.py` — **Main script** for SVM Quantum kernels training (CV, Optuna, Cache).
+- `scripts/pipeline_backends.py` — **The Engine**: Unified API to compute \(K\) with:
+  - **`cuda_states`**: *Flagship backend*. Custom C++ CUDA kernels compiled via NVRTC + CuPy. Supports massive tiling.
+  - **`torch`**: Streaming GPU implementation using native PyTorch operations.
+  - **`numpy`**: Fallback CPU implementation with multiprocessing.
+- `tools/benchmark_pl_kernel.py` — Tool to measure throughput (Mpairs/s) and VRAM usage.
 
 ---
 
 ## Repo layout
 
-```
-train_svm.py
-train_svm_qkernel.py.py
-quantumkernels/
-  └─ compute_kernel.py               # unified kernel API (NumPy/CuPy/Torch)
-benchmark_pl_kernel.py             # calculate kernel throughput
-run_experiments_all.sh
+```text
+train_svm_qkernel.py               # Main Entry Point
+scripts/
+  └─ pipeline_backends.py          # Unified kernel API (The "Engine")
+tools/
+  ├─ benchmark_pl_kernel.py        # Throughput benchmark
+  └─ check_nan.py                  # Numerical stability check
 configs/
-  ├─ fashion_debug.yaml
-  ├─ svhn_debug.yaml
-  ├─ cifar10_debug.yaml
-  └─ fashion/svhn/cifar10*.yaml
-results/                                # plots
-```
+  ├─ cifar10.yaml                  # Config for huge datasets (10k+ samples)
+  ├─ fashion.yaml
+  └─ svhn.yaml
+models/
+  └─ svm_extension.py              # Custom SVM wrapper (Save/Load/Thresholds)
+kernel_cache/                      # Stores computed .npy matrices (ignored by git)
+````
 
----
+-----
+
+## 🚀 High-Performance Architecture
+
+This project implements a custom **GPU-accelerated pipeline** (`cuda_states`) designed for massive quantum kernel computations on NVIDIA GPUs.
+
+### Key Features
+
+1.  **Zero-Copy Memory Management:** Uses `DLPack` to transfer state vectors from PennyLane/PyTorch to CuPy/CUDA without CPU round-trips.
+2.  **Custom CUDA Kernels:** Implements raw C++ CUDA kernels (`cgemm_abs2_tiled`) to fuse dot-product and magnitude-squared operations, minimizing VRAM bandwidth.
+3.  **Synchronization:** Explicit CUDA stream synchronization to prevent race conditions between PyTorch (State Generation) and CuPy (Kernel Calculation).
+4.  **Float64 Support:** Full support for double precision to ensure numerical stability in SVM solvers.
+
+-----
+
+## 💻 Hardware Specs
+
+Benchmarks and training were performed on a high-end HPC node:
+
+  * **GPU:** 2x **NVIDIA RTX 6000 Ada Generation** (96 GB VRAM each)
+  * **CPU:** Dual **AMD EPYC 74F3** 24-Core Processor (96 threads total)
+  * **RAM:** 512 GB DDR4
+  * **CUDA:** Version 13.0
+
+-----
 
 ## Setup
 
 ### Environment
 
-- **OS**: Linux (tested on Ubuntu 24.04)
-- **CUDA**: 12.x recommended (for GPU paths)
+  - **OS**: Linux (tested on Ubuntu 22.04/24.04)
+  - **CUDA**: 12.x or 13.x
+
+<!-- end list -->
 
 ```bash
 # Clone
-git clone https://github.com/DylanUnifi/ProjectWorkParallelProgramming.git
+git clone [https://github.com/DylanUnifi/ProjectWorkParallelProgramming.git](https://github.com/DylanUnifi/ProjectWorkParallelProgramming.git)
 cd ProjectWorkParallelProgramming
 
-# Conda env
-conda create -n ProjectWorkParallelProgramming python=3.12 -y
-conda activate ProjectWorkParallelProgramming
-
-# Base deps
+# Install dependencies
 pip install -r requirements.txt
-
-# GPU backends
-pip install "cupy-cuda13x"                
-conda install -c pytorch -c nvidia pytorch pytorch-cuda -y
 ```
 
-### Docker & Docker Compose (CPU + GPU)
+### Docker (Recommended)
 
-Python **3.12** images are provided for both CPU-only and GPU-capable hosts. W&B logging is forced **online** via `WANDB_MODE=online` in both images.
-
-#### CPU image
-```bash
-docker build -t parallel-programming:cpu -f Dockerfile .
-
-# Start an interactive container (VS Code devcontainers, bash, or Jupyter)
-docker run --rm -it \
-  -p 8888:8888 \
-  -v $(pwd):/app \
-  parallel-programming:cpu
-```
-
-#### GPU image
-```bash
-docker build -t parallel-programming:gpu -f Dockerfile.gpu .
-
-# Requires the NVIDIA Container Toolkit
-docker run --rm -it \
-  --gpus all \
-  -p 8888:8888 \
-  -v $(pwd):/app \
-  parallel-programming:gpu
-```
-
-> Both images include common image dependencies (`ffmpeg`, `libsm6`, `libxext6`, `libgl1`, `libglib2.0-0`) to support torchvision and Pillow-based pipelines.
-
-#### Docker Compose (CPU or GPU via profiles)
-
-Profiles let you select the target host without changing commands:
+We provide a Docker image optimized for CUDA 13.0 and Blackwell/Ada architectures.
 
 ```bash
-# CPU profile
-docker compose --profile cpu up --build
+# Build GPU image
+docker build -t parallel-programming:gpu -f Dockerfile.gpu25 .
 
-# GPU profile (uses Dockerfile.gpu and requests all visible GPUs)
-docker compose --profile gpu up --build
+# Run container (mounting current dir)
+docker run --rm -it --gpus all -v $(pwd):/app parallel-programming:gpu
 ```
 
-Containers start in an interactive shell. To launch Jupyter inside an already running container:
-
-```bash
-# In another terminal
-docker compose exec app-cpu jupyter lab --ip 0.0.0.0 --no-browser --port 8888
-# or, for GPU
-docker compose exec app-gpu jupyter lab --ip 0.0.0.0 --no-browser --port 8888
-```
-
-For VS Code Remote Containers, attach to the running service (`app-cpu` or `app-gpu`) to gain a full dev shell.
-
----
+-----
 
 ## Backends & knobs
 
-- **Devices** (`--pl-device`):  
-  - `lightning.qubit` (CPU), `lightning.gpu` (GPU)
-- **Matmul backends** (`--gram-backend`):  
-  - `numpy`, `torch`, `cuda_ry`
-- **Parallelism**:  
-  - `--workers` (processes; GPU forces 1)
-  - `--tile-size` (rows per block for states + GEMM)
-- **Precision**:  
-  - `--dtype {float32,float64}` (compute)
-  - `--return-dtype {float32,float64}` (final kernel)
+The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 
----
+  - **`--gram-backend`**:
+      - `cuda_states`: **Fastest**. Custom CUDA kernels. Requires CuPy.
+      - `torch`: Very fast. Uses PyTorch streams. Good fallback.
+      - `numpy`: CPU only.
+  - **`--tile-size`**: Number of rows computed at once. On RTX 6000 (96GB), use **10000**.
+  - **`--dtype`**: `float32` (speed) or `float64` (precision). **Float64 is recommended** for stability.
+  - **`--cache-kernels`**: Saves computed matrices to disk to skip re-computation during hyperparameter tuning.
 
+-----
 
-## Experiments Roadmap
+## 🔥 Training & Usage
 
-### Troubleshooting
+### 1\. Ultra-High Performance (Recommended)
 
-- **`ModuleNotFoundError: openpyxl`** → `pip install openpyxl`  
-- **CuPy error: `cuda_fp16.h` missing** → install CUDA toolkit headers (`conda install -c conda-forge cuda-toolkit=12.1 cupy`)  
-- **GPU slower than CPU** → increase `--tile-size` (≥1024) and use `--gram-backend torch`  
-- **CPU contention** → `export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` 
+To unleash the full performance on high-end GPUs, use `cuda_states` with huge tiles.
 
----
-
-### Benchmarking & HPC scaling
-- **Objective**: understand how the kernel backends behave (independent of dataset difficulty).  
-- Run `tools/benchmark_pl_kernel.py` to compare:
-  - **CPU (NumPy + multiprocessing)** vs **GPU (Torch streaming, RAW-Cuda)**.  
-  - Vary `tile_size`, `workers`, precision (`float32` vs `float64`).  
-- Collect **Mpairs/s throughput** and identify optimal settings per device. 
----
-
-### Host Throughput Results
-
-**Host: “WorkStation”** — Intel(R) Xeon(R) Silver 4314 CPU @ 2.40GHz (32C/64T) & NVIDIA RTX A2000 12GB
-
----
-
----
-
-### Debug mode (fast checks)
 ```bash
 python scripts/train_svm_qkernel.py \
-  --config configs/fashion_debug.yaml
+  --config configs/cifar10.yaml \
+  --gram-backend cuda_states \
+  --dtype float64 \
+  --tile-size 10000 \
+  --cache-kernels \
+  --angle-scale 1.5 \
+  --normalize-kernel
 ```
 
-Debug versions (fast sanity checks):
-- `fashion_debug.yaml` (5 epochs, batch 64)  
-- `svhn_debug.yaml` (8 epochs, batch 64)  
-- `cifar10_debug.yaml` (10 epochs, batch 64)  
+### 2\. Multi-GPU Training
 
----
+Since the system has 2 GPUs, you can train two datasets simultaneously:
 
-### Train (Quantum kernel)
 ```bash
-python scripts/train_svm_qkernel.py \
-  --config configs/fashion.yaml \
-  --kernel qkernel
-  --pl-device lightning.gpu
-  --kernel-centering
-  --gram-backend cuda_ry
+# Terminal 1: GPU 0 -> CIFAR-10
+CUDA_VISIBLE_DEVICES=0 python scripts/train_svm_qkernel.py --config configs/cifar10.yaml ...
+
+# Terminal 2: GPU 1 -> Fashion-MNIST
+CUDA_VISIBLE_DEVICES=1 python scripts/train_svm_qkernel.py --config configs/fashion.yaml ...
 ```
 
-👉 Configs: `fashion.yaml`, `svhn.yaml`, `cifar10.yaml`.
----
+-----
 
-### Train (RBF kernel)
+## Benchmarking
+
+To measure raw throughput (Million pairs/second) without training the SVM:
+
 ```bash
-python scripts/train_svm.py \
-  --config configs/fashion.yaml
+python tools/benchmark_pl_kernel.py \
+  --samples 20000 \
+  --qubits 10 \
+  --gram-backend cuda_states \
+  --dtype float64 \
+  --state-tile 10000 \
+  --device lightning.gpu
 ```
 
-👉 Configs: `fashion.yaml`, `svhn.yaml`, `cifar10.yaml`.
----
-
-### Reporting
-- Aggregate metrics: **F1, AUC, Balanced Accuracy, speed**.  
-- Export tables (CSV/Excel).  
-- Generate comparative plots: accuracy vs computation time.  
-- Draft final **academic-style report** with discussion.
-
----
+-----
 
 ## 📦 Logging & artifacts
 
-- **Weights & Biases**: per-epoch metrics, configs, thresholds.  
-- **Exports**: CSV and Excel (`openpyxl`).
+  - **Weights & Biases**: Tracks F1-score, AUC, Accuracy, and **Confusion Matrices**.
+  - **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data & params).
 
----
+-----
 
 ## License & citation
 
-- Code released for academic use within the Parallel Programming course.  
-- Please cite the repo and upstream frameworks (PennyLane, PyTorch) if you build on it.
+  - Code released for academic use within the Parallel Programming course.
+  - Please cite the repo and upstream frameworks (PennyLane, PyTorch, CuPy) if you build on it.
 
----
+-----
 
 ✍️ **Author**: Dylan Fouepe — Master’s in AI, University of Florence  
 GitHub: [@DylanUnifi](https://github.com/DylanUnifi)
+
+```
+```

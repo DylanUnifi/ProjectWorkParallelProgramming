@@ -1,25 +1,24 @@
-# config/svhn_qsvm_optimized.yaml
-experiment_name: "svm_qkernel_svhn_blackwell_float64"
+experiment_name: "svm_qkernel_svhn_final_float64"
 
 dataset:
   name: svhn
-  binary_classes: [3, 8]
+  binary_classes: [0, 1]
   grayscale: true
   root: ./data
 
 pennylane:
-  device: lightning.gpu      # Passage sur GPU
-  workers: 1
+  device: lightning.gpu
+  workers: 0
   layers: 2
-  tile_size: 10000           # Gros batch
+  tile_size: 13500
   kernel_centering: true
-  gram_backend: cuda_states  # Activation du backend custom
+  gram_backend: cuda_states
   angle_scale: 1.5
   embed_mode: ryrz
 
 svm:
   use_pca: true
-  pca_components: 10
+  pca_components: 18         # <--- Changé à 18 Qubits
   n_trials: 30
 
 cv_folds: 3

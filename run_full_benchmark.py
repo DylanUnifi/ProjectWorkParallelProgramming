@@ -8,7 +8,7 @@ Ce script génère automatiquement:
 2. Un graphique dual (Scaling + Speedup)
 3. Des statistiques détaillées pour le rapport
 
-Auteur: [Votre Nom]
+Auteur: [Dylan Fouepe]
 Date: 2025-12-13
 """
 

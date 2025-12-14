@@ -1,17 +1,16 @@
-# config/fashion_mnist_qsvm_optimized.yaml
-experiment_name: "svm_qkernel_fashion_mnist_blackwell_float64"
+experiment_name: "svm_qkernel_fashion_mnist_final_float64"
 
 dataset:
   name: fashion_mnist
-  binary_classes: [0, 6]     # T-shirt/top vs Shirt (exemple difficile)
+  binary_classes: [0, 1]     # T-shirt/top vs Shirt
   grayscale: true
   root: ./data
 
 pennylane:
   device: lightning.gpu
-  workers: 1
+  workers: 0
   layers: 2
-  tile_size: 12000           # On peut monter encore plus haut ici
+  tile_size: 12000
   kernel_centering: true
   gram_backend: cuda_states
   angle_scale: 1.5
@@ -19,7 +18,7 @@ pennylane:
 
 svm:
   use_pca: true
-  pca_components: 10
+  pca_components: 18         # <--- Changé à 18 Qubits
   n_trials: 30
 
 cv_folds: 3

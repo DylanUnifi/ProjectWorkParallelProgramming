@@ -1,5 +1,4 @@
-# config/cifar10_qsvm_optimized.yaml
-experiment_name: "svm_qkernel_cifar10_blackwell_float64"
+experiment_name: "svm_qkernel_cifar10_final_float64"
 
 dataset:
   name: cifar10
@@ -9,19 +8,17 @@ dataset:
 
 pennylane:
   device: lightning.gpu
-  workers: 1                 # GPU = 1 worker (le parallélisme est interne au GPU)
+  workers: 0
   layers: 2
-  # Avec 96GB VRAM, on peut traiter des blocs énormes.
-  # 10000 * 10000 * 8 bytes (complex128) ~= 1.6 GB. C'est large !
-  tile_size: 10000           
+  tile_size: 10000
   kernel_centering: true
-  gram_backend: cuda_states  # ✅ Backend validé
-  angle_scale: 1.5           # ✅ Meilleur résultat observé
+  gram_backend: cuda_states
+  angle_scale: 1.5
   embed_mode: ryrz
 
 svm:
   use_pca: true
-  pca_components: 10
-  n_trials: 30               # Optuna trials
+  pca_components: 18         # <--- Changé à 18 Qubits
+  n_trials: 30
 
 cv_folds: 3

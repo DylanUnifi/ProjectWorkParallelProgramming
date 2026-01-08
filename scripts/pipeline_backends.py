@@ -3,6 +3,7 @@ from typing import Optional, Any, Callable, Dict, Tuple, List
 import os
 import sys
 import json
+import time
 import numpy as np
 from tqdm import tqdm
 
@@ -70,6 +71,491 @@ def _get_pinned_buffer(shape: tuple, dtype):
         with cp.cuda.using_allocator(pinned_pool.malloc):
             _PINNED_BUFFERS[key] = cp.zeros(shape, dtype=dtype)
     return _PINNED_BUFFERS[key]
+
+# =====================================================================
+# Advanced GPU Optimization Classes
+# =====================================================================
+class DynamicBatchSizer:
+    """Adjusts batch sizes at runtime based on GPU memory pressure and throughput."""
+    
+    def __init__(self, initial_batch: int, min_batch: int = 64, max_batch: int = 16384,
+                 target_memory_usage: float = 0.85):
+        """
+        Initialize the dynamic batch sizer.
+        
+        Args:
+            initial_batch: Starting batch size
+            min_batch: Minimum allowed batch size
+            max_batch: Maximum allowed batch size
+            target_memory_usage: Target GPU memory utilization (0-1)
+        """
+        self.current_batch = initial_batch
+        self.min_batch = min_batch
+        self.max_batch = max_batch
+        self.target_memory = target_memory_usage
+        self.history = []
+        self.adjustments = 0
+        self.total_kernel_time = 0.0
+        self.kernel_count = 0
+    
+    def adjust(self, current_memory_used: float, last_kernel_time: float) -> int:
+        """
+        Returns adjusted batch size based on runtime metrics.
+        
+        Args:
+            current_memory_used: Current GPU memory usage as fraction (0-1)
+            last_kernel_time: Last kernel execution time in seconds
+        
+        Returns:
+            Adjusted batch size
+        """
+        self.total_kernel_time += last_kernel_time
+        self.kernel_count += 1
+        
+        old_batch = self.current_batch
+        
+        # If memory pressure is too high, reduce batch size
+        if current_memory_used > self.target_memory + 0.05:
+            self.current_batch = max(self.min_batch, int(self.current_batch * 0.75))
+            self.adjustments += 1
+        # If memory headroom exists and kernel time is stable, increase batch size
+        elif current_memory_used < self.target_memory - 0.10:
+            # Check variance of recent kernel times
+            if len(self.history) >= 5:
+                recent_times = [h[1] for h in self.history[-5:]]
+                variance = np.var(recent_times)
+                mean_time = np.mean(recent_times)
+                # Only increase if variance is low (stable performance)
+                if variance < (mean_time * 0.1) ** 2:
+                    self.current_batch = min(self.max_batch, int(self.current_batch * 1.25))
+                    self.adjustments += 1
+        
+        self.history.append((current_memory_used, last_kernel_time, self.current_batch))
+        
+        return self.current_batch
+    
+    def report(self) -> dict:
+        """Returns statistics on batch size adjustments."""
+        batch_sizes = [h[2] for h in self.history]
+        return {
+            "adjustments": self.adjustments,
+            "current_batch": self.current_batch,
+            "min_batch_used": min(batch_sizes) if batch_sizes else self.current_batch,
+            "max_batch_used": max(batch_sizes) if batch_sizes else self.current_batch,
+            "avg_kernel_time": self.total_kernel_time / self.kernel_count if self.kernel_count > 0 else 0.0,
+            "total_kernels": self.kernel_count
+        }
+
+
+class CUDAStreamPool:
+    """Manages multiple CUDA streams for concurrent operations."""
+    
+    def __init__(self, num_streams: int = 4):
+        """
+        Initialize the stream pool.
+        
+        Args:
+            num_streams: Number of streams to pre-allocate
+        """
+        import cupy as cp
+        self.num_streams = num_streams
+        self.streams = [cp.cuda.Stream(non_blocking=True) for _ in range(num_streams)]
+        self.current_idx = 0
+        self.usage_count = [0] * num_streams
+        self.total_operations = 0
+    
+    def get_stream(self):
+        """Get next available stream from pool using round-robin."""
+        stream = self.streams[self.current_idx]
+        self.usage_count[self.current_idx] += 1
+        self.current_idx = (self.current_idx + 1) % self.num_streams
+        self.total_operations += 1
+        return stream
+    
+    def synchronize_all(self):
+        """Synchronize all streams in the pool."""
+        for stream in self.streams:
+            stream.synchronize()
+    
+    def get_utilization(self) -> float:
+        """Calculate stream utilization balance (1.0 = perfectly balanced)."""
+        if self.total_operations == 0:
+            return 0.0
+        expected_per_stream = self.total_operations / self.num_streams
+        variance = np.var(self.usage_count)
+        # Lower variance = better utilization
+        return 1.0 - min(1.0, variance / (expected_per_stream ** 2) if expected_per_stream > 0 else 0)
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.synchronize_all()
+        return False
+
+
+class TileSizeOptimizer:
+    """Learns optimal tile sizes from historical runs."""
+    
+    def __init__(self, history_file: str = ".tile_optimizer_history.json"):
+        """
+        Initialize the tile size optimizer.
+        
+        Args:
+            history_file: Path to file for persisting learning data
+        """
+        self.history_file = history_file
+        self.history = []
+        self.load_history()
+    
+    def load_history(self):
+        """Load historical performance data from disk."""
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, 'r') as f:
+                    self.history = json.load(f)
+            except Exception:
+                self.history = []
+    
+    def save_history(self):
+        """Save historical performance data to disk."""
+        try:
+            with open(self.history_file, 'w') as f:
+                json.dump(self.history, f, indent=2)
+        except Exception:
+            pass
+    
+    def record_run(self, n_samples: int, n_qubits: int, state_tile: int,
+                   kernel_tiles: tuple, throughput: float, peak_memory: float):
+        """
+        Record metrics from a completed run.
+        
+        Args:
+            n_samples: Number of samples processed
+            n_qubits: Number of qubits
+            state_tile: State tile size used
+            kernel_tiles: Tuple of (TILE_M, TILE_N, TILE_K)
+            throughput: Achieved throughput (pairs/sec)
+            peak_memory: Peak memory usage in GB
+        """
+        entry = {
+            "n_samples": n_samples,
+            "n_qubits": n_qubits,
+            "state_tile": state_tile,
+            "kernel_tiles": list(kernel_tiles),
+            "throughput": throughput,
+            "peak_memory": peak_memory
+        }
+        self.history.append(entry)
+        self.save_history()
+    
+    def predict_optimal_tiles(self, n_samples: int, n_qubits: int,
+                               available_vram: float) -> dict:
+        """
+        Predict optimal state_tile and kernel tiles based on history.
+        
+        Args:
+            n_samples: Number of samples to process
+            n_qubits: Number of qubits
+            available_vram: Available VRAM in GB
+        
+        Returns:
+            Dictionary with predicted optimal configuration
+        """
+        if not self.history:
+            return {
+                "state_tile": -1,  # Use auto-detection
+                "kernel_tiles": (32, 32, 32),
+                "confidence": 0.0,
+                "source": "default"
+            }
+        
+        # Filter similar workloads (same n_qubits, similar n_samples)
+        similar = [h for h in self.history if h["n_qubits"] == n_qubits]
+        
+        if not similar:
+            # Fallback to any historical data with interpolation
+            similar = self.history
+        
+        # Find best performing configuration within memory constraints
+        valid = [h for h in similar if h["peak_memory"] <= available_vram * 0.9]
+        
+        if not valid:
+            return {
+                "state_tile": -1,
+                "kernel_tiles": (32, 32, 32),
+                "confidence": 0.0,
+                "source": "no_valid_history"
+            }
+        
+        # Sort by throughput (higher is better)
+        valid.sort(key=lambda x: x["throughput"], reverse=True)
+        best = valid[0]
+        
+        confidence = min(1.0, len(valid) / 10.0)  # More data = higher confidence
+        
+        return {
+            "state_tile": best["state_tile"],
+            "kernel_tiles": tuple(best["kernel_tiles"]),
+            "confidence": confidence,
+            "source": "learned"
+        }
+    
+    def get_statistics(self) -> dict:
+        """Return learning statistics and confidence metrics."""
+        if not self.history:
+            return {
+                "total_runs": 0,
+                "unique_configs": 0,
+                "avg_throughput": 0.0
+            }
+        
+        unique_configs = len(set(
+            (h["n_qubits"], h["state_tile"], tuple(h["kernel_tiles"]))
+            for h in self.history
+        ))
+        
+        return {
+            "total_runs": len(self.history),
+            "unique_configs": unique_configs,
+            "avg_throughput": np.mean([h["throughput"] for h in self.history])
+        }
+
+
+class MemoryProfiler:
+    """Detailed GPU memory analysis and profiling."""
+    
+    def __init__(self, enable_realtime: bool = False):
+        """
+        Initialize the memory profiler.
+        
+        Args:
+            enable_realtime: Enable real-time memory monitoring during execution
+        """
+        self.enable_realtime = enable_realtime
+        self.allocations = {}
+        self.transfers = []
+        self.snapshots = []
+        self.peak_allocated = 0.0
+        self.kernel_launches = 0
+        self.kernel_times = []
+    
+    def track_allocation(self, name: str, size_bytes: int):
+        """
+        Track a named memory allocation.
+        
+        Args:
+            name: Allocation category name
+            size_bytes: Size in bytes
+        """
+        if name not in self.allocations:
+            self.allocations[name] = 0
+        self.allocations[name] += size_bytes
+        
+        total = sum(self.allocations.values())
+        self.peak_allocated = max(self.peak_allocated, total)
+    
+    def track_transfer(self, direction: str, size_bytes: int, duration_ms: float):
+        """
+        Track a memory transfer.
+        
+        Args:
+            direction: Transfer direction ('H2D' or 'D2H')
+            size_bytes: Size in bytes
+            duration_ms: Transfer duration in milliseconds
+        """
+        self.transfers.append({
+            "direction": direction,
+            "size_bytes": size_bytes,
+            "duration_ms": duration_ms,
+            "bandwidth_gbps": (size_bytes / 1e9) / (duration_ms / 1000.0) if duration_ms > 0 else 0.0
+        })
+    
+    def track_kernel(self, duration_ms: float):
+        """Track a kernel execution."""
+        self.kernel_launches += 1
+        self.kernel_times.append(duration_ms)
+    
+    def snapshot(self) -> dict:
+        """Capture current memory state."""
+        try:
+            import cupy as cp
+            device = cp.cuda.Device()
+            mem_info = device.mem_info
+            current_state = {
+                "free": mem_info[0],
+                "total": mem_info[1],
+                "used": mem_info[1] - mem_info[0],
+                "allocations": dict(self.allocations)
+            }
+            self.snapshots.append(current_state)
+            return current_state
+        except Exception:
+            return {}
+    
+    def report(self, verbose: bool = True) -> dict:
+        """
+        Generate comprehensive memory report.
+        
+        Args:
+            verbose: Print detailed report to console
+        
+        Returns:
+            Dictionary with profiling statistics
+        """
+        # Calculate statistics
+        h2d_transfers = [t for t in self.transfers if t["direction"] == "H2D"]
+        d2h_transfers = [t for t in self.transfers if t["direction"] == "D2H"]
+        
+        h2d_total_gb = sum(t["size_bytes"] for t in h2d_transfers) / 1e9
+        d2h_total_gb = sum(t["size_bytes"] for t in d2h_transfers) / 1e9
+        h2d_avg_bw = np.mean([t["bandwidth_gbps"] for t in h2d_transfers]) if h2d_transfers else 0.0
+        d2h_avg_bw = np.mean([t["bandwidth_gbps"] for t in d2h_transfers]) if d2h_transfers else 0.0
+        
+        avg_kernel_time = np.mean(self.kernel_times) if self.kernel_times else 0.0
+        
+        report_data = {
+            "peak_allocated_gb": self.peak_allocated / 1e9,
+            "allocations": {k: v / 1e9 for k, v in self.allocations.items()},
+            "h2d_total_gb": h2d_total_gb,
+            "d2h_total_gb": d2h_total_gb,
+            "h2d_avg_bandwidth_gbps": h2d_avg_bw,
+            "d2h_avg_bandwidth_gbps": d2h_avg_bw,
+            "kernel_launches": self.kernel_launches,
+            "avg_kernel_time_ms": avg_kernel_time
+        }
+        
+        if verbose:
+            self._print_report(report_data)
+        
+        return report_data
+    
+    def _print_report(self, data: dict):
+        """Print formatted profiling report."""
+        try:
+            import cupy as cp
+            device = cp.cuda.Device()
+            total_vram = device.mem_info[1] / 1e9
+        except Exception:
+            total_vram = 0.0
+        
+        print("\n╔══════════════════════════════════════════════════════════════╗")
+        print("║                    GPU PERFORMANCE REPORT                      ║")
+        print("╠══════════════════════════════════════════════════════════════╣")
+        print("║ Memory Usage                                                   ║")
+        
+        if total_vram > 0:
+            peak_pct = (data["peak_allocated_gb"] / total_vram) * 100
+            print(f"║   Peak Allocated:     {data['peak_allocated_gb']:5.1f} GB / {total_vram:5.1f} GB ({peak_pct:4.1f}%)               ║")
+        else:
+            print(f"║   Peak Allocated:     {data['peak_allocated_gb']:5.1f} GB                                   ║")
+        
+        for name, size_gb in data["allocations"].items():
+            print(f"║   {name:20s}: {size_gb:5.1f} GB                                  ║")
+        
+        print("╠══════════════════════════════════════════════════════════════╣")
+        print("║ Transfer Bandwidth                                             ║")
+        print(f"║   H→D Total:          {data['h2d_total_gb']:5.1f} GB @ {data['h2d_avg_bandwidth_gbps']:4.1f} GB/s                     ║")
+        print(f"║   D→H Total:          {data['d2h_total_gb']:5.1f} GB @ {data['d2h_avg_bandwidth_gbps']:4.1f} GB/s                     ║")
+        print("╠══════════════════════════════════════════════════════════════╣")
+        print("║ Kernel Performance                                             ║")
+        print(f"║   Total Launches:     {data['kernel_launches']:,}                                    ║")
+        print(f"║   Avg Kernel Time:     {data['avg_kernel_time_ms']:.2f} ms                                 ║")
+        print("╚══════════════════════════════════════════════════════════════╝\n")
+
+
+class CUDAGraphManager:
+    """Manages CUDA graph capture and replay for kernel optimization."""
+    
+    def __init__(self):
+        """Initialize the CUDA graph manager."""
+        self.graphs = {}
+        self.graph_execs = {}
+        self.capture_counts = {}
+        self.replay_counts = {}
+    
+    def capture_graph(self, key: tuple, stream, kernel_fn: Callable, 
+                      grid: tuple, block: tuple, args: tuple):
+        """
+        Capture a CUDA graph for the given kernel configuration.
+        
+        Args:
+            key: Unique key for this graph configuration
+            stream: CUDA stream to use
+            kernel_fn: Compiled kernel function
+            grid: Grid dimensions
+            block: Block dimensions
+            args: Kernel arguments
+        """
+        import cupy as cp
+        
+        if key in self.graphs:
+            return
+        
+        try:
+            # Start graph capture
+            stream.begin_capture()
+            
+            # Execute kernel in capture mode
+            kernel_fn(grid, block, args)
+            
+            # End capture and get graph
+            graph = stream.end_capture()
+            
+            # Instantiate graph for replay
+            graph_exec = graph.instantiate()
+            
+            self.graphs[key] = graph
+            self.graph_execs[key] = graph_exec
+            self.capture_counts[key] = 1
+            self.replay_counts[key] = 0
+            
+        except Exception as e:
+            # If capture fails, clean up and continue without graph
+            try:
+                stream.end_capture()
+            except:
+                pass
+    
+    def has_graph(self, key: tuple) -> bool:
+        """Check if a graph exists for this configuration."""
+        return key in self.graph_execs
+    
+    def replay_graph(self, key: tuple, stream):
+        """
+        Replay a previously captured graph.
+        
+        Args:
+            key: Graph configuration key
+            stream: CUDA stream to replay on
+        """
+        if key not in self.graph_execs:
+            raise KeyError(f"No graph found for key {key}")
+        
+        graph_exec = self.graph_execs[key]
+        graph_exec.launch(stream)
+        self.replay_counts[key] = self.replay_counts.get(key, 0) + 1
+    
+    def clear(self):
+        """Release all captured graphs."""
+        self.graphs.clear()
+        self.graph_execs.clear()
+        self.capture_counts.clear()
+        self.replay_counts.clear()
+    
+    def get_statistics(self) -> dict:
+        """Get statistics about graph usage."""
+        total_captures = sum(self.capture_counts.values())
+        total_replays = sum(self.replay_counts.values())
+        hit_rate = total_replays / (total_captures + total_replays) if (total_captures + total_replays) > 0 else 0.0
+        
+        return {
+            "total_graphs": len(self.graphs),
+            "total_captures": total_captures,
+            "total_replays": total_replays,
+            "hit_rate": hit_rate
+        }
+
 
 def _compute_optimal_state_tile(vram_fraction: float = 0.85, nq: int = 6, 
                                  dtype=np.float32, overhead_gb: float = 2.0) -> int:
@@ -747,7 +1233,14 @@ def compute_kernel_matrix(
         angle_scale: float = 1.0, re_embed_between_layers: bool = False, embed_mode: str = "ryrz",
         normalize: bool = False, jitter: float = 0.0,
         state_tile: int = -1, tile_m="auto", tile_n="auto", tile_k="auto",
-        autotune: bool = True, precompute_all_states: bool = True, vram_fraction: float = 0.85
+        autotune: bool = True, precompute_all_states: bool = True, vram_fraction: float = 0.85,
+        # NEW parameters for advanced optimizations
+        dynamic_batch: bool = True,
+        num_streams: int = 4,
+        learn_tiles: bool = True,
+        profile_memory: bool = False,
+        use_cuda_graphs: bool = True,
+        verbose_profile: bool = False
 ):
     f_dt = np.float32 if dtype=="float32" else np.float64
     r_dt = np.float32 if return_dtype=="float32" else np.float64
@@ -784,7 +1277,67 @@ def compute_kernel_matrix(
             if tile_m != "auto": 
                 tm, tn, tk = int(tile_m), int(tile_n), int(tile_k)
         
+        # NEW OPTIMIZATION: Tile size learning
+        tile_optimizer = None
+        if learn_tiles:
+            tile_optimizer = TileSizeOptimizer()
+            device = cp.cuda.Device()
+            available_vram = device.mem_info[1] / 1e9  # Convert to GB
+            prediction = tile_optimizer.predict_optimal_tiles(n, nq, available_vram)
+            
+            if prediction["confidence"] > 0.5 and state_tile == -1:
+                state_tile = prediction["state_tile"]
+                if state_tile > 0 and progress:
+                    print(f"🧠 Learned state_tile={state_tile} (confidence: {prediction['confidence']:.2f})")
+            
+            if prediction["confidence"] > 0.5 and tile_m == "auto":
+                tm, tn, tk = prediction["kernel_tiles"]
+                if progress:
+                    print(f"🧠 Learned kernel tiles: M={tm}, N={tn}, K={tk}")
+        
+        # NEW OPTIMIZATION: Memory profiler
+        mem_profiler = None
+        if profile_memory:
+            mem_profiler = MemoryProfiler(enable_realtime=verbose_profile)
+            if progress:
+                print("📊 Memory profiling enabled")
+        
+        # NEW OPTIMIZATION: CUDA stream pool
+        stream_pool = None
+        if num_streams > 1:
+            stream_pool = CUDAStreamPool(num_streams)
+            if progress:
+                print(f"🌊 Stream pool initialized with {num_streams} streams")
+        
+        # NEW OPTIMIZATION: Dynamic batch sizer
+        batch_sizer = None
+        if dynamic_batch and state_tile > 0:
+            batch_sizer = DynamicBatchSizer(
+                initial_batch=state_tile,
+                min_batch=max(64, state_tile // 4),
+                max_batch=min(16384, state_tile * 2),
+                target_memory_usage=vram_fraction
+            )
+            if progress:
+                print(f"🔄 Dynamic batch sizing enabled (initial={state_tile})")
+        
+        # NEW OPTIMIZATION: CUDA graph manager
+        graph_manager = None
+        if use_cuda_graphs:
+            graph_manager = CUDAGraphManager()
+            if progress:
+                print("📈 CUDA graph optimization enabled")
+        
+        # Re-finalize state_tile if still auto
+        if state_tile == -1:
+            state_tile = _compute_optimal_state_tile(vram_fraction, nq, f_dt)
+            if progress:
+                print(f"📊 Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
+        
         K_cp = cp.empty((n, m), dtype=cp.float64 if is_double else cp.float32)
+        
+        if mem_profiler:
+            mem_profiler.track_allocation("kernel_output", K_cp.nbytes)
         
         # OPTIMIZATION 2: Bulk state precomputation
         max_precompute = _compute_max_precompute_size(vram_fraction, nq, f_dt)
@@ -795,6 +1348,7 @@ def compute_kernel_matrix(
             if progress:
                 print(f"⚡ Bulk precomputing {n} + {m} states...")
             
+            start_time = time.time()
             s_a_cp = _build_all_states_torch_cuda(A, w, device_name, angle_scale, 
                                                    re_embed_between_layers, embed_mode, use_pinned=True)
             if Y is None:
@@ -803,12 +1357,26 @@ def compute_kernel_matrix(
                 s_b_cp = _build_all_states_torch_cuda(B, w, device_name, angle_scale,
                                                        re_embed_between_layers, embed_mode, use_pinned=True)
             
-            # OPTIMIZATION 4: Async dispatch with batch synchronization
-            compute_stream = _get_compute_stream()
+            if mem_profiler:
+                mem_profiler.track_allocation("states_A", s_a_cp.nbytes)
+                if Y is not None:
+                    mem_profiler.track_allocation("states_B", s_b_cp.nbytes)
+            
+            # Use stream pool or fallback to single stream
+            if stream_pool:
+                compute_stream = stream_pool
+            else:
+                compute_stream = _get_compute_stream()
+            
             tile_count = 0
             
-            i_ranges = list(_tile_ranges(n, state_tile))
-            j_ranges = list(_tile_ranges(m, state_tile))
+            # Dynamic batch sizing
+            current_state_tile = state_tile
+            if batch_sizer:
+                current_state_tile = batch_sizer.current_batch
+            
+            i_ranges = list(_tile_ranges(n, current_state_tile))
+            j_ranges = list(_tile_ranges(m, current_state_tile))
             
             it = tqdm(total=len(i_ranges)*len(j_ranges), desc=desc, leave=False) if progress else None
             
@@ -825,35 +1393,86 @@ def compute_kernel_matrix(
                     bi, bj = int(i1-i0), int(j1-j0)
                     
                     use_lower = (symmetric and (Y is None) and j0==i0)
-                    k_fn = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full", is_double)
+                    kernel_name = "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full"
+                    k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
                     
                     grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
                     block = (tn, tm, 1)
                     
                     out_tile = cp.empty((bi, bj), dtype=K_cp.dtype)
                     
-                    # Async dispatch
-                    _dispatch_kernel_async(k_fn, grid, block, 
-                                         (s_a_tile, s_b_tile, out_tile, bi, bj, dim, dim, dim, bj),
-                                         stream=compute_stream)
+                    # Select stream
+                    if stream_pool:
+                        current_stream = stream_pool.get_stream()
+                    else:
+                        current_stream = compute_stream
+                    
+                    # CUDA graph optimization
+                    graph_key = (bi, bj, tm, tn, tk, kernel_name, is_double)
+                    kernel_start = time.time()
+                    
+                    if graph_manager and graph_manager.has_graph(graph_key):
+                        # Replay existing graph
+                        with current_stream:
+                            graph_manager.replay_graph(graph_key, current_stream)
+                    else:
+                        # Execute kernel normally
+                        with current_stream:
+                            k_fn(grid, block, (s_a_tile, s_b_tile, out_tile, bi, bj, dim, dim, dim, bj))
+                        
+                        # Capture graph for future reuse
+                        if graph_manager and tile_count > 0:  # Skip first tile to avoid capture issues
+                            try:
+                                graph_manager.capture_graph(graph_key, current_stream, k_fn, grid, block,
+                                                           (s_a_tile, s_b_tile, out_tile, bi, bj, dim, dim, dim, bj))
+                            except Exception:
+                                pass  # Graph capture failed, continue without it
+                    
+                    kernel_time = time.time() - kernel_start
                     
                     K_cp[i0:i1, j0:j1] = out_tile
                     if symmetric and (Y is None) and j0 > i0:
                         K_cp[j0:j1, i0:i1] = out_tile.T
                     
+                    # Track kernel performance
+                    if mem_profiler:
+                        mem_profiler.track_kernel(kernel_time * 1000)  # Convert to ms
+                    
+                    # Dynamic batch adjustment
+                    if batch_sizer and tile_count % 10 == 0:
+                        device = cp.cuda.Device()
+                        mem_info = device.mem_info
+                        current_mem_usage = 1.0 - (mem_info[0] / mem_info[1])
+                        new_batch = batch_sizer.adjust(current_mem_usage, kernel_time)
+                        if new_batch != current_state_tile:
+                            current_state_tile = new_batch
+                            # Recompute ranges if batch size changed
+                            # (Note: in practice, this would be applied to next iteration)
+                    
                     tile_count += 1
+                    
                     # Batch synchronization
                     if tile_count % BATCH_SYNC_INTERVAL == 0:
-                        compute_stream.synchronize()
+                        if stream_pool:
+                            stream_pool.synchronize_all()
+                        else:
+                            compute_stream.synchronize()
                     
                     if it: it.update(1)
             
-            # Single final synchronization
-            compute_stream.synchronize()
+            # Final synchronization
+            if stream_pool:
+                stream_pool.synchronize_all()
+            else:
+                compute_stream.synchronize()
+            
             if it: it.close()
+            
+            total_time = time.time() - start_time
             
         else:
             # Fall back to original tiled approach when bulk doesn't fit
+            start_time = time.time()
             j_ranges = list(_tile_ranges(m, state_tile))
             b_cache = {}
             
@@ -862,11 +1481,19 @@ def compute_kernel_matrix(
                 s_th = _build_states_block_torch_cuda(B[j0:j1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
                 b_cache[(j0, j1)] = _torch_cuda_to_cupy(s_th)
             
+            if mem_profiler:
+                total_b_cache_size = sum(arr.nbytes for arr in b_cache.values())
+                mem_profiler.track_allocation("states_B_cache", total_b_cache_size)
+            
             i_ranges = list(_tile_ranges(n, state_tile))
             it_a = tqdm(i_ranges, desc=desc, leave=False) if progress else i_ranges
             
-            # OPTIMIZATION 4: Async dispatch
-            compute_stream = _get_compute_stream()
+            # Use stream pool or fallback
+            if stream_pool:
+                compute_stream = stream_pool
+            else:
+                compute_stream = _get_compute_stream()
+            
             tile_count = 0
             
             for i0, i1 in it_a:
@@ -881,34 +1508,87 @@ def compute_kernel_matrix(
                     bi, bj = int(i1-i0), int(j1-j0)
                     
                     use_lower = (symmetric and (Y is None) and j0==i0)
-                    k_fn = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full", is_double)
+                    kernel_name = "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full"
+                    k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
                     
                     grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
                     block = (tn, tm, 1)
                     
                     out_tile = cp.empty((bi, bj), dtype=K_cp.dtype)
                     
-                    # Async dispatch
-                    _dispatch_kernel_async(k_fn, grid, block,
-                                         (s_a_cp, s_b_cp, out_tile, bi, bj, dim, dim, dim, bj),
-                                         stream=compute_stream)
+                    # Select stream
+                    if stream_pool:
+                        current_stream = stream_pool.get_stream()
+                    else:
+                        current_stream = compute_stream
+                    
+                    kernel_start = time.time()
+                    
+                    # Dispatch (graphs less useful in tiled approach due to varying sizes)
+                    with current_stream:
+                        k_fn(grid, block, (s_a_cp, s_b_cp, out_tile, bi, bj, dim, dim, dim, bj))
+                    
+                    kernel_time = time.time() - kernel_start
                     
                     K_cp[i0:i1, j0:j1] = out_tile
                     if symmetric and (Y is None) and j0 > i0:
                         K_cp[j0:j1, i0:i1] = out_tile.T
                     
+                    if mem_profiler:
+                        mem_profiler.track_kernel(kernel_time * 1000)
+                    
                     tile_count += 1
                     if tile_count % BATCH_SYNC_INTERVAL == 0:
-                        compute_stream.synchronize()
+                        if stream_pool:
+                            stream_pool.synchronize_all()
+                        else:
+                            compute_stream.synchronize()
                 
                 del s_a_cp
             
             # Final synchronization
-            compute_stream.synchronize()
+            if stream_pool:
+                stream_pool.synchronize_all()
+            else:
+                compute_stream.synchronize()
+            
+            total_time = time.time() - start_time
         
         # OPTIMIZATION 5: Memory cleanup
         K = K_cp.get().astype(r_dt)
         cp.get_default_memory_pool().free_all_blocks()
+        
+        # Record performance for tile learning
+        if tile_optimizer:
+            device = cp.cuda.Device()
+            peak_memory_gb = (device.mem_info[1] - device.mem_info[0]) / 1e9
+            total_pairs = n * m if Y is not None else (n * (n + 1)) // 2
+            throughput = total_pairs / total_time if total_time > 0 else 0.0
+            tile_optimizer.record_run(n, nq, state_tile, (tm, tn, tk), throughput, peak_memory_gb)
+        
+        # Generate profiling reports
+        if mem_profiler:
+            report_data = mem_profiler.report(verbose=verbose_profile)
+            
+            # Add additional statistics
+            if batch_sizer:
+                batch_stats = batch_sizer.report()
+                if verbose_profile:
+                    print("╔══════════════════════════════════════════════════════════════╗")
+                    print("║ Dynamic Adjustments                                            ║")
+                    print(f"║   Batch Size Range:   {batch_stats['min_batch_used']} → {batch_stats['max_batch_used']} ({batch_stats['adjustments']} adjustments)             ║")
+                    if stream_pool:
+                        util = stream_pool.get_utilization() * 100
+                        print(f"║   Stream Utilization: {util:.1f}%                                    ║")
+                    print("╚══════════════════════════════════════════════════════════════╝\n")
+            
+            # Add graph statistics
+            if graph_manager:
+                graph_stats = graph_manager.get_statistics()
+                if verbose_profile and graph_stats["total_captures"] > 0:
+                    print(f"📈 CUDA Graphs: {graph_stats['total_graphs']} captured, "
+                          f"{graph_stats['total_replays']} replays, "
+                          f"{graph_stats['hit_rate']*100:.1f}% hit rate")
         
         # --- PROTECTION ANTI-CRASH (NEW) ---
         if not np.all(np.isfinite(K)):

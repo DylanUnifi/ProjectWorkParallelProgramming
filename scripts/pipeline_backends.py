@@ -1201,38 +1201,38 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
 
     k = th.empty((n, m), device="cuda", dtype=tf)
     
-    # OPTIMIZATION 4: Automatic Mixed Precision (experimental)
-    context_manager = th.cuda.amp.autocast(dtype=th.float16) if (use_amp and th.cuda.is_available()) else th.no_grad()
+    # OPTIMIZATION 2: CUDA streams for overlapped execution
+    compute_stream = None
+    if use_cuda_streams and th.cuda.is_available():
+        compute_stream = th.cuda.Stream()
     
-    with context_manager:
-        for i0 in range(0, n, tile_size):
-            i1 = min(i0+tile_size, n)
-            
-            if compute_stream:
-                with th.cuda.stream(compute_stream):
-                    sa = build(a[i0:i1])
-                    j_start = i0 if (symmetric and b_np is None) else 0
-                    for j0 in range(j_start, m, tile_size):
-                        j1 = min(j0+tile_size, m)
-                        sb = sa if (b_np is None and j0==i0) else build(b[j0:j1])
-                        res = (sa @ sb.conj().T).abs().square()
-                        k[i0:i1, j0:j1] = res
-                        if symmetric and b_np is None and j0 > i0:
-                            k[j0:j1, i0:i1] = res.T
-                    del sa
-            else:
-                sa = build(a[i0:i1])
-                j_start = i0 if (symmetric and b_np is None) else 0
-                for j0 in range(j_start, m, tile_size):
-                    j1 = min(j0+tile_size, m)
-                    sb = sa if (b_np is None and j0==i0) else build(b[j0:j1])
-                    res = (sa @ sb.conj().T).abs().square()
-                    k[i0:i1, j0:j1] = res
-                    if symmetric and b_np is None and j0 > i0:
-                        k[j0:j1, i0:i1] = res.T
-                del sa
-            
-            th.cuda.empty_cache()
+    # Helper function to compute kernel block
+    def compute_kernel_block(i0, i1):
+        sa = build(a[i0:i1])
+        j_start = i0 if (symmetric and b_np is None) else 0
+        for j0 in range(j_start, m, tile_size):
+            j1 = min(j0+tile_size, m)
+            sb = sa if (b_np is None and j0==i0) else build(b[j0:j1])
+            res = (sa @ sb.conj().T).abs().square()
+            k[i0:i1, j0:j1] = res
+            if symmetric and b_np is None and j0 > i0:
+                k[j0:j1, i0:i1] = res.T
+        del sa
+    
+    # OPTIMIZATION 4: Automatic Mixed Precision (experimental)
+    # Use nested context managers for proper gradient and AMP handling
+    with th.no_grad():
+        with th.cuda.amp.autocast(enabled=(use_amp and th.cuda.is_available()), dtype=th.float16):
+            for i0 in range(0, n, tile_size):
+                i1 = min(i0+tile_size, n)
+                
+                if compute_stream:
+                    with th.cuda.stream(compute_stream):
+                        compute_kernel_block(i0, i1)
+                else:
+                    compute_kernel_block(i0, i1)
+                
+                th.cuda.empty_cache()
     
     # Synchronize if using streams
     if compute_stream:

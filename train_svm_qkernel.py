@@ -145,15 +145,9 @@ def train_fold(
     # --- Configuration Backend ---
     pl_cfg = config.get("pennylane", {})
     
-    # Determine tile_size based on backend
-    if args.gram_backend == "torch":
-        default_tile = args.torch_tile_size
-    else:
-        default_tile = pl_cfg.get("tile_size", 128)
-    
     backend_params = {
         "device_name": args.pl_device or pl_cfg.get("device", "lightning.qubit"),
-        "tile_size": args.tile_size or default_tile,
+        "tile_size": args.tile_size or (args.torch_tile_size if args.gram_backend == "torch" else pl_cfg.get("tile_size", 128)),
         "n_workers": args.pl_workers if args.pl_workers is not None else pl_cfg.get("workers", 0),
         "gram_backend": args.gram_backend or pl_cfg.get("gram_backend", "auto"),
         "dtype": args.dtype,

@@ -7,6 +7,12 @@ This test measures:
 1. How tile_size affects throughput for each backend
 2. How sample count (N) affects scaling (should be O(N²))
 3. Optimal tile configurations for different workload sizes
+4. Impact of cuda_states optimization parameters:
+   - state_tile: VRAM-aware state tiling (-1 for auto)
+   - num_streams: CUDA stream parallelism
+   - vram_fraction: Memory pressure targets
+   - Optimization ablation: Individual contribution of each optimization
+   - Sample scaling with all optimizations enabled
 
 Author: Dylan Fouepe
 """

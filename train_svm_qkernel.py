@@ -1,4 +1,15 @@
 # train_svm_qkernel.py - OPTIMIZED, CACHED & FIXED
+# 
+# Enhanced with full cuda_states optimization support:
+# - Auto VRAM-aware state tiling
+# - Kernel autotuning for optimal tile sizes
+# - Bulk state precomputation
+# - Dynamic batch sizing based on memory pressure
+# - CUDA stream pool for parallelism
+# - CUDA graph optimization
+# - Tile size learning from run history
+# - Memory profiling capabilities
+#
 import os
 import argparse
 import random

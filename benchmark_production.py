@@ -9,6 +9,13 @@ This script provides a comprehensive production benchmark integrating:
 3. Sample scaling analysis  
 4. Memory profiling
 5. Detailed reporting with plots
+6. Optimization ablation studies (NEW)
+7. CUDA graph and stream utilization analysis (NEW)
+
+New features:
+- benchmark_optimization_ablation(): Compare individual optimization contributions
+- benchmark_with_profiling(): Full memory profiling with detailed breakdown
+- Support for --run-ablation and --profile-all flags
 
 Author: Dylan Fouepe
 Date: 2025-01-08

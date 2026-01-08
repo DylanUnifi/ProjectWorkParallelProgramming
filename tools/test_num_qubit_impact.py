@@ -6,6 +6,15 @@ Test: Impact of Number of Qubits on Quantum Kernel Performance
 This test measures how performance scales with qubit count across backends.
 Key insight: State vector size = 2^n_qubits, so memory and compute scale exponentially.
 
+New features (cuda_states optimizations):
+- CLI arguments to configure all optimization parameters
+- Auto VRAM-aware state tiling (--state-tile=-1)
+- Kernel autotuning support
+- Dynamic batch sizing
+- CUDA stream pool configuration
+- Memory profiling options (--profile-memory, --verbose-profile)
+- Bulk state precomputation control
+
 Author: Dylan Fouepe
 """
 

@@ -9,6 +9,13 @@ This script provides a comprehensive production benchmark integrating:
 3. Sample scaling analysis  
 4. Memory profiling
 5. Detailed reporting with plots
+6. Optimization ablation studies (NEW)
+7. CUDA graph and stream utilization analysis (NEW)
+
+New features:
+- benchmark_optimization_ablation(): Compare individual optimization contributions
+- benchmark_with_profiling(): Full memory profiling with detailed breakdown
+- Support for --run-ablation and --profile-all flags
 
 Author: Dylan Fouepe
 Date: 2025-01-08
@@ -61,7 +68,17 @@ BACKEND_CONFIGS = {
         "dtype": "float64",
         "symmetric": True,
         "tile_size": 10000,
-        "state_tile": 4096,
+        # cuda_states optimization parameters
+        "state_tile": -1,
+        "vram_fraction": 0.85,
+        "autotune": True,
+        "precompute_all_states": True,
+        "dynamic_batch": True,
+        "num_streams": 4,
+        "learn_tiles": True,
+        "use_cuda_graphs": True,
+        "profile_memory": False,
+        "verbose_profile": False,
     },
     "torch": {
         "device_name": "lightning.gpu",
@@ -824,8 +841,25 @@ if __name__ == "__main__":
                        default=['all'], help="Tests to run (default: all)")
     parser.add_argument('--backends', nargs='+', choices=list(BACKEND_CONFIGS.keys()) + ['all'],
                        default=['all'], help="Backends to test (default: all)")
+    parser.add_argument('--run-ablation', action='store_true',
+                       help="Run optimization ablation study")
+    parser.add_argument('--profile-all', action='store_true',
+                       help="Enable memory profiling for all tests")
     
     args = parser.parse_args()
+    
+    # Handle convenience flags
+    if args.run_ablation:
+        if 'all' not in args.tests:
+            args.tests.append('ablation')
+        else:
+            args.tests = ['ablation']
+    
+    if args.profile_all:
+        if 'all' not in args.tests:
+            args.tests.append('profile')
+        else:
+            args.tests = ['profile']
     
     tests = None if 'all' in args.tests else args.tests
     backends = None if 'all' in args.backends else args.backends

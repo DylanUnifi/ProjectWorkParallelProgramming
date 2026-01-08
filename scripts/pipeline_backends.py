@@ -40,6 +40,7 @@ def _normalize_diag_inplace(K: np.ndarray):
 # Constants for memory calculations
 MATRIX_PAIRS_FACTOR = 2  # Factor for A and B matrices in precompute size calculation
 BATCH_SYNC_INTERVAL = 32  # Number of tiles between synchronization calls
+BATCH_ADJUST_INTERVAL = 10  # Number of tiles between dynamic batch size adjustments
 
 class PersistentBufferPool:
     """Manages reusable GPU buffers to reduce allocation overhead."""
@@ -182,9 +183,11 @@ class CUDAStreamPool:
         if self.total_operations == 0:
             return 0.0
         expected_per_stream = self.total_operations / self.num_streams
+        if expected_per_stream == 0:
+            return 0.0
         variance = np.var(self.usage_count)
         # Lower variance = better utilization
-        return 1.0 - min(1.0, variance / (expected_per_stream ** 2) if expected_per_stream > 0 else 0)
+        return 1.0 - min(1.0, variance / (expected_per_stream ** 2))
     
     def __enter__(self):
         return self
@@ -494,18 +497,18 @@ class CUDAGraphManager:
         self.capture_counts = {}
         self.replay_counts = {}
     
-    def capture_graph(self, key: tuple, stream, kernel_fn: Callable, 
-                      grid: tuple, block: tuple, args: tuple):
+    def capture_graph(self, key: tuple, stream: Any, kernel_fn: Callable, 
+                      grid: Tuple[int, ...], block: Tuple[int, ...], args: Tuple[Any, ...]):
         """
         Capture a CUDA graph for the given kernel configuration.
         
         Args:
             key: Unique key for this graph configuration
-            stream: CUDA stream to use
+            stream: CUDA stream to use (cupy.cuda.Stream)
             kernel_fn: Compiled kernel function
-            grid: Grid dimensions
-            block: Block dimensions
-            args: Kernel arguments
+            grid: Grid dimensions tuple
+            block: Block dimensions tuple
+            args: Kernel arguments tuple
         """
         import cupy as cp
         
@@ -1459,7 +1462,7 @@ def compute_kernel_matrix(
                         mem_profiler.track_kernel(kernel_time * 1000)  # Convert to ms
                     
                     # Dynamic batch adjustment
-                    if batch_sizer and tile_count % 10 == 0:
+                    if batch_sizer and tile_count % BATCH_ADJUST_INTERVAL == 0:
                         device = cp.cuda.Device()
                         mem_info = device.mem_info
                         current_mem_usage = 1.0 - (mem_info[0] / mem_info[1])

@@ -18,7 +18,6 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from itertools import product
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -229,13 +228,21 @@ def test_sample_scaling():
     print(f"\n{'Backend':<15} {'N':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'N²/Time':<12}")
     print("-"*70)
     
-    for backend, config in [
-        ("cuda_states", {"device_name": "lightning.gpu", "gram_backend": "cuda_states", 
-                         "dtype": "float64", "symmetric": True, "state_tile": 4096}),
-        ("numpy", {"device_name": "default.qubit", "gram_backend": "numpy",
-                   "dtype": "float64", "symmetric": True, "tile_size": 128, "n_workers": 4}),
-    ]:
-        sample_limits = SAMPLE_SIZES if backend == "cuda_states" else [s for s in SAMPLE_SIZES if s <= 4000]
+    # Use configurations from global BACKEND_CONFIGS
+    test_backends = {
+        "cuda_states": {
+            **BACKEND_CONFIGS["cuda_states"],
+            "state_tile": 4096
+        },
+        "numpy": {
+            **BACKEND_CONFIGS["numpy"],
+            "tile_size": 128,
+            "n_workers": 4
+        }
+    }
+    
+    for backend_name, config in test_backends.items():
+        sample_limits = SAMPLE_SIZES if backend_name == "cuda_states" else [s for s in SAMPLE_SIZES if s <= 4000]
         
         for n_samples in sample_limits:
             try:
@@ -244,18 +251,18 @@ def test_sample_scaling():
                 n_squared_per_time = (n_samples ** 2) / res['time_s'] / 1e6
                 
                 results.append({
-                    "backend": backend,
+                    "backend": backend_name,
                     "n_samples": n_samples,
                     "n_qubits": N_QUBITS,
                     **res,
                     "n_squared_per_time": n_squared_per_time,
                 })
                 
-                print(f"{backend:<15} {n_samples:<8} {res['time_s']:<12.3f} "
+                print(f"{backend_name:<15} {n_samples:<8} {res['time_s']:<12.3f} "
                       f"{res['throughput_mpairs_s']:<12.3f} {n_squared_per_time:<12.3f}")
                 
             except Exception as e:
-                print(f"{backend:<15} {n_samples:<8} ERROR: {str(e)[:40]}")
+                print(f"{backend_name:<15} {n_samples:<8} ERROR: {str(e)[:40]}")
     
     return results
 

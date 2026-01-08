@@ -374,10 +374,15 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
                       marker='o', linewidth=2.5, markersize=8, label=backend)
         
         # Add O(N²) reference line
-        if not df_sample.empty:
-            x_ref = np.array([df_sample['n_samples'].min(), df_sample['n_samples'].max()])
-            y_ref = x_ref**2 / x_ref[0]**2 * df_sample['time_s'].iloc[0]
-            ax4.loglog(x_ref, y_ref, 'k--', linewidth=2, label='O(N²) reference', alpha=0.5)
+        if len(df_sample) > 0:
+            # Use median time from first data point as reference
+            first_backend_data = df_sample.groupby('backend').first()
+            if not first_backend_data.empty:
+                ref_n = first_backend_data['n_samples'].iloc[0]
+                ref_t = first_backend_data['time_s'].iloc[0]
+                x_ref = np.array([df_sample['n_samples'].min(), df_sample['n_samples'].max()])
+                y_ref = (x_ref / ref_n)**2 * ref_t
+                ax4.loglog(x_ref, y_ref, 'k--', linewidth=2, label='O(N²) reference', alpha=0.5)
         
         ax4.set_title("Sample Scaling (O(N²) verification)", fontsize=14, fontweight='bold')
         ax4.set_ylabel("Time (seconds) - Log Scale", fontsize=12)
@@ -409,11 +414,15 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
         speedup_data = []
         for n_qubits in df_qubit['n_qubits'].unique():
             subset = df_qubit[df_qubit['n_qubits'] == n_qubits]
-            if 'numpy' in subset['backend'].values and 'cuda_states' in subset['backend'].values:
-                cpu_time = subset[subset['backend'] == 'numpy']['time_s'].values[0]
-                gpu_time = subset[subset['backend'] == 'cuda_states']['time_s'].values[0]
-                speedup = cpu_time / gpu_time
-                speedup_data.append({'n_qubits': n_qubits, 'speedup': speedup})
+            cpu_subset = subset[subset['backend'] == 'numpy']
+            gpu_subset = subset[subset['backend'] == 'cuda_states']
+            
+            if not cpu_subset.empty and not gpu_subset.empty:
+                cpu_time = cpu_subset['time_s'].values[0]
+                gpu_time = gpu_subset['time_s'].values[0]
+                if gpu_time > 0:  # Avoid division by zero
+                    speedup = cpu_time / gpu_time
+                    speedup_data.append({'n_qubits': n_qubits, 'speedup': speedup})
         
         if speedup_data:
             speedup_df = pd.DataFrame(speedup_data)
@@ -442,12 +451,21 @@ def generate_summary_report(df_all: pd.DataFrame):
     
     import json
     
+    if df_all.empty:
+        print("⚠️  No data to generate summary report")
+        return {}
+    
     summary = {
         "total_tests": len(df_all),
         "backends_tested": df_all['backend'].unique().tolist(),
-        "qubit_range": [int(df_all['n_qubits'].min()), int(df_all['n_qubits'].max())],
-        "sample_range": [int(df_all['n_samples'].min()), int(df_all['n_samples'].max())],
     }
+    
+    # Add ranges only if columns exist and have valid values
+    if 'n_qubits' in df_all.columns and not df_all['n_qubits'].isna().all():
+        summary["qubit_range"] = [int(df_all['n_qubits'].min()), int(df_all['n_qubits'].max())]
+    
+    if 'n_samples' in df_all.columns and not df_all['n_samples'].isna().all():
+        summary["sample_range"] = [int(df_all['n_samples'].min()), int(df_all['n_samples'].max())]
     
     # Per-backend statistics
     for backend in df_all['backend'].unique():

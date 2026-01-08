@@ -247,9 +247,13 @@ def run_qubit_impact_test() -> pd.DataFrame:
             qubits = backend_df['n_qubits'].values
             
             # Fit log(time) vs qubits to find scaling
-            if len(times) > 1 and all(t > 0 for t in times):
-                log_times = np.log2(times)
-                coeffs = np.polyfit(qubits, log_times, 1)
+            # Filter out invalid times before log transformation
+            valid_mask = times > 0
+            if valid_mask.sum() > 1:
+                valid_times = times[valid_mask]
+                valid_qubits = qubits[valid_mask]
+                log_times = np.log2(valid_times)
+                coeffs = np.polyfit(valid_qubits, log_times, 1)
                 scaling_factor = 2 ** coeffs[0]  # How much time multiplies per qubit
                 
                 print(f"\n{backend}:")

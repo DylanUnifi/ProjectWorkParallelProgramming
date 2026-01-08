@@ -36,6 +36,10 @@ def _normalize_diag_inplace(K: np.ndarray):
 # =====================================================================
 # VRAM & Memory Management
 # =====================================================================
+# Constants for memory calculations
+MATRIX_PAIRS_FACTOR = 2  # Factor for A and B matrices in precompute size calculation
+BATCH_SYNC_INTERVAL = 32  # Number of tiles between synchronization calls
+
 class PersistentBufferPool:
     """Manages reusable GPU buffers to reduce allocation overhead."""
     def __init__(self):
@@ -62,7 +66,6 @@ def _get_pinned_buffer(shape: tuple, dtype):
     key = (shape, dtype)
     if key not in _PINNED_BUFFERS:
         pinned_pool = cp.cuda.PinnedMemoryPool()
-        _PINNED_BUFFERS[key] = cp.zeros(shape, dtype=dtype)
         # Use pinned memory allocator
         with cp.cuda.using_allocator(pinned_pool.malloc):
             _PINNED_BUFFERS[key] = cp.zeros(shape, dtype=dtype)
@@ -132,7 +135,7 @@ def _compute_max_precompute_size(vram_fraction: float = 0.85, nq: int = 6,
         bytes_per_complex = 8 if dtype == np.float32 else 16
         bytes_per_state = dim * bytes_per_complex
         
-        max_states = int(available_vram / (bytes_per_state * 2))  # Factor of 2 for A and B matrices
+        max_states = int(available_vram / (bytes_per_state * MATRIX_PAIRS_FACTOR))
         
         return max(1024, max_states)
     except Exception:
@@ -414,7 +417,7 @@ def _autotune_kernel_tiles(nq: int, is_double: bool = False,
     
     # Tile size candidates constrained by 48KB shared memory
     # For float2: 48KB / 8 bytes = 6144 elements
-    # For TILE_M * TILE_K: need TILE_M * TILE_K <= 6144
+    # Constraint: (TILE_M * TILE_K + TILE_N * TILE_K) * bytes_per_complex <= 48KB
     candidates_m_n = [16, 32, 64]
     candidates_k = [16, 32, 64, 128]
     
@@ -803,7 +806,6 @@ def compute_kernel_matrix(
             # OPTIMIZATION 4: Async dispatch with batch synchronization
             compute_stream = _get_compute_stream()
             tile_count = 0
-            sync_every = 32  # Batch synchronization
             
             i_ranges = list(_tile_ranges(n, state_tile))
             j_ranges = list(_tile_ranges(m, state_tile))
@@ -840,8 +842,8 @@ def compute_kernel_matrix(
                         K_cp[j0:j1, i0:i1] = out_tile.T
                     
                     tile_count += 1
-                    # Batch synchronization every N tiles
-                    if tile_count % sync_every == 0:
+                    # Batch synchronization
+                    if tile_count % BATCH_SYNC_INTERVAL == 0:
                         compute_stream.synchronize()
                     
                     if it: it.update(1)
@@ -866,7 +868,6 @@ def compute_kernel_matrix(
             # OPTIMIZATION 4: Async dispatch
             compute_stream = _get_compute_stream()
             tile_count = 0
-            sync_every = 32
             
             for i0, i1 in it_a:
                 s_a_th = _build_states_block_torch_cuda(A[i0:i1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
@@ -897,7 +898,7 @@ def compute_kernel_matrix(
                         K_cp[j0:j1, i0:i1] = out_tile.T
                     
                     tile_count += 1
-                    if tile_count % sync_every == 0:
+                    if tile_count % BATCH_SYNC_INTERVAL == 0:
                         compute_stream.synchronize()
                 
                 del s_a_cp

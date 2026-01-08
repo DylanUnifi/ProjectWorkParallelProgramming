@@ -1,5 +1,3 @@
-
-
 import numpy as np
 import time
 import itertools
@@ -28,18 +26,18 @@ def benchmark_config(backend, n_samples, n_qubits, **kwargs):
         "kernel": K,
     }
 
-def test_numpy_ncores():
+def test_numpy_n_cores():
     n = 24
-    """Test impact tile_size sur n cores."""
+    """Test impact sample_size sur n cores."""
     print("\n" + "="*80)
-    print(f"TEST 1: NUMPY avec {n} CORES - Impact du tile_size")
+    print(f"TEST 1: NUMPY avec {n} CORES - Impact du sample_size")
     print("="*80 + "\n")
     
-    n_samples = [10000, 20000, 30000, 40000, 50000]
+    n_samples = [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000]
     n_qubits = 8
     tile_size = 192
     
-    print(f"{'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'Efficiency':<12}")
+    print(f"{'sample_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'Efficiency':<12}")
     print("-" * 60)
     
     results = []
@@ -64,7 +62,7 @@ def test_numpy_ncores():
     
     # Trouve optimal
     best = max(results, key=lambda x: x[1]["throughput"])
-    print(f"\n✅ OPTIMAL: tile_size={best[0]} → {best[1]['throughput']:.3f} Mpairs/s")
+    print(f"\n✅ OPTIMAL: sample_size={best[0]} → {best[1]['throughput']:.3f} Mpairs/s")
     
     return results
 
@@ -78,6 +76,13 @@ def test_cuda_states_massive_vram():
         (10000, 8, -1, True, True, 0.85),
         (20000, 8, -1, True, True, 0.85),
         (30000, 8, -1, True, True, 0.85),
+        (40000, 8, -1, True, True, 0.85),
+        (50000, 8, -1, True, True, 0.85),
+        (60000, 8, -1, True, True, 0.85),
+        (70000, 8, -1, True, True, 0.85),
+        (80000, 8, -1, True, True, 0.85),
+        (90000, 8, -1, True, True, 0.85),
+        (100000, 8, -1, True, True, 0.85),
     ]
     
     print(f"{'N':<8} {'nq':<4} {'state_tile':<12} {'tile_m':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -124,12 +129,12 @@ def test_tensorcore_blackwell():
     # Baseline FP32
     print("Running FP32 baseline...")
     res_fp32 = benchmark_config(
-        "cuda_states",
+        "torch",
         n_samples, n_qubits,
         device_name="lightning.gpu",
         symmetric=True,
         dtype="float32",
-        gram_backend="cuda_states",
+        gram_backend="torch",
         state_tile=2048,
         tile_m=32, tile_n=32, tile_k=32,
     )
@@ -138,14 +143,14 @@ def test_tensorcore_blackwell():
     print("Running FP16 Tensor Cores...")
     try:
         res_fp16 = benchmark_config(
-            "tensorcore",
+            "torch",
             n_samples, n_qubits,
             device_name="lightning.gpu",
             symmetric=True,
             dtype="float32",
-            gram_backend="tensorcore",
-            state_tile=4096,  # ⭐ Gros batch sur Blackwell
-            tensorcore_precision="fp16",
+            gram_backend="torch",
+            state_tile=4096,
+            #tensorcore_precision="fp16",
         )
         speedup_fp16 = res_fp32["time"] / res_fp16["time"]
         rel_err_fp16 = np.max(np.abs(res_fp16["kernel"] - res_fp32["kernel"])) / np.max(np.abs(res_fp32["kernel"]))
@@ -162,7 +167,7 @@ def test_tensorcore_blackwell():
             device_name="lightning.gpu",
             symmetric=True,
             dtype="float32",
-            gram_backend="tensorcore",
+            gram_backend="torch",
             state_tile=4096,
             tensorcore_precision="bf16",
         )
@@ -193,6 +198,6 @@ if __name__ == "__main__":
     sys.path.insert(0, str(__file__).replace("tools/test_tile_impact_monster.py", ""))
     
     # Run all tests
-    test_numpy_ncores()
+    # test_numpy_n_cores()
     # test_cuda_states_massive_vram()
-    #test_tensorcore_blackwell()
+    test_tensorcore_blackwell()

@@ -123,7 +123,7 @@ def main():
     parser.add_argument("--samples", type=int, default=1024)
     parser.add_argument("--qubits", type=int, nargs="+", default=[8, 10])
     parser.add_argument("--tile-size", type=int, nargs="+", default=[128])
-    parser.add_argument("--workers", type=int, nargs="+", default=[1, 16])
+    parser.add_argument("--workers", type=int, nargs="+", default=[1, 24])
     parser.add_argument("--device", type=str, nargs="+", default=["lightning.qubit", "lightning.gpu"])
     
     # Backend params

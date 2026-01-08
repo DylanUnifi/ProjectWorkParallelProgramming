@@ -1,6 +1,0 @@
-device,n_samples,n_qubits,tile_size,state_tile,workers,symmetric,layers,dtype,gram_backend,time_s,std_s,Mpairs_per_s,max_vram_gb
-lightning.qubit,1000,8,128,4096,1,False,2,float64,auto,1.5345,0.0206,0.652,0.0
-lightning.qubit,1000,8,128,4096,16,False,2,float64,auto,2.4808,0.0234,0.403,0.0
-lightning.qubit,1000,10,128,4096,16,False,2,float64,auto,2.6127,0.0817,0.383,0.0
-lightning.gpu,1000,8,128,4096,1,False,2,float64,auto,29.2355,0.0778,0.034,0.008
-lightning.gpu,1000,10,128,4096,1,False,2,float64,auto,35.9559,0.1961,0.028,0.008

@@ -1,4 +1,0 @@
-device,n_samples,n_qubits,tile_size,state_tile,workers,symmetric,layers,dtype,gram_backend,time_s,std_s,Mpairs_per_s,max_vram_gb
-lightning.gpu,5000,12,5000,5000,1,False,2,float32,cuda_states,54.0986,0.5031,0.462,0.321
-lightning.gpu,5000,14,5000,5000,1,False,2,float32,cuda_states,90.4671,20.7498,0.276,1.239
-lightning.gpu,5000,16,5000,5000,1,False,2,float32,cuda_states,114.4064,41.3541,0.219,4.899

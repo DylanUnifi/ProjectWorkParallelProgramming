@@ -69,6 +69,11 @@ BACKEND_CONFIGS = {
         "dtype": "float64",
         "symmetric": True,
         "tile_size": 512,
+        # Torch-specific optimizations
+        "use_pinned_memory": True,
+        "use_cuda_streams": True,
+        "use_amp": False,
+        "use_compile": False,
     },
     "numpy": {
         "device_name": "default.qubit",
@@ -310,6 +315,125 @@ def test_tile_optimization() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
+def benchmark_torch_optimizations() -> pd.DataFrame:
+    """Benchmark torch backend with different optimization flags."""
+    
+    print("\n" + "="*80)
+    print("TEST 4: Torch Backend Optimizations")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    tile_size = 512
+    
+    configs = [
+        {"name": "torch_baseline", "use_pinned_memory": False, "use_cuda_streams": False, "use_amp": False, "use_compile": False},
+        {"name": "torch_pinned", "use_pinned_memory": True, "use_cuda_streams": False, "use_amp": False, "use_compile": False},
+        {"name": "torch_streams", "use_pinned_memory": False, "use_cuda_streams": True, "use_amp": False, "use_compile": False},
+        {"name": "torch_pinned+streams", "use_pinned_memory": True, "use_cuda_streams": True, "use_amp": False, "use_compile": False},
+    ]
+    
+    print(f"\n{'Config':<25} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print("-"*70)
+    
+    for config_dict in configs:
+        base_config = BACKEND_CONFIGS["torch"].copy()
+        base_config["tile_size"] = tile_size
+        # Update with optimization flags
+        for key in ["use_pinned_memory", "use_cuda_streams", "use_amp", "use_compile"]:
+            if key in config_dict:
+                base_config[key] = config_dict[key]
+        
+        result = benchmark_single_config(
+            n_qubits=N_QUBITS_DEFAULT,
+            n_samples=n_samples,
+            backend_name="torch",
+            config=base_config,
+        )
+        
+        if result:
+            result["config_name"] = config_dict["name"]
+            result["tile_size"] = tile_size
+            results.append(result)
+            print(f"{config_dict['name']:<25} {result['time_s']:<12.3f} "
+                  f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
+    
+    if results:
+        best = max(results, key=lambda x: x['throughput_mpairs_s'])
+        print(f"\n✅ BEST CONFIG: {best['config_name']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return pd.DataFrame(results)
+
+def benchmark_torch_tile_sizes() -> pd.DataFrame:
+    """Test optimal tile_size for torch backend."""
+    
+    print("\n" + "="*80)
+    print("TEST 5: Torch Tile Size Optimization")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    tile_sizes = [64, 128, 256, 512, 1024, 2048]
+    
+    print(f"\n{'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print("-"*60)
+    
+    for tile_size in tile_sizes:
+        config = BACKEND_CONFIGS["torch"].copy()
+        config["tile_size"] = tile_size
+        
+        result = benchmark_single_config(
+            n_qubits=N_QUBITS_DEFAULT,
+            n_samples=n_samples,
+            backend_name="torch",
+            config=config,
+        )
+        
+        if result:
+            result["tile_size"] = tile_size
+            results.append(result)
+            print(f"{tile_size:<12} {result['time_s']:<12.3f} "
+                  f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
+    
+    if results:
+        best = max(results, key=lambda x: x['throughput_mpairs_s'])
+        print(f"\n✅ OPTIMAL: tile_size={best['tile_size']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return pd.DataFrame(results)
+
+def benchmark_backend_comparison() -> pd.DataFrame:
+    """Compare all backends: cuda_states, torch, numpy."""
+    
+    print("\n" + "="*80)
+    print("TEST 6: Backend Comparison")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    
+    print(f"\n{'Backend':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print("-"*60)
+    
+    for backend_name, config in BACKEND_CONFIGS.items():
+        result = benchmark_single_config(
+            n_qubits=N_QUBITS_DEFAULT,
+            n_samples=n_samples,
+            backend_name=backend_name,
+            config=config,
+        )
+        
+        if result:
+            results.append(result)
+            vram_str = f"{result['peak_vram_gb']:.2f}" if result['peak_vram_gb'] > 0 else "N/A"
+            print(f"{backend_name:<15} {result['time_s']:<12.3f} "
+                  f"{result['throughput_mpairs_s']:<12.3f} {vram_str:<12}")
+    
+    if results:
+        best = max(results, key=lambda x: x['throughput_mpairs_s'])
+        print(f"\n✅ FASTEST: {best['backend']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return pd.DataFrame(results)
+
 # ═══════════════════════════════════════════════════════════
 # REPORTING AND VISUALIZATION
 # ═══════════════════════════════════════════════════════════
@@ -509,6 +633,9 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
     df_qubit = pd.DataFrame()
     df_sample = pd.DataFrame()
     df_tile = pd.DataFrame()
+    df_torch_opt = pd.DataFrame()
+    df_torch_tile = pd.DataFrame()
+    df_comparison = pd.DataFrame()
     
     # Run tests based on selection
     if tests is None or 'qubit' in tests:
@@ -522,6 +649,17 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
     if tests is None or 'tile' in tests:
         df_tile = test_tile_optimization()
         all_results.append(df_tile)
+    
+    if tests is None or 'torch' in tests:
+        df_torch_opt = benchmark_torch_optimizations()
+        all_results.append(df_torch_opt)
+        
+        df_torch_tile = benchmark_torch_tile_sizes()
+        all_results.append(df_torch_tile)
+    
+    if tests is None or 'compare' in tests:
+        df_comparison = benchmark_backend_comparison()
+        all_results.append(df_comparison)
     
     # Combine all results
     df_all = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
@@ -555,7 +693,7 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run production performance benchmark")
-    parser.add_argument('--tests', nargs='+', choices=['qubit', 'sample', 'tile', 'all'],
+    parser.add_argument('--tests', nargs='+', choices=['qubit', 'sample', 'tile', 'torch', 'compare', 'all'],
                        default=['all'], help="Tests to run (default: all)")
     parser.add_argument('--backends', nargs='+', choices=list(BACKEND_CONFIGS.keys()) + ['all'],
                        default=['all'], help="Backends to test (default: all)")

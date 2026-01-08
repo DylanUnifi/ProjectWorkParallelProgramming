@@ -144,9 +144,16 @@ def train_fold(
     
     # --- Configuration Backend ---
     pl_cfg = config.get("pennylane", {})
+    
+    # Determine tile_size based on backend
+    if args.gram_backend == "torch":
+        default_tile = args.torch_tile_size
+    else:
+        default_tile = pl_cfg.get("tile_size", 128)
+    
     backend_params = {
         "device_name": args.pl_device or pl_cfg.get("device", "lightning.qubit"),
-        "tile_size": args.tile_size or pl_cfg.get("tile_size", 128),
+        "tile_size": args.tile_size or default_tile,
         "n_workers": args.pl_workers if args.pl_workers is not None else pl_cfg.get("workers", 0),
         "gram_backend": args.gram_backend or pl_cfg.get("gram_backend", "auto"),
         "dtype": args.dtype,
@@ -155,6 +162,15 @@ def train_fold(
         "embed_mode": args.embed_mode,
         "normalize": args.normalize_kernel
     }
+    
+    # Add torch-specific optimizations if using torch backend
+    if args.gram_backend == "torch":
+        backend_params.update({
+            "use_pinned_memory": args.torch_pinned_memory,
+            "use_cuda_streams": args.torch_cuda_streams,
+            "use_amp": args.torch_amp,
+            "use_compile": args.torch_compile,
+        })
     
     cache_params = {**backend_params, "weights_hash": hashlib.md5(weights.tobytes()).hexdigest()[:8]}
 
@@ -369,6 +385,18 @@ if __name__ == "__main__":
     p.add_argument("--pca-components", type=int, default=None)
     p.add_argument("--cache-kernels", action="store_true", help="Enable disk caching for kernels")
     p.add_argument("--cache-dir", type=str, default="./kernel_cache")
+    
+    # Torch backend options
+    p.add_argument("--torch-tile-size", type=int, default=512,
+                   help="Tile size for torch backend")
+    p.add_argument("--torch-pinned-memory", action="store_true", default=False,
+                   help="Use pinned memory for torch transfers")
+    p.add_argument("--torch-cuda-streams", action="store_true", default=False,
+                   help="Use CUDA streams for torch overlap")
+    p.add_argument("--torch-amp", action="store_true", default=False,
+                   help="Use automatic mixed precision (experimental)")
+    p.add_argument("--torch-compile", action="store_true", default=False,
+                   help="Use torch.compile (PyTorch 2.0+)")
 
     args = p.parse_args()
     run_train(args)

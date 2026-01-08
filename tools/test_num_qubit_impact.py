@@ -55,7 +55,12 @@ BACKEND_CONFIGS = {
         "gram_backend": "torch",
         "dtype": "float64",
         "symmetric": True,
-        "tile_size": 512,
+        "tile_size": 512,           # Smaller tiles for torch
+        # Torch-specific optimizations
+        "use_pinned_memory": True,  # Enable pinned memory
+        "use_cuda_streams": True,   # Enable stream overlap
+        "use_amp": False,           # Auto-mixed precision (experimental)
+        "use_compile": False,       # torch.compile (PyTorch 2.0+)
     },
     "numpy": {
         "device_name": "default.qubit",

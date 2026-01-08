@@ -6,7 +6,7 @@ Benchmark PRODUCTION - Pipeline Backends Réels
 Ce script teste directement votre implémentation cuda_states
 au lieu de passer par l'API PennyLane générique.
 
-Auteur: [Votre Nom]
+Auteur: Fouepe Dylan
 Date: 2025-12-13
 """
 

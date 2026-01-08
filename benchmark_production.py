@@ -9,6 +9,13 @@ This script provides a comprehensive production benchmark integrating:
 3. Sample scaling analysis  
 4. Memory profiling
 5. Detailed reporting with plots
+6. Optimization ablation studies (NEW)
+7. CUDA graph and stream utilization analysis (NEW)
+
+New features:
+- benchmark_optimization_ablation(): Compare individual optimization contributions
+- benchmark_with_profiling(): Full memory profiling with detailed breakdown
+- Support for --run-ablation and --profile-all flags
 
 Author: Dylan Fouepe
 Date: 2025-01-08
@@ -61,7 +68,17 @@ BACKEND_CONFIGS = {
         "dtype": "float64",
         "symmetric": True,
         "tile_size": 10000,
-        "state_tile": 4096,
+        # cuda_states optimization parameters
+        "state_tile": -1,
+        "vram_fraction": 0.85,
+        "autotune": True,
+        "precompute_all_states": True,
+        "dynamic_batch": True,
+        "num_streams": 4,
+        "learn_tiles": True,
+        "use_cuda_graphs": True,
+        "profile_memory": False,
+        "verbose_profile": False,
     },
     "torch": {
         "device_name": "lightning.gpu",
@@ -310,6 +327,128 @@ def test_tile_optimization() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
+def benchmark_optimization_ablation() -> pd.DataFrame:
+    """Compare each optimization's individual contribution."""
+    
+    print("\n" + "="*80)
+    print("TEST 4: Optimization Ablation Study")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    
+    # Define test configurations
+    configs = {
+        "All Optimizations": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Autotune": {
+            "autotune": False,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Precompute": {
+            "autotune": True,
+            "precompute_all_states": False,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Dynamic Batch": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": False,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No CUDA Graphs": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": False,
+            "num_streams": 4,
+        },
+        "Baseline (No Opts)": {
+            "autotune": False,
+            "precompute_all_states": False,
+            "dynamic_batch": False,
+            "use_cuda_graphs": False,
+            "num_streams": 1,
+        },
+    }
+    
+    print(f"\n{'Configuration':<22} {'Time (s)':<12} {'Mpairs/s':<12} {'Speedup':<10}")
+    print("-"*70)
+    
+    baseline_time = None
+    
+    for config_name, opts in configs.items():
+        config = BACKEND_CONFIGS["cuda_states"].copy()
+        config.update(opts)
+        
+        result = benchmark_single_config(
+            n_qubits=N_QUBITS_DEFAULT,
+            n_samples=n_samples,
+            backend_name="cuda_states",
+            config=config,
+        )
+        
+        if result:
+            # Use baseline for speedup calculation
+            if config_name == "Baseline (No Opts)":
+                baseline_time = result['time_s']
+            
+            speedup = baseline_time / result['time_s'] if baseline_time and result['time_s'] > 0 else 1.0
+            
+            result["configuration"] = config_name
+            result["speedup"] = speedup
+            results.append(result)
+            
+            print(f"{config_name:<22} {result['time_s']:<12.3f} "
+                  f"{result['throughput_mpairs_s']:<12.3f} {speedup:<10.2f}x")
+    
+    return pd.DataFrame(results)
+
+def benchmark_with_profiling() -> pd.DataFrame:
+    """Run with full memory profiling and report."""
+    
+    print("\n" + "="*80)
+    print("TEST 5: Memory Profiling Analysis")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    
+    print("\nRunning cuda_states with full profiling enabled...")
+    
+    config = BACKEND_CONFIGS["cuda_states"].copy()
+    config.update({
+        "profile_memory": True,
+        "verbose_profile": True,
+    })
+    
+    result = benchmark_single_config(
+        n_qubits=N_QUBITS_DEFAULT,
+        n_samples=n_samples,
+        backend_name="cuda_states",
+        config=config,
+    )
+    
+    if result:
+        result["test"] = "memory_profiling"
+        results.append(result)
+        print(f"\n📊 Profiling completed: {result['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return pd.DataFrame(results)
+    
+    return pd.DataFrame(results)
+
 # ═══════════════════════════════════════════════════════════
 # REPORTING AND VISUALIZATION
 # ═══════════════════════════════════════════════════════════
@@ -509,6 +648,8 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
     df_qubit = pd.DataFrame()
     df_sample = pd.DataFrame()
     df_tile = pd.DataFrame()
+    df_ablation = pd.DataFrame()
+    df_profiling = pd.DataFrame()
     
     # Run tests based on selection
     if tests is None or 'qubit' in tests:
@@ -522,6 +663,14 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
     if tests is None or 'tile' in tests:
         df_tile = test_tile_optimization()
         all_results.append(df_tile)
+    
+    if tests is None or 'ablation' in tests:
+        df_ablation = benchmark_optimization_ablation()
+        all_results.append(df_ablation)
+    
+    if tests is None or 'profile' in tests:
+        df_profiling = benchmark_with_profiling()
+        all_results.append(df_profiling)
     
     # Combine all results
     df_all = pd.concat(all_results, ignore_index=True) if all_results else pd.DataFrame()
@@ -555,12 +704,30 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run production performance benchmark")
-    parser.add_argument('--tests', nargs='+', choices=['qubit', 'sample', 'tile', 'all'],
+    parser.add_argument('--tests', nargs='+', 
+                       choices=['qubit', 'sample', 'tile', 'ablation', 'profile', 'all'],
                        default=['all'], help="Tests to run (default: all)")
     parser.add_argument('--backends', nargs='+', choices=list(BACKEND_CONFIGS.keys()) + ['all'],
                        default=['all'], help="Backends to test (default: all)")
+    parser.add_argument('--run-ablation', action='store_true',
+                       help="Run optimization ablation study")
+    parser.add_argument('--profile-all', action='store_true',
+                       help="Enable memory profiling for all tests")
     
     args = parser.parse_args()
+    
+    # Handle convenience flags
+    if args.run_ablation:
+        if 'all' not in args.tests:
+            args.tests.append('ablation')
+        else:
+            args.tests = ['ablation']
+    
+    if args.profile_all:
+        if 'all' not in args.tests:
+            args.tests.append('profile')
+        else:
+            args.tests = ['profile']
     
     tests = None if 'all' in args.tests else args.tests
     backends = None if 'all' in args.backends else args.backends

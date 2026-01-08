@@ -6,6 +6,15 @@ Test: Impact of Number of Qubits on Quantum Kernel Performance
 This test measures how performance scales with qubit count across backends.
 Key insight: State vector size = 2^n_qubits, so memory and compute scale exponentially.
 
+New features (cuda_states optimizations):
+- CLI arguments to configure all optimization parameters
+- Auto VRAM-aware state tiling (--state-tile=-1)
+- Kernel autotuning support
+- Dynamic batch sizing
+- CUDA stream pool configuration
+- Memory profiling options (--profile-memory, --verbose-profile)
+- Bulk state precomputation control
+
 Author: Dylan Fouepe
 """
 
@@ -48,7 +57,17 @@ BACKEND_CONFIGS = {
         "dtype": "float64",
         "symmetric": True,
         "tile_size": 10000,
-        "state_tile": 4096,  # Will be auto-adjusted for high qubit counts
+        # cuda_states optimization parameters
+        "state_tile": -1,           # Auto VRAM-aware sizing
+        "vram_fraction": 0.85,
+        "autotune": True,
+        "precompute_all_states": True,
+        "dynamic_batch": True,
+        "num_streams": 4,
+        "learn_tiles": True,
+        "use_cuda_graphs": True,
+        "profile_memory": False,    # Enable per-test if needed
+        "verbose_profile": False,
     },
     "torch": {
         "device_name": "lightning.gpu",
@@ -267,6 +286,60 @@ def run_qubit_impact_test() -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Test impact of number of qubits on performance")
+    
+    # cuda_states optimization flags
+    parser.add_argument("--cuda-states-full-opts", action="store_true",
+                       help="Enable all cuda_states optimizations")
+    parser.add_argument("--state-tile", type=int, default=-1,
+                       help="State tile size (-1 for auto)")
+    parser.add_argument("--vram-fraction", type=float, default=0.85,
+                       help="Maximum VRAM fraction to use")
+    parser.add_argument("--no-autotune", action="store_false", dest="autotune",
+                       help="Disable kernel autotuning")
+    parser.add_argument("--no-precompute", action="store_false", dest="precompute_all_states",
+                       help="Disable bulk state precomputation")
+    parser.add_argument("--no-dynamic-batch", action="store_false", dest="dynamic_batch",
+                       help="Disable dynamic batch sizing")
+    parser.add_argument("--num-streams", type=int, default=4,
+                       help="Number of CUDA streams")
+    parser.add_argument("--profile-memory", action="store_true",
+                       help="Enable memory profiling")
+    parser.add_argument("--verbose-profile", action="store_true",
+                       help="Show detailed profiling output")
+    
+    # Set defaults
+    parser.set_defaults(autotune=True, precompute_all_states=True, dynamic_batch=True)
+    
+    args = parser.parse_args()
+    
+    # Update BACKEND_CONFIGS based on CLI args
+    if args.cuda_states_full_opts or any([
+        args.state_tile != -1,
+        args.vram_fraction != 0.85,
+        not args.autotune,
+        not args.precompute_all_states,
+        not args.dynamic_batch,
+        args.num_streams != 4,
+        args.profile_memory,
+        args.verbose_profile
+    ]):
+        BACKEND_CONFIGS["cuda_states"].update({
+            "state_tile": args.state_tile,
+            "vram_fraction": args.vram_fraction,
+            "autotune": args.autotune,
+            "precompute_all_states": args.precompute_all_states,
+            "dynamic_batch": args.dynamic_batch,
+            "num_streams": args.num_streams,
+            "profile_memory": args.profile_memory,
+            "verbose_profile": args.verbose_profile,
+        })
+        
+        if args.profile_memory or args.verbose_profile:
+            print("📊 Memory profiling enabled for cuda_states backend")
+    
     try:
         df = run_qubit_impact_test()
         print("\n✅ Test completed successfully!")

@@ -7,6 +7,12 @@ This test measures:
 1. How tile_size affects throughput for each backend
 2. How sample count (N) affects scaling (should be O(N²))
 3. Optimal tile configurations for different workload sizes
+4. Impact of cuda_states optimization parameters:
+   - state_tile: VRAM-aware state tiling (-1 for auto)
+   - num_streams: CUDA stream parallelism
+   - vram_fraction: Memory pressure targets
+   - Optimization ablation: Individual contribution of each optimization
+   - Sample scaling with all optimizations enabled
 
 Author: Dylan Fouepe
 """
@@ -143,7 +149,7 @@ def benchmark_config(n_samples: int, n_qubits: int, **kwargs) -> Dict:
     }
 
 def test_cuda_states_tile_impact():
-    """Test state_tile impact for cuda_states backend."""
+    """Test state_tile impact for cuda_states backend (renamed from old name)."""
     print("\n" + "="*80)
     print("TEST 1: CUDA_STATES - state_tile Impact")
     print("="*80)
@@ -188,6 +194,267 @@ def test_cuda_states_tile_impact():
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
         print(f"\n✅ OPTIMAL: state_tile={best['state_tile']}, tile_size={best['tile_size']} "
               f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return results
+
+def test_state_tile_optimization():
+    """Test different state_tile values including auto (-1)."""
+    print("\n" + "="*80)
+    print("TEST: State Tile Optimization (Auto vs Fixed)")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    state_tiles = [-1, 512, 1024, 2048, 4096, 8192]  # -1 = auto
+    
+    print(f"\n{'state_tile':<12} {'Mode':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print("-"*70)
+    
+    for state_tile in state_tiles:
+        try:
+            config = BACKEND_CONFIGS["cuda_states"].copy()
+            config["state_tile"] = state_tile
+            
+            res = benchmark_config(n_samples, N_QUBITS, **config)
+            
+            mode = "AUTO" if state_tile == -1 else "FIXED"
+            results.append({
+                "test": "state_tile_optimization",
+                "backend": "cuda_states",
+                "n_samples": n_samples,
+                "n_qubits": N_QUBITS,
+                "state_tile": state_tile,
+                "mode": mode,
+                **res,
+            })
+            
+            print(f"{state_tile:<12} {mode:<12} {res['time_s']:<12.3f} "
+                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
+            
+        except Exception as e:
+            print(f"{state_tile:<12} ERROR: {str(e)[:50]}")
+    
+    return results
+
+def test_num_streams_impact():
+    """Test how stream count affects throughput."""
+    print("\n" + "="*80)
+    print("TEST: Number of CUDA Streams Impact")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    num_streams_values = [1, 2, 4, 8]
+    
+    print(f"\n{'num_streams':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print("-"*60)
+    
+    for num_streams in num_streams_values:
+        try:
+            config = BACKEND_CONFIGS["cuda_states"].copy()
+            config["num_streams"] = num_streams
+            
+            res = benchmark_config(n_samples, N_QUBITS, **config)
+            
+            results.append({
+                "test": "num_streams_impact",
+                "backend": "cuda_states",
+                "n_samples": n_samples,
+                "n_qubits": N_QUBITS,
+                "num_streams": num_streams,
+                **res,
+            })
+            
+            print(f"{num_streams:<12} {res['time_s']:<12.3f} "
+                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
+            
+        except Exception as e:
+            print(f"{num_streams:<12} ERROR: {str(e)[:50]}")
+    
+    if results:
+        best = max(results, key=lambda x: x['throughput_mpairs_s'])
+        print(f"\n✅ OPTIMAL: num_streams={best['num_streams']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return results
+
+def test_vram_fraction_impact():
+    """Test memory pressure at different VRAM utilization targets."""
+    print("\n" + "="*80)
+    print("TEST: VRAM Fraction Impact")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    vram_fractions = [0.5, 0.7, 0.85, 0.95]
+    
+    print(f"\n{'vram_fraction':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print("-"*60)
+    
+    for vram_fraction in vram_fractions:
+        try:
+            config = BACKEND_CONFIGS["cuda_states"].copy()
+            config["vram_fraction"] = vram_fraction
+            
+            res = benchmark_config(n_samples, N_QUBITS, **config)
+            
+            results.append({
+                "test": "vram_fraction_impact",
+                "backend": "cuda_states",
+                "n_samples": n_samples,
+                "n_qubits": N_QUBITS,
+                "vram_fraction": vram_fraction,
+                **res,
+            })
+            
+            print(f"{vram_fraction:<15.2f} {res['time_s']:<12.3f} "
+                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
+            
+        except Exception as e:
+            print(f"{vram_fraction:<15.2f} ERROR: {str(e)[:50]}")
+    
+    return results
+
+def test_optimization_ablation():
+    """Compare performance with each optimization disabled."""
+    print("\n" + "="*80)
+    print("TEST: Optimization Ablation Study")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    
+    # Define test configurations
+    configs = {
+        "All Optimizations": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Autotune": {
+            "autotune": False,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Precompute": {
+            "autotune": True,
+            "precompute_all_states": False,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Dynamic Batch": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": False,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No CUDA Graphs": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": False,
+            "num_streams": 4,
+        },
+        "Single Stream": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 1,
+        },
+        "No Optimizations": {
+            "autotune": False,
+            "precompute_all_states": False,
+            "dynamic_batch": False,
+            "use_cuda_graphs": False,
+            "num_streams": 1,
+        },
+    }
+    
+    print(f"\n{'Configuration':<22} {'Time (s)':<12} {'Mpairs/s':<12} {'Speedup':<10}")
+    print("-"*70)
+    
+    baseline_time = None
+    
+    for config_name, opts in configs.items():
+        try:
+            config = BACKEND_CONFIGS["cuda_states"].copy()
+            config.update(opts)
+            
+            res = benchmark_config(n_samples, N_QUBITS, **config)
+            
+            if baseline_time is None:
+                baseline_time = res['time_s']
+            
+            speedup = baseline_time / res['time_s'] if res['time_s'] > 0 else 0
+            
+            results.append({
+                "test": "optimization_ablation",
+                "configuration": config_name,
+                "backend": "cuda_states",
+                "n_samples": n_samples,
+                "n_qubits": N_QUBITS,
+                "speedup": speedup,
+                **opts,
+                **res,
+            })
+            
+            print(f"{config_name:<22} {res['time_s']:<12.3f} "
+                  f"{res['throughput_mpairs_s']:<12.3f} {speedup:<10.2f}x")
+            
+        except Exception as e:
+            print(f"{config_name:<22} ERROR: {str(e)[:50]}")
+    
+    return results
+
+def test_sample_scaling_with_optimizations():
+    """Verify O(N²) scaling with all optimizations enabled."""
+    print("\n" + "="*80)
+    print("TEST: Sample Scaling with Full Optimizations")
+    print("="*80)
+    
+    results = []
+    sample_sizes = [1000, 2000, 4000, 8000]
+    
+    print(f"\n{'N':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'N²/Time':<12} {'VRAM (GB)':<12}")
+    print("-"*70)
+    
+    for n_samples in sample_sizes:
+        try:
+            config = BACKEND_CONFIGS["cuda_states"].copy()
+            # Ensure all optimizations are enabled
+            config.update({
+                "autotune": True,
+                "precompute_all_states": True,
+                "dynamic_batch": True,
+                "use_cuda_graphs": True,
+                "num_streams": 4,
+            })
+            
+            res = benchmark_config(n_samples, N_QUBITS, **config)
+            
+            n_squared_per_time = (n_samples ** 2) / res['time_s'] / 1e6
+            
+            results.append({
+                "test": "sample_scaling_optimized",
+                "backend": "cuda_states",
+                "n_samples": n_samples,
+                "n_qubits": N_QUBITS,
+                "n_squared_per_time": n_squared_per_time,
+                **res,
+            })
+            
+            print(f"{n_samples:<8} {res['time_s']:<12.3f} "
+                  f"{res['throughput_mpairs_s']:<12.3f} {n_squared_per_time:<12.3f} "
+                  f"{res['peak_vram_gb']:<12.2f}")
+            
+        except Exception as e:
+            print(f"{n_samples:<8} ERROR: {str(e)[:50]}")
     
     return results
 
@@ -301,10 +568,17 @@ def run_all_tile_tests():
     
     all_results = []
     
-    # Run tests
+    # Run original tests
     all_results.extend(test_cuda_states_tile_impact())
     all_results.extend(test_numpy_tile_workers_impact())
     all_results.extend(test_sample_scaling())
+    
+    # Run new optimization tests
+    all_results.extend(test_state_tile_optimization())
+    all_results.extend(test_num_streams_impact())
+    all_results.extend(test_vram_fraction_impact())
+    all_results.extend(test_optimization_ablation())
+    all_results.extend(test_sample_scaling_with_optimizations())
     
     # Save results
     df = pd.DataFrame(all_results)

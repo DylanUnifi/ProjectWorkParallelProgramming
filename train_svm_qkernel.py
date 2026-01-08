@@ -1,4 +1,15 @@
 # train_svm_qkernel.py - OPTIMIZED, CACHED & FIXED
+# 
+# Enhanced with full cuda_states optimization support:
+# - Auto VRAM-aware state tiling
+# - Kernel autotuning for optimal tile sizes
+# - Bulk state precomputation
+# - Dynamic batch sizing based on memory pressure
+# - CUDA stream pool for parallelism
+# - CUDA graph optimization
+# - Tile size learning from run history
+# - Memory profiling capabilities
+#
 import os
 import argparse
 import random
@@ -153,7 +164,18 @@ def train_fold(
         "return_dtype": args.return_dtype,
         "angle_scale": args.angle_scale,
         "embed_mode": args.embed_mode,
-        "normalize": args.normalize_kernel
+        "normalize": args.normalize_kernel,
+        # cuda_states optimization parameters
+        "state_tile": args.state_tile,
+        "vram_fraction": args.vram_fraction,
+        "autotune": args.autotune,
+        "precompute_all_states": args.precompute_all_states,
+        "dynamic_batch": args.dynamic_batch,
+        "num_streams": args.num_streams,
+        "learn_tiles": args.learn_tiles,
+        "use_cuda_graphs": args.use_cuda_graphs,
+        "profile_memory": args.profile_memory,
+        "verbose_profile": args.verbose_profile,
     }
     
     cache_params = {**backend_params, "weights_hash": hashlib.md5(weights.tobytes()).hexdigest()[:8]}
@@ -208,7 +230,18 @@ def train_fold(
     # --------------------------------------------------------
     
     # Maintenant on peut logger car best_C existe
-    wandb.log({f"fold_{fold_idx}/best_C": best_C})
+    wandb.log({
+        f"fold_{fold_idx}/best_C": best_C,
+        # Log cuda_states optimization settings
+        f"fold_{fold_idx}/config/state_tile": args.state_tile,
+        f"fold_{fold_idx}/config/vram_fraction": args.vram_fraction,
+        f"fold_{fold_idx}/config/autotune": args.autotune,
+        f"fold_{fold_idx}/config/num_streams": args.num_streams,
+        f"fold_{fold_idx}/config/dynamic_batch": args.dynamic_batch,
+        f"fold_{fold_idx}/config/use_cuda_graphs": args.use_cuda_graphs,
+        f"fold_{fold_idx}/config/precompute_all_states": args.precompute_all_states,
+        f"fold_{fold_idx}/config/learn_tiles": args.learn_tiles,
+    })
 
     # ── Entraînement Final sur (Train + Val) pour Test ──
     X_trainval = np.vstack([X_train, X_val])
@@ -369,6 +402,33 @@ if __name__ == "__main__":
     p.add_argument("--pca-components", type=int, default=None)
     p.add_argument("--cache-kernels", action="store_true", help="Enable disk caching for kernels")
     p.add_argument("--cache-dir", type=str, default="./kernel_cache")
+    
+    # cuda_states optimization parameters
+    p.add_argument("--state-tile", type=int, default=-1,
+                   help="State tile size (-1 for auto VRAM-aware)")
+    p.add_argument("--vram-fraction", type=float, default=0.85,
+                   help="Maximum VRAM fraction to use (0-1)")
+    p.add_argument("--autotune", action="store_true", default=True,
+                   help="Enable kernel tile autotuning")
+    p.add_argument("--no-autotune", action="store_false", dest="autotune")
+    p.add_argument("--precompute-all-states", action="store_true", default=True,
+                   help="Bulk precompute all quantum states")
+    p.add_argument("--no-precompute", action="store_false", dest="precompute_all_states")
+    p.add_argument("--dynamic-batch", action="store_true", default=True,
+                   help="Enable dynamic batch sizing")
+    p.add_argument("--no-dynamic-batch", action="store_false", dest="dynamic_batch")
+    p.add_argument("--num-streams", type=int, default=4,
+                   help="Number of CUDA streams for parallelism")
+    p.add_argument("--learn-tiles", action="store_true", default=True,
+                   help="Learn optimal tiles from run history")
+    p.add_argument("--no-learn-tiles", action="store_false", dest="learn_tiles")
+    p.add_argument("--use-cuda-graphs", action="store_true", default=True,
+                   help="Enable CUDA graph optimization")
+    p.add_argument("--no-cuda-graphs", action="store_false", dest="use_cuda_graphs")
+    p.add_argument("--profile-memory", action="store_true", default=False,
+                   help="Enable GPU memory profiling")
+    p.add_argument("--verbose-profile", action="store_true", default=False,
+                   help="Show detailed profiling output")
 
     args = p.parse_args()
     run_train(args)

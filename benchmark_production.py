@@ -315,11 +315,131 @@ def test_tile_optimization() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
+def benchmark_optimization_ablation() -> pd.DataFrame:
+    """Compare each optimization's individual contribution (cuda_states)."""
+    
+    print("\n" + "="*80)
+    print("TEST 4: CUDA_STATES Optimization Ablation Study")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    
+    # Define test configurations
+    configs = {
+        "All Optimizations": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Autotune": {
+            "autotune": False,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Precompute": {
+            "autotune": True,
+            "precompute_all_states": False,
+            "dynamic_batch": True,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No Dynamic Batch": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": False,
+            "use_cuda_graphs": True,
+            "num_streams": 4,
+        },
+        "No CUDA Graphs": {
+            "autotune": True,
+            "precompute_all_states": True,
+            "dynamic_batch": True,
+            "use_cuda_graphs": False,
+            "num_streams": 4,
+        },
+        "Baseline (No Opts)": {
+            "autotune": False,
+            "precompute_all_states": False,
+            "dynamic_batch": False,
+            "use_cuda_graphs": False,
+            "num_streams": 1,
+        },
+    }
+    
+    print(f"\n{'Configuration':<22} {'Time (s)':<12} {'Mpairs/s':<12} {'Speedup':<10}")
+    print("-"*70)
+    
+    baseline_time = None
+    
+    for config_name, opts in configs.items():
+        config = BACKEND_CONFIGS["cuda_states"].copy()
+        config.update(opts)
+        
+        result = benchmark_single_config(
+            n_qubits=N_QUBITS_DEFAULT,
+            n_samples=n_samples,
+            backend_name="cuda_states",
+            config=config,
+        )
+        
+        if result:
+            # Use baseline for speedup calculation
+            if config_name == "Baseline (No Opts)":
+                baseline_time = result['time_s']
+            
+            speedup = baseline_time / result['time_s'] if baseline_time and result['time_s'] > 0 else 1.0
+            
+            result["configuration"] = config_name
+            result["speedup"] = speedup
+            results.append(result)
+            
+            print(f"{config_name:<22} {result['time_s']:<12.3f} "
+                  f"{result['throughput_mpairs_s']:<12.3f} {speedup:<10.2f}x")
+    
+    return pd.DataFrame(results)
+
+def benchmark_with_profiling() -> pd.DataFrame:
+    """Run with full memory profiling and report (cuda_states)."""
+    
+    print("\n" + "="*80)
+    print("TEST 5: Memory Profiling Analysis")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    
+    print("\nRunning cuda_states with full profiling enabled...")
+    
+    config = BACKEND_CONFIGS["cuda_states"].copy()
+    config.update({
+        "profile_memory": True,
+        "verbose_profile": True,
+    })
+    
+    result = benchmark_single_config(
+        n_qubits=N_QUBITS_DEFAULT,
+        n_samples=n_samples,
+        backend_name="cuda_states",
+        config=config,
+    )
+    
+    if result:
+        result["test"] = "memory_profiling"
+        results.append(result)
+        print(f"\n📊 Profiling completed: {result['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return pd.DataFrame(results)
+
 def benchmark_torch_optimizations() -> pd.DataFrame:
     """Benchmark torch backend with different optimization flags."""
     
     print("\n" + "="*80)
-    print("TEST 4: Torch Backend Optimizations")
+    print("TEST 6: Torch Backend Optimizations")
     print("="*80)
     
     results = []
@@ -368,7 +488,7 @@ def benchmark_torch_tile_sizes() -> pd.DataFrame:
     """Test optimal tile_size for torch backend."""
     
     print("\n" + "="*80)
-    print("TEST 5: Torch Tile Size Optimization")
+    print("TEST 7: Torch Tile Size Optimization")
     print("="*80)
     
     results = []
@@ -405,7 +525,7 @@ def benchmark_backend_comparison() -> pd.DataFrame:
     """Compare all backends: cuda_states, torch, numpy."""
     
     print("\n" + "="*80)
-    print("TEST 6: Backend Comparison")
+    print("TEST 8: Backend Comparison")
     print("="*80)
     
     results = []
@@ -650,6 +770,13 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
         df_tile = test_tile_optimization()
         all_results.append(df_tile)
     
+    if tests is None or 'ablation' in tests:
+        df_ablation = benchmark_optimization_ablation()
+        all_results.append(df_ablation)
+        
+        df_profiling = benchmark_with_profiling()
+        all_results.append(df_profiling)
+    
     if tests is None or 'torch' in tests:
         df_torch_opt = benchmark_torch_optimizations()
         all_results.append(df_torch_opt)
@@ -693,7 +820,7 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run production performance benchmark")
-    parser.add_argument('--tests', nargs='+', choices=['qubit', 'sample', 'tile', 'torch', 'compare', 'all'],
+    parser.add_argument('--tests', nargs='+', choices=['qubit', 'sample', 'tile', 'ablation', 'torch', 'compare', 'all'],
                        default=['all'], help="Tests to run (default: all)")
     parser.add_argument('--backends', nargs='+', choices=list(BACKEND_CONFIGS.keys()) + ['all'],
                        default=['all'], help="Backends to test (default: all)")

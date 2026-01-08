@@ -425,6 +425,16 @@ class MemoryProfiler:
             "avg_kernel_time_ms": avg_kernel_time
         }
         
+        # Add graph statistics if available
+        if hasattr(self, 'graph_replays'):
+            report_data["graph_replays"] = self.graph_replays
+        if hasattr(self, 'graph_hit_rate'):
+            report_data["graph_hit_rate"] = self.graph_hit_rate
+        
+        # Add throughput if available
+        if hasattr(self, 'throughput'):
+            report_data["throughput_mpairs_per_sec"] = self.throughput
+        
         if verbose:
             self._print_report(report_data)
         
@@ -460,7 +470,17 @@ class MemoryProfiler:
         print("╠══════════════════════════════════════════════════════════════╣")
         print("║ Kernel Performance                                             ║")
         print(f"║   Total Launches:     {data['kernel_launches']:,}                                    ║")
+        
+        # Add graph statistics if available
+        if "graph_replays" in data and "graph_hit_rate" in data:
+            print(f"║   Graph Replays:        {data['graph_replays']:,} ({data['graph_hit_rate']*100:4.1f}% hit rate)                  ║")
+        
         print(f"║   Avg Kernel Time:     {data['avg_kernel_time_ms']:.2f} ms                                 ║")
+        
+        # Add throughput if available
+        if "throughput_mpairs_per_sec" in data:
+            print(f"║   Throughput:         {data['throughput_mpairs_per_sec']:.1f} Mpairs/s                          ║")
+        
         print("╚══════════════════════════════════════════════════════════════╝\n")
 
 
@@ -1559,15 +1579,29 @@ def compute_kernel_matrix(
         cp.get_default_memory_pool().free_all_blocks()
         
         # Record performance for tile learning
+        total_pairs = n * m if Y is not None else (n * (n + 1)) // 2
+        throughput = total_pairs / total_time if total_time > 0 else 0.0
+        
         if tile_optimizer:
             device = cp.cuda.Device()
             peak_memory_gb = (device.mem_info[1] - device.mem_info[0]) / 1e9
-            total_pairs = n * m if Y is not None else (n * (n + 1)) // 2
-            throughput = total_pairs / total_time if total_time > 0 else 0.0
             tile_optimizer.record_run(n, nq, state_tile, (tm, tn, tk), throughput, peak_memory_gb)
         
         # Generate profiling reports
         if mem_profiler:
+            # Calculate throughput in Mpairs/s
+            throughput_mpairs = throughput / 1e6
+            
+            # Get graph statistics if available
+            if graph_manager:
+                graph_stats = graph_manager.get_statistics()
+                # Add to profiler data for inclusion in report
+                mem_profiler.graph_replays = graph_stats["total_replays"]
+                mem_profiler.graph_hit_rate = graph_stats["hit_rate"]
+            
+            # Add throughput to profiler data
+            mem_profiler.throughput = throughput_mpairs
+            
             report_data = mem_profiler.report(verbose=verbose_profile)
             
             # Add additional statistics
@@ -1581,14 +1615,6 @@ def compute_kernel_matrix(
                         util = stream_pool.get_utilization() * 100
                         print(f"║   Stream Utilization: {util:.1f}%                                    ║")
                     print("╚══════════════════════════════════════════════════════════════╝\n")
-            
-            # Add graph statistics
-            if graph_manager:
-                graph_stats = graph_manager.get_statistics()
-                if verbose_profile and graph_stats["total_captures"] > 0:
-                    print(f"📈 CUDA Graphs: {graph_stats['total_graphs']} captured, "
-                          f"{graph_stats['total_replays']} replays, "
-                          f"{graph_stats['hit_rate']*100:.1f}% hit rate")
         
         # --- PROTECTION ANTI-CRASH (NEW) ---
         if not np.all(np.isfinite(K)):

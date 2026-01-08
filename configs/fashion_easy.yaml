@@ -1,0 +1,15 @@
+experiment_name: "svm_qkernel_fashion_mnist_easy"
+
+dataset:
+  name: fashion_mnist
+  binary_classes: [0, 1]     
+  grayscale: true
+  root: ./data
+
+pennylane:
+  layers: 1
+
+svm:
+  n_trials: 30
+
+cv_folds: 3

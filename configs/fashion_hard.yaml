@@ -1,8 +1,8 @@
-experiment_name: "svm_qkernel_fashion_mnist_final_float64"
+experiment_name: "svm_qkernel_fashion_mnist_hard"
 
 dataset:
   name: fashion_mnist
-  binary_classes: [3, 8]     # T-shirt/top vs Shirt
+  binary_classes: [0, 6]     
   grayscale: true
   root: ./data
 

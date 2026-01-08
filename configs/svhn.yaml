@@ -2,18 +2,14 @@ experiment_name: "svm_qkernel_svhn_final_float64"
 
 dataset:
   name: svhn
-  binary_classes: [0, 1]
+  binary_classes: [3, 8]
   grayscale: true
   root: ./data
 
 pennylane:
   layers: 2
-  angle_scale: 1.5
-  embed_mode: ryrz
 
-svm:
-  use_pca: true
-  pca_components: 8         
+svm:       
   n_trials: 30
 
 cv_folds: 3

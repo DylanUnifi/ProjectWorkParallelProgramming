@@ -8,13 +8,8 @@ dataset:
 
 pennylane:
   layers: 2
-  tile_size: 10000
-  angle_scale: 1.5
-  embed_mode: ryrz
 
 svm:
-  use_pca: true
-  pca_components: 8
   n_trials: 30
 
 cv_folds: 3

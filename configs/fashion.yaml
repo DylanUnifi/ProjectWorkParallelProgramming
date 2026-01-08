@@ -2,17 +2,14 @@ experiment_name: "svm_qkernel_fashion_mnist_final_float64"
 
 dataset:
   name: fashion_mnist
-  binary_classes: [0, 1]     # T-shirt/top vs Shirt
+  binary_classes: [3, 8]     # T-shirt/top vs Shirt
   grayscale: true
   root: ./data
 
 pennylane:
-  angle_scale: 1.5
-  embed_mode: ryrz
+  layers: 1
 
 svm:
-  use_pca: true
-  pca_components: 8
   n_trials: 30
 
 cv_folds: 3

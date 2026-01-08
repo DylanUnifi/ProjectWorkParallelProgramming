@@ -40,6 +40,28 @@ N_QUBITS = 10
 # Sample sizes to test
 SAMPLE_SIZES = [1000, 2000, 4000, 8000, 16000]
 
+# Backend base configurations
+BACKEND_CONFIGS = {
+    "cuda_states": {
+        "device_name": "lightning.gpu",
+        "gram_backend": "cuda_states",
+        "dtype": "float64",
+        "symmetric": True,
+    },
+    "torch": {
+        "device_name": "lightning.gpu",
+        "gram_backend": "torch",
+        "dtype": "float64",
+        "symmetric": True,
+    },
+    "numpy": {
+        "device_name": "default.qubit",
+        "gram_backend": "numpy",
+        "dtype": "float64",
+        "symmetric": True,
+    },
+}
+
 # Tile sizes to test
 TILE_SIZES = {
     "cuda_states": {

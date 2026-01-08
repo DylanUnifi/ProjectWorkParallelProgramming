@@ -59,6 +59,11 @@ BACKEND_CONFIGS = {
         "gram_backend": "torch",
         "dtype": "float64",
         "symmetric": True,
+        # Torch-specific optimizations
+        "use_pinned_memory": True,
+        "use_cuda_streams": True,
+        "use_amp": False,
+        "use_compile": False,
     },
     "numpy": {
         "device_name": "default.qubit",
@@ -75,7 +80,7 @@ TILE_SIZES = {
         "tile_size": [1000, 5000, 10000],  # Kernel tile
     },
     "torch": {
-        "tile_size": [64, 128, 256, 512, 1024],
+        "tile_size": [64, 128, 256, 512, 1024, 2048],
     },
     "numpy": {
         "tile_size": [32, 64, 128, 256, 512],
@@ -506,10 +511,115 @@ def test_numpy_tile_workers_impact():
     
     return results
 
+def test_torch_tile_impact():
+    """Test tile_size impact for torch backend."""
+    print("\n" + "="*80)
+    print("TEST 3: TORCH - tile_size Impact")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    
+    print(f"\n{'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print("-"*60)
+    
+    for tile_size in TILE_SIZES["torch"]["tile_size"]:
+        try:
+            res = benchmark_config(
+                n_samples, N_QUBITS,
+                device_name="lightning.gpu",
+                gram_backend="torch",
+                dtype="float64",
+                symmetric=True,
+                tile_size=tile_size,
+                use_pinned_memory=True,
+                use_cuda_streams=True,
+                use_amp=False,
+                use_compile=False,
+            )
+            
+            results.append({
+                "backend": "torch",
+                "n_samples": n_samples,
+                "n_qubits": N_QUBITS,
+                "state_tile": None,
+                "tile_size": tile_size,
+                "n_workers": None,
+                **res,
+            })
+            
+            print(f"{tile_size:<12} {res['time_s']:<12.3f} "
+                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
+            
+        except Exception as e:
+            print(f"{tile_size:<12} ERROR: {str(e)[:40]}")
+    
+    if results:
+        best = max(results, key=lambda x: x['throughput_mpairs_s'])
+        print(f"\n✅ OPTIMAL: tile_size={best['tile_size']} "
+              f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return results
+
+def test_torch_optimizations():
+    """Test torch backend optimization flags."""
+    print("\n" + "="*80)
+    print("TEST 4: TORCH - Optimization Flags Impact")
+    print("="*80)
+    
+    results = []
+    n_samples = 4000
+    tile_size = 512  # Use optimal from previous test
+    
+    configs = [
+        {"name": "baseline", "use_pinned_memory": False, "use_cuda_streams": False, "use_amp": False, "use_compile": False},
+        {"name": "pinned_memory", "use_pinned_memory": True, "use_cuda_streams": False, "use_amp": False, "use_compile": False},
+        {"name": "cuda_streams", "use_pinned_memory": False, "use_cuda_streams": True, "use_amp": False, "use_compile": False},
+        {"name": "pinned+streams", "use_pinned_memory": True, "use_cuda_streams": True, "use_amp": False, "use_compile": False},
+    ]
+    
+    print(f"\n{'Config':<20} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print("-"*70)
+    
+    for config in configs:
+        try:
+            res = benchmark_config(
+                n_samples, N_QUBITS,
+                device_name="lightning.gpu",
+                gram_backend="torch",
+                dtype="float64",
+                symmetric=True,
+                tile_size=tile_size,
+                **{k: v for k, v in config.items() if k != "name"}
+            )
+            
+            results.append({
+                "backend": "torch",
+                "config_name": config["name"],
+                "n_samples": n_samples,
+                "n_qubits": N_QUBITS,
+                "tile_size": tile_size,
+                **res,
+            })
+            
+            print(f"{config['name']:<20} {res['time_s']:<12.3f} "
+                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
+            
+        except Exception as e:
+            print(f"{config['name']:<20} ERROR: {str(e)[:40]}")
+    
+    if results:
+        best = max(results, key=lambda x: x['throughput_mpairs_s'])
+        print(f"\n✅ BEST CONFIG: {best['config_name']} "
+              f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
+    
+    return results
+
+
 def test_sample_scaling():
     """Test how performance scales with sample count."""
     print("\n" + "="*80)
-    print("TEST 3: Sample Count Scaling (O(N²) verification)")
+    print("TEST 5: Sample Count Scaling (O(N²) verification)")
     print("="*80)
     
     results = []
@@ -523,6 +633,10 @@ def test_sample_scaling():
             **BACKEND_CONFIGS["cuda_states"],
             "state_tile": 4096
         },
+        "torch": {
+            **BACKEND_CONFIGS["torch"],
+            "tile_size": 512
+        },
         "numpy": {
             **BACKEND_CONFIGS["numpy"],
             "tile_size": 128,
@@ -531,7 +645,12 @@ def test_sample_scaling():
     }
     
     for backend_name, config in test_backends.items():
-        sample_limits = SAMPLE_SIZES if backend_name == "cuda_states" else [s for s in SAMPLE_SIZES if s <= 4000]
+        if backend_name == "cuda_states":
+            sample_limits = SAMPLE_SIZES
+        elif backend_name == "torch":
+            sample_limits = [s for s in SAMPLE_SIZES if s <= 8000]
+        else:  # numpy
+            sample_limits = [s for s in SAMPLE_SIZES if s <= 4000]
         
         for n_samples in sample_limits:
             try:
@@ -571,6 +690,8 @@ def run_all_tile_tests():
     # Run original tests
     all_results.extend(test_cuda_states_tile_impact())
     all_results.extend(test_numpy_tile_workers_impact())
+    all_results.extend(test_torch_tile_impact())
+    all_results.extend(test_torch_optimizations())
     all_results.extend(test_sample_scaling())
     
     # Run new optimization tests

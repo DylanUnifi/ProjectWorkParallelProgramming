@@ -1140,7 +1140,8 @@ def _dispatch_kernel_async(kernel_fn, grid, block, args, stream=None):
 # =====================================================================
 # Main Compute Functions
 # =====================================================================
-def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric, float_dt, ret_dt, angle_scale, re_embed_between_layers, embed_mode):
+def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric, float_dt, ret_dt, angle_scale, re_embed_between_layers, embed_mode,
+                       use_pinned_memory=False, use_cuda_streams=False, use_amp=False, use_compile=False):
     import torch as th
     import pennylane as qml
     
@@ -1150,9 +1151,15 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
     tf = th.float32 if float_dt==np.float32 else th.float64
     tc = th.complex64 if float_dt==np.float32 else th.complex128
     
-    a = th.from_numpy(a_np).to("cuda", dtype=tf)
-    b = a if b_np is None else th.from_numpy(b_np).to("cuda", dtype=tf)
-    w = th.from_numpy(weights_np).to("cuda", dtype=tf)
+    # OPTIMIZATION 1: Pinned memory for faster CPU→GPU transfers
+    if use_pinned_memory and th.cuda.is_available():
+        a = th.from_numpy(a_np).pin_memory().to("cuda", dtype=tf, non_blocking=True)
+        b = a if b_np is None else th.from_numpy(b_np).pin_memory().to("cuda", dtype=tf, non_blocking=True)
+        w = th.from_numpy(weights_np).pin_memory().to("cuda", dtype=tf, non_blocking=True)
+    else:
+        a = th.from_numpy(a_np).to("cuda", dtype=tf)
+        b = a if b_np is None else th.from_numpy(b_np).to("cuda", dtype=tf)
+        w = th.from_numpy(weights_np).to("cuda", dtype=tf)
     
     try: dev = qml.device(device_name, wires=nq, shots=None, c_dtype=(np.complex64 if float_dt==np.float32 else np.complex128))
     except: dev = qml.device("lightning.gpu", wires=nq, shots=None)
@@ -1179,23 +1186,57 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
         _ = build(a[:2])
     except: 
         build = lambda x: th.stack([_state(x[i]) for i in range(len(x))]).to(dtype=tc)
+    
+    # OPTIMIZATION 3: torch.compile (PyTorch 2.0+)
+    if use_compile and hasattr(th, 'compile'):
+        try:
+            build = th.compile(build, mode="reduce-overhead")
+        except Exception:
+            pass  # Fall back to non-compiled version if compile fails
+    
+    # OPTIMIZATION 2: CUDA streams for overlapped execution
+    compute_stream = None
+    if use_cuda_streams and th.cuda.is_available():
+        compute_stream = th.cuda.Stream()
 
     k = th.empty((n, m), device="cuda", dtype=tf)
     
+    # OPTIMIZATION 2: CUDA streams for overlapped execution
+    compute_stream = None
+    if use_cuda_streams and th.cuda.is_available():
+        compute_stream = th.cuda.Stream()
+    
+    # Helper function to compute kernel block
+    def compute_kernel_block(i0, i1):
+        sa = build(a[i0:i1])
+        j_start = i0 if (symmetric and b_np is None) else 0
+        for j0 in range(j_start, m, tile_size):
+            j1 = min(j0+tile_size, m)
+            sb = sa if (b_np is None and j0==i0) else build(b[j0:j1])
+            res = (sa @ sb.conj().T).abs().square()
+            k[i0:i1, j0:j1] = res
+            if symmetric and b_np is None and j0 > i0:
+                k[j0:j1, i0:i1] = res.T
+        del sa
+    
+    # OPTIMIZATION 4: Automatic Mixed Precision (experimental)
+    # Use nested context managers for proper gradient and AMP handling
     with th.no_grad():
-        for i0 in range(0, n, tile_size):
-            i1 = min(i0+tile_size, n)
-            sa = build(a[i0:i1])
-            j_start = i0 if (symmetric and b_np is None) else 0
-            for j0 in range(j_start, m, tile_size):
-                j1 = min(j0+tile_size, m)
-                sb = sa if (b_np is None and j0==i0) else build(b[j0:j1])
-                res = (sa @ sb.conj().T).abs().square()
-                k[i0:i1, j0:j1] = res
-                if symmetric and b_np is None and j0 > i0:
-                    k[j0:j1, i0:i1] = res.T
-            del sa
-            th.cuda.empty_cache()
+        with th.cuda.amp.autocast(enabled=(use_amp and th.cuda.is_available()), dtype=th.float16):
+            for i0 in range(0, n, tile_size):
+                i1 = min(i0+tile_size, n)
+                
+                if compute_stream:
+                    with th.cuda.stream(compute_stream):
+                        compute_kernel_block(i0, i1)
+                else:
+                    compute_kernel_block(i0, i1)
+                
+                th.cuda.empty_cache()
+    
+    # Synchronize if using streams
+    if compute_stream:
+        compute_stream.synchronize()
             
     return k.cpu().numpy().astype(ret_dt)
 
@@ -1263,7 +1304,12 @@ def compute_kernel_matrix(
         learn_tiles: bool = True,
         profile_memory: bool = False,
         use_cuda_graphs: bool = True,
-        verbose_profile: bool = False
+        verbose_profile: bool = False,
+        # Torch backend optimizations
+        use_pinned_memory: bool = False,
+        use_cuda_streams: bool = False,
+        use_amp: bool = False,
+        use_compile: bool = False
 ):
     f_dt = np.float32 if dtype=="float32" else np.float64
     r_dt = np.float32 if return_dtype=="float32" else np.float64
@@ -1637,7 +1683,9 @@ def compute_kernel_matrix(
                 _ensure_numpy(X, f_dt), _ensure_numpy(Y, f_dt) if Y is not None else None,
                 weights_np=_ensure_numpy(weights, f_dt), device_name=device_name,
                 tile_size=tile_size, symmetric=symmetric, float_dt=f_dt, ret_dt=r_dt,
-                angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers, embed_mode=embed_mode
+                angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers, embed_mode=embed_mode,
+                use_pinned_memory=use_pinned_memory, use_cuda_streams=use_cuda_streams,
+                use_amp=use_amp, use_compile=use_compile
             )
         except Exception as e:
             if gram_backend=="torch": raise e

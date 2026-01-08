@@ -1,7 +1,8 @@
 # pipeline_backends.py — Optimized, Synchronized, Vmap-Free & Numerically Safe
-from typing import Optional, Any, Callable
+from typing import Optional, Any, Callable, Dict, Tuple, List
 import os
 import sys
+import json
 import numpy as np
 from tqdm import tqdm
 
@@ -32,10 +33,125 @@ def _normalize_diag_inplace(K: np.ndarray):
     K /= d[:, None] * d[None, :]
     np.fill_diagonal(K, 1.0)
 
+# =====================================================================
+# VRAM & Memory Management
+# =====================================================================
+# Constants for memory calculations
+MATRIX_PAIRS_FACTOR = 2  # Factor for A and B matrices in precompute size calculation
+BATCH_SYNC_INTERVAL = 32  # Number of tiles between synchronization calls
+
+class PersistentBufferPool:
+    """Manages reusable GPU buffers to reduce allocation overhead."""
+    def __init__(self):
+        self.buffers: Dict[Tuple[tuple, type], Any] = {}
+    
+    def get_buffer(self, shape: tuple, dtype, device="cuda"):
+        """Get or create a buffer with the given shape and dtype."""
+        import cupy as cp
+        key = (shape, dtype)
+        if key not in self.buffers:
+            self.buffers[key] = cp.empty(shape, dtype=dtype)
+        return self.buffers[key]
+    
+    def clear(self):
+        """Clear all cached buffers."""
+        self.buffers.clear()
+
+_BUFFER_POOL = PersistentBufferPool()
+_PINNED_BUFFERS: Dict[Tuple[tuple, type], Any] = {}
+
+def _get_pinned_buffer(shape: tuple, dtype):
+    """Get or create a pinned host memory buffer."""
+    import cupy as cp
+    key = (shape, dtype)
+    if key not in _PINNED_BUFFERS:
+        pinned_pool = cp.cuda.PinnedMemoryPool()
+        # Use pinned memory allocator
+        with cp.cuda.using_allocator(pinned_pool.malloc):
+            _PINNED_BUFFERS[key] = cp.zeros(shape, dtype=dtype)
+    return _PINNED_BUFFERS[key]
+
+def _compute_optimal_state_tile(vram_fraction: float = 0.85, nq: int = 6, 
+                                 dtype=np.float32, overhead_gb: float = 2.0) -> int:
+    """
+    Compute optimal state_tile size based on available VRAM.
+    
+    Args:
+        vram_fraction: Maximum fraction of VRAM to use (default 0.85)
+        nq: Number of qubits
+        dtype: Data type for computations
+        overhead_gb: Reserved VRAM for framework overhead in GB
+    
+    Returns:
+        Optimal tile size (number of states)
+    """
+    try:
+        import cupy as cp
+        # Get available VRAM
+        device = cp.cuda.Device()
+        total_vram = device.mem_info[1]  # Total memory in bytes
+        available_vram = total_vram * vram_fraction - (overhead_gb * 1024**3)
+        
+        # Calculate memory per state: dim = 2^nq complex numbers
+        dim = 1 << nq
+        bytes_per_complex = 8 if dtype == np.float32 else 16  # complex64 or complex128
+        bytes_per_state = dim * bytes_per_complex
+        
+        # Calculate max states that fit in available VRAM
+        max_states = int(available_vram / bytes_per_state)
+        
+        # Round down to nearest power of 2 for efficiency
+        tile_size = 2 ** int(np.log2(max_states))
+        
+        # Ensure minimum and maximum bounds
+        tile_size = max(256, min(tile_size, 32768))
+        
+        return tile_size
+    except Exception as e:
+        # Fallback to conservative default
+        return 8192
+
+def _compute_max_precompute_size(vram_fraction: float = 0.85, nq: int = 6,
+                                  dtype=np.float32, overhead_gb: float = 2.0) -> int:
+    """
+    Determine maximum number of states that can be cached in GPU memory.
+    
+    Args:
+        vram_fraction: Maximum fraction of VRAM to use
+        nq: Number of qubits
+        dtype: Data type
+        overhead_gb: Reserved VRAM in GB
+    
+    Returns:
+        Maximum number of states to cache
+    """
+    try:
+        import cupy as cp
+        device = cp.cuda.Device()
+        total_vram = device.mem_info[1]
+        available_vram = total_vram * vram_fraction - (overhead_gb * 1024**3)
+        
+        dim = 1 << nq
+        bytes_per_complex = 8 if dtype == np.float32 else 16
+        bytes_per_state = dim * bytes_per_complex
+        
+        max_states = int(available_vram / (bytes_per_state * MATRIX_PAIRS_FACTOR))
+        
+        return max(1024, max_states)
+    except Exception:
+        return 8192
+
 def _setup_cupy():
     import cupy as cp
-    pool = cp.cuda.MemoryPool()
+    # Use managed memory pool for GPU allocations
+    pool = cp.cuda.MemoryPool(cp.cuda.malloc_managed)
     cp.cuda.set_allocator(pool.malloc)
+    
+    # Use pinned memory pool for host transfers
+    pinned_pool = cp.cuda.PinnedMemoryPool()
+    cp.cuda.set_pinned_memory_allocator(pinned_pool.malloc)
+    
+    # Warm up
     _ = cp.ones((1,), dtype=cp.float32)
     cp.cuda.runtime.deviceSynchronize()
 
@@ -242,6 +358,122 @@ def _get_kernel(tm, tn, tk, name, double):
     return fn
 
 # =====================================================================
+# CUDA Kernel Autotuning
+# =====================================================================
+_AUTOTUNE_CACHE_FILE = ".cuda_kernel_autotune.json"
+_AUTOTUNE_CACHE: Dict[str, Tuple[int, int, int]] = {}
+
+def _load_autotune_cache():
+    """Load autotuning results from disk."""
+    global _AUTOTUNE_CACHE
+    if os.path.exists(_AUTOTUNE_CACHE_FILE):
+        try:
+            with open(_AUTOTUNE_CACHE_FILE, 'r') as f:
+                data = json.load(f)
+                _AUTOTUNE_CACHE = {k: tuple(v) for k, v in data.items()}
+        except Exception:
+            pass
+
+def _save_autotune_cache():
+    """Save autotuning results to disk."""
+    try:
+        with open(_AUTOTUNE_CACHE_FILE, 'w') as f:
+            json.dump({k: list(v) for k, v in _AUTOTUNE_CACHE.items()}, f, indent=2)
+    except Exception:
+        pass
+
+def _autotune_kernel_tiles(nq: int, is_double: bool = False, 
+                           test_size: int = 512, warmup: int = 2, trials: int = 5) -> Tuple[int, int, int]:
+    """
+    Benchmark different TILE_M, TILE_N, TILE_K combinations and return the best.
+    
+    Args:
+        nq: Number of qubits
+        is_double: Whether to use double precision
+        test_size: Size of test matrices
+        warmup: Number of warmup iterations
+        trials: Number of benchmark trials
+    
+    Returns:
+        Tuple of (TILE_M, TILE_N, TILE_K) with best performance
+    """
+    import cupy as cp
+    import time
+    
+    # Check cache first
+    cache_key = f"nq{nq}_{'double' if is_double else 'float'}"
+    if cache_key in _AUTOTUNE_CACHE:
+        return _AUTOTUNE_CACHE[cache_key]
+    
+    dim = 1 << nq
+    dtype_complex = cp.complex128 if is_double else cp.complex64
+    dtype_real = cp.float64 if is_double else cp.float32
+    
+    # Generate test data
+    rng = cp.random.default_rng(42)
+    SA = rng.random((test_size, dim), dtype=dtype_real) + 1j * rng.random((test_size, dim), dtype=dtype_real)
+    SB = rng.random((test_size, dim), dtype=dtype_real) + 1j * rng.random((test_size, dim), dtype=dtype_real)
+    K_out = cp.empty((test_size, test_size), dtype=dtype_real)
+    
+    # Tile size candidates constrained by 48KB shared memory
+    # For float2: 48KB / 8 bytes = 6144 elements
+    # Constraint: (TILE_M * TILE_K + TILE_N * TILE_K) * bytes_per_complex <= 48KB
+    candidates_m_n = [16, 32, 64]
+    candidates_k = [16, 32, 64, 128]
+    
+    results = []
+    
+    for tm in candidates_m_n:
+        for tn in candidates_m_n:
+            for tk in candidates_k:
+                # Check shared memory constraint
+                # sA[TILE_M][TILE_K] + sB[TILE_N][TILE_K]
+                bytes_per_complex = 16 if is_double else 8
+                shared_mem = (tm * tk + tn * tk) * bytes_per_complex
+                if shared_mem > 48 * 1024:  # 48KB limit
+                    continue
+                
+                try:
+                    kernel = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_full", is_double)
+                    
+                    grid = ((test_size + tn - 1) // tn, (test_size + tm - 1) // tm, 1)
+                    block = (tn, tm, 1)
+                    
+                    # Warmup
+                    for _ in range(warmup):
+                        kernel(grid, block, (SA, SB, K_out, test_size, test_size, dim, dim, dim, test_size))
+                    cp.cuda.runtime.deviceSynchronize()
+                    
+                    # Benchmark
+                    times = []
+                    for _ in range(trials):
+                        start = time.perf_counter()
+                        kernel(grid, block, (SA, SB, K_out, test_size, test_size, dim, dim, dim, test_size))
+                        cp.cuda.runtime.deviceSynchronize()
+                        times.append(time.perf_counter() - start)
+                    
+                    avg_time = np.mean(times)
+                    results.append((avg_time, tm, tn, tk))
+                    
+                except Exception:
+                    continue
+    
+    if not results:
+        # Fallback to default
+        return (32, 32, 32)
+    
+    # Select best configuration
+    results.sort()
+    best = results[0]
+    best_config = (best[1], best[2], best[3])
+    
+    # Cache result
+    _AUTOTUNE_CACHE[cache_key] = best_config
+    _save_autotune_cache()
+    
+    return best_config
+
+# =====================================================================
 # State Generation (Torch) -> CuPy (FIXED & BATCHED)
 # =====================================================================
 def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode):
@@ -296,6 +528,105 @@ def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode):
 def _torch_cuda_to_cupy(t):
     import cupy as cp
     return cp.from_dlpack(t)
+
+# =====================================================================
+# Bulk State Precomputation & Async Dispatch
+# =====================================================================
+def _build_all_states_torch_cuda(x_all, w_np, dev_name, ascale, re_emb, mode, use_pinned=True):
+    """
+    Build ALL quantum states in one pass with pinned memory optimization.
+    Minimizes torch→cupy handoffs by precomputing entire matrix at once.
+    
+    Args:
+        x_all: Full input data matrix (n_samples × n_qubits)
+        w_np: Weights array
+        dev_name: Device name
+        ascale: Angle scale
+        re_emb: Re-embedding flag
+        mode: Embedding mode
+        use_pinned: Whether to use pinned memory for transfers
+    
+    Returns:
+        CuPy array of all quantum states
+    """
+    import torch as th
+    import pennylane as qml
+    
+    nq = int(x_all.shape[1])
+    t_float = th.float32 if x_all.dtype == np.float32 else th.float64
+    t_cplx = th.complex64 if t_float == th.float32 else th.complex128
+    
+    # Use pinned memory for faster transfers
+    if use_pinned:
+        x = th.from_numpy(np.ascontiguousarray(x_all)).pin_memory().to("cuda", dtype=t_float, non_blocking=True)
+        w = th.from_numpy(np.ascontiguousarray(w_np)).pin_memory().to("cuda", dtype=t_float, non_blocking=True)
+    else:
+        x = th.from_numpy(np.ascontiguousarray(x_all)).to("cuda", dtype=t_float, non_blocking=True)
+        w = th.from_numpy(np.ascontiguousarray(w_np)).to("cuda", dtype=t_float, non_blocking=True)
+    
+    try:
+        dev = qml.device(dev_name, wires=nq, shots=None, c_dtype=np.complex64 if t_float==th.float32 else np.complex128)
+    except:
+        dev = qml.device("lightning.gpu", wires=nq, shots=None)
+
+    @qml.qnode(dev, interface="torch", diff_method=None)
+    def _state(row):
+        def _emb(v):
+            if mode=="angle": qml.AngleEmbedding(ascale*v[:nq], wires=range(nq), rotation="Y")
+            else:
+                for i in range(nq):
+                    qml.RY(ascale*v[i], wires=i)
+                    if mode=="ryrz": qml.RZ(ascale*v[i], wires=i)
+        if re_emb:
+            for l in range(w.shape[0]):
+                _emb(row)
+                qml.templates.BasicEntanglerLayers(w[l:l+1], wires=range(nq))
+        else:
+            _emb(row)
+            qml.templates.BasicEntanglerLayers(w, wires=range(nq))
+        return qml.state()
+
+    # Attempt native batching for all states at once
+    try:
+        states = _state(x)
+        if states.ndim != 2 or states.shape[0] != x.shape[0]:
+            raise ValueError("Batching not natively supported")
+    except:
+        states = th.stack([_state(x[i]) for i in range(x.shape[0])])
+    
+    states = states.to(device="cuda", dtype=t_cplx, non_blocking=False)
+    th.cuda.synchronize()
+    
+    # Convert to CuPy with zero-copy DLPack
+    return _torch_cuda_to_cupy(states)
+
+_COMPUTE_STREAM = None
+
+def _get_compute_stream():
+    """Get or create dedicated compute stream for async dispatch."""
+    global _COMPUTE_STREAM
+    if _COMPUTE_STREAM is None:
+        import cupy as cp
+        _COMPUTE_STREAM = cp.cuda.Stream(non_blocking=True)
+    return _COMPUTE_STREAM
+
+def _dispatch_kernel_async(kernel_fn, grid, block, args, stream=None):
+    """
+    Dispatch kernel asynchronously without immediate synchronization.
+    
+    Args:
+        kernel_fn: Compiled kernel function
+        grid: Grid dimensions
+        block: Block dimensions
+        args: Kernel arguments
+        stream: CUDA stream (uses compute_stream if None)
+    """
+    import cupy as cp
+    if stream is None:
+        stream = _get_compute_stream()
+    
+    with stream:
+        kernel_fn(grid, block, args)
 
 # =====================================================================
 # Main Compute Functions
@@ -415,7 +746,8 @@ def compute_kernel_matrix(
         gram_backend: str = "auto", progress: bool = False, desc: str = "Gram",
         angle_scale: float = 1.0, re_embed_between_layers: bool = False, embed_mode: str = "ryrz",
         normalize: bool = False, jitter: float = 0.0,
-        state_tile: int = 8192, tile_m="auto", tile_n="auto", tile_k="auto"
+        state_tile: int = -1, tile_m="auto", tile_n="auto", tile_k="auto",
+        autotune: bool = True, precompute_all_states: bool = True, vram_fraction: float = 0.85
 ):
     f_dt = np.float32 if dtype=="float32" else np.float64
     r_dt = np.float32 if return_dtype=="float32" else np.float64
@@ -423,8 +755,11 @@ def compute_kernel_matrix(
 
     if gram_backend == "cuda_states":
         import cupy as cp
-        try: _setup_cupy()
-        except: pass
+        try: 
+            _setup_cupy()
+            _load_autotune_cache()
+        except: 
+            pass
         
         A = _ensure_numpy(X, f_dt)
         B = A if Y is None else _ensure_numpy(Y, f_dt)
@@ -433,51 +768,147 @@ def compute_kernel_matrix(
         m = B.shape[0]
         dim = 1 << nq
 
-        tm, tn, tk = (32, 32, 32)
-        if tile_m != "auto": tm, tn, tk = int(tile_m), int(tile_n), int(tile_k)
+        # OPTIMIZATION 1: VRAM-aware state_tile sizing
+        if state_tile == -1:
+            state_tile = _compute_optimal_state_tile(vram_fraction, nq, f_dt)
+            if progress:
+                print(f"📊 Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
+        
+        # OPTIMIZATION 3: Kernel autotuning
+        if autotune and tile_m == "auto":
+            tm, tn, tk = _autotune_kernel_tiles(nq, is_double)
+            if progress:
+                print(f"🔧 Autotuned kernel tiles: M={tm}, N={tn}, K={tk}")
+        else:
+            tm, tn, tk = (32, 32, 32)
+            if tile_m != "auto": 
+                tm, tn, tk = int(tile_m), int(tile_n), int(tile_k)
         
         K_cp = cp.empty((n, m), dtype=cp.float64 if is_double else cp.float32)
         
-        j_ranges = list(_tile_ranges(m, state_tile))
-        b_cache = {}
+        # OPTIMIZATION 2: Bulk state precomputation
+        max_precompute = _compute_max_precompute_size(vram_fraction, nq, f_dt)
+        use_bulk_precompute = precompute_all_states and (max(n, m) <= max_precompute)
         
-        it_b = tqdm(j_ranges, desc="Cache B", leave=False) if (progress and Y is not None) else j_ranges
-        for j0, j1 in it_b:
-            s_th = _build_states_block_torch_cuda(B[j0:j1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
-            b_cache[(j0, j1)] = _torch_cuda_to_cupy(s_th)
+        if use_bulk_precompute:
+            # Precompute ALL states at once to minimize handoffs
+            if progress:
+                print(f"⚡ Bulk precomputing {n} + {m} states...")
+            
+            s_a_cp = _build_all_states_torch_cuda(A, w, device_name, angle_scale, 
+                                                   re_embed_between_layers, embed_mode, use_pinned=True)
+            if Y is None:
+                s_b_cp = s_a_cp
+            else:
+                s_b_cp = _build_all_states_torch_cuda(B, w, device_name, angle_scale,
+                                                       re_embed_between_layers, embed_mode, use_pinned=True)
+            
+            # OPTIMIZATION 4: Async dispatch with batch synchronization
+            compute_stream = _get_compute_stream()
+            tile_count = 0
+            
+            i_ranges = list(_tile_ranges(n, state_tile))
+            j_ranges = list(_tile_ranges(m, state_tile))
+            
+            it = tqdm(total=len(i_ranges)*len(j_ranges), desc=desc, leave=False) if progress else None
+            
+            for i0, i1 in i_ranges:
+                s_a_tile = s_a_cp[i0:i1]
+                j_start = i0 if (symmetric and Y is None) else 0
+                
+                for j0, j1 in j_ranges:
+                    if j0 < j_start: 
+                        if it: it.update(1)
+                        continue
+                    
+                    s_b_tile = s_b_cp[j0:j1]
+                    bi, bj = int(i1-i0), int(j1-j0)
+                    
+                    use_lower = (symmetric and (Y is None) and j0==i0)
+                    k_fn = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full", is_double)
+                    
+                    grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
+                    block = (tn, tm, 1)
+                    
+                    out_tile = cp.empty((bi, bj), dtype=K_cp.dtype)
+                    
+                    # Async dispatch
+                    _dispatch_kernel_async(k_fn, grid, block, 
+                                         (s_a_tile, s_b_tile, out_tile, bi, bj, dim, dim, dim, bj),
+                                         stream=compute_stream)
+                    
+                    K_cp[i0:i1, j0:j1] = out_tile
+                    if symmetric and (Y is None) and j0 > i0:
+                        K_cp[j0:j1, i0:i1] = out_tile.T
+                    
+                    tile_count += 1
+                    # Batch synchronization
+                    if tile_count % BATCH_SYNC_INTERVAL == 0:
+                        compute_stream.synchronize()
+                    
+                    if it: it.update(1)
+            
+            # Single final synchronization
+            compute_stream.synchronize()
+            if it: it.close()
+            
+        else:
+            # Fall back to original tiled approach when bulk doesn't fit
+            j_ranges = list(_tile_ranges(m, state_tile))
+            b_cache = {}
+            
+            it_b = tqdm(j_ranges, desc="Cache B", leave=False) if (progress and Y is not None) else j_ranges
+            for j0, j1 in it_b:
+                s_th = _build_states_block_torch_cuda(B[j0:j1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
+                b_cache[(j0, j1)] = _torch_cuda_to_cupy(s_th)
+            
+            i_ranges = list(_tile_ranges(n, state_tile))
+            it_a = tqdm(i_ranges, desc=desc, leave=False) if progress else i_ranges
+            
+            # OPTIMIZATION 4: Async dispatch
+            compute_stream = _get_compute_stream()
+            tile_count = 0
+            
+            for i0, i1 in it_a:
+                s_a_th = _build_states_block_torch_cuda(A[i0:i1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
+                s_a_cp = _torch_cuda_to_cupy(s_a_th)
+                
+                relevant_j = [ (j0, j1) for (j0, j1) in j_ranges if (not symmetric or j1 > i0) ]
+                for j0, j1 in relevant_j:
+                    s_b_cp = b_cache.get((j0, j1))
+                    if s_b_cp is None: s_b_cp = b_cache[(j0, j1)] = s_a_cp
+                    
+                    bi, bj = int(i1-i0), int(j1-j0)
+                    
+                    use_lower = (symmetric and (Y is None) and j0==i0)
+                    k_fn = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full", is_double)
+                    
+                    grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
+                    block = (tn, tm, 1)
+                    
+                    out_tile = cp.empty((bi, bj), dtype=K_cp.dtype)
+                    
+                    # Async dispatch
+                    _dispatch_kernel_async(k_fn, grid, block,
+                                         (s_a_cp, s_b_cp, out_tile, bi, bj, dim, dim, dim, bj),
+                                         stream=compute_stream)
+                    
+                    K_cp[i0:i1, j0:j1] = out_tile
+                    if symmetric and (Y is None) and j0 > i0:
+                        K_cp[j0:j1, i0:i1] = out_tile.T
+                    
+                    tile_count += 1
+                    if tile_count % BATCH_SYNC_INTERVAL == 0:
+                        compute_stream.synchronize()
+                
+                del s_a_cp
+            
+            # Final synchronization
+            compute_stream.synchronize()
         
-        i_ranges = list(_tile_ranges(n, state_tile))
-        it_a = tqdm(i_ranges, desc=desc, leave=False) if progress else i_ranges
-        
-        for i0, i1 in it_a:
-            s_a_th = _build_states_block_torch_cuda(A[i0:i1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
-            s_a_cp = _torch_cuda_to_cupy(s_a_th)
-            
-            relevant_j = [ (j0, j1) for (j0, j1) in j_ranges if (not symmetric or j1 > i0) ]
-            for j0, j1 in relevant_j:
-                s_b_cp = b_cache.get((j0, j1))
-                if s_b_cp is None: s_b_cp = b_cache[(j0, j1)] = s_a_cp
-                
-                bi, bj = int(i1-i0), int(j1-j0)
-                
-                use_lower = (symmetric and (Y is None) and j0==i0)
-                k_fn = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full", is_double)
-                
-                grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
-                block = (tn, tm, 1)
-                
-                out_tile = cp.empty((bi, bj), dtype=K_cp.dtype)
-                k_fn(grid, block, (s_a_cp, s_b_cp, out_tile, bi, bj, dim, dim, dim, bj))
-                
-                K_cp[i0:i1, j0:j1] = out_tile
-                if symmetric and (Y is None) and j0 > i0:
-                    K_cp[j0:j1, i0:i1] = out_tile.T
-            
-            del s_a_cp
-            
-        # Synchronisation explicite avant lecture
-        cp.cuda.runtime.deviceSynchronize()
+        # OPTIMIZATION 5: Memory cleanup
         K = K_cp.get().astype(r_dt)
+        cp.get_default_memory_pool().free_all_blocks()
         
         # --- PROTECTION ANTI-CRASH (NEW) ---
         if not np.all(np.isfinite(K)):

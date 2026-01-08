@@ -43,4 +43,6 @@ Thumbs.db
 # Docker
 .dockerignore
 
+# CUDA kernel autotune cache
+.cuda_kernel_autotune.json
 

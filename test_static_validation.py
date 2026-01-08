@@ -121,7 +121,7 @@ def validate_pipeline_backends():
             "Bulk precomputation": "_build_all_states_torch_cuda",
             "Kernel autotuning": "_autotune_kernel_tiles",
             "Async dispatch": "_dispatch_kernel_async",
-            "Batch synchronization": "sync_every",
+            "Batch synchronization": "BATCH_SYNC_INTERVAL",
             "Pinned memory": "pin_memory",
             "Memory pools": "MemoryPool",
             "DLPack handoff": "from_dlpack"

@@ -3,44 +3,22 @@
 Benchmark PRODUCTION - Comprehensive Performance Analysis
 =========================================================
 
-This script provides comprehensive benchmarking of ALL optimizations available
-in both the cuda_states and torch backends.
+This script provides a comprehensive production benchmark integrating:
+1. Qubit impact testing across backends
+2. Tile size optimization
+3. Sample scaling analysis  
+4. Memory profiling
+5. Detailed reporting with plots
+6. Optimization ablation studies (NEW)
+7. CUDA graph and stream utilization analysis (NEW)
 
-Comprehensive benchmark sections:
-1. Backend Comparison (Baseline) - Compare all backends with default optimizations
-2. cuda_states Optimization Ablation - Test each optimization individually
-3. cuda_states State Tile Optimization - Find optimal state_tile for different workloads
-4. cuda_states VRAM Fraction Impact - Test impact of vram_fraction on performance  
-5. cuda_states Stream Pool Impact - Test num_streams impact on throughput
-6. torch Optimization Ablation - Test each torch optimization individually
-7. torch Tile Size Optimization - Find optimal tile_size for torch backend
-8. Memory Profiling - Run benchmarks with detailed memory profiling
-9. Qubit Scaling Analysis - Measure exponential scaling with qubit count
-10. Sample Scaling Analysis - Verify O(N²) scaling with sample count
-
-CLI Arguments:
-- --all: Run all benchmarks
-- --backend-comparison: Compare all backends
-- --cuda-states-ablation: Test cuda_states optimizations
-- --cuda-states-state-tile: Test state_tile values
-- --cuda-states-vram: Test VRAM fraction impact
-- --cuda-states-streams: Test stream pool sizes
-- --torch-ablation: Test torch optimizations
-- --torch-tiles: Test torch tile sizes
-- --memory-profiling: Run with memory profiling
-- --qubit-scaling: Test scaling with qubit count
-- --sample-scaling: Test scaling with sample count
-
-Configuration:
-- --n-samples: Number of samples (default: 8000)
-- --n-qubits: Number of qubits (default: 10)
-- --output-dir: Output directory (default: benchmark_results)
-- --warmup-runs: Number of warmup runs (default: 1)
-- --benchmark-runs: Number of benchmark runs (default: 3)
-- --verbose: Print detailed information
+New features:
+- benchmark_optimization_ablation(): Compare individual optimization contributions
+- benchmark_with_profiling(): Full memory profiling with detailed breakdown
+- Support for --run-ablation and --profile-all flags
 
 Author: Dylan Fouepe
-Date: 2026-01-08
+Date: 2025-01-08
 """
 
 import sys
@@ -351,81 +329,6 @@ def test_tile_optimization() -> pd.DataFrame:
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
         print(f"\n✅ OPTIMAL: state_tile={best['state_tile']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
-    
-    return pd.DataFrame(results)
-
-def benchmark_vram_fraction_impact() -> pd.DataFrame:
-    """Test impact of VRAM fraction parameter for cuda_states."""
-    
-    print("\n" + "="*80)
-    print("TEST 3B: VRAM Fraction Impact (CUDA_STATES)")
-    print("="*80)
-    
-    results = []
-    n_samples = 4000
-    vram_fractions = [0.5, 0.7, 0.85, 0.95]
-    
-    print(f"\n{'VRAM Frac':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-"*60)
-    
-    for vram_frac in vram_fractions:
-        config = BACKEND_CONFIGS["cuda_states"].copy()
-        config["vram_fraction"] = vram_frac
-        config["state_tile"] = -1  # Auto-size based on VRAM fraction
-        
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name="cuda_states",
-            config=config,
-        )
-        
-        if result:
-            result["vram_fraction"] = vram_frac
-            results.append(result)
-            print(f"{vram_frac:<12.2f} {result['time_s']:<12.3f} "
-                  f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
-    
-    if results:
-        best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: vram_fraction={best.get('vram_fraction', 0.85):.2f} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
-    
-    return pd.DataFrame(results)
-
-def benchmark_stream_pool_impact() -> pd.DataFrame:
-    """Test impact of num_streams parameter for cuda_states."""
-    
-    print("\n" + "="*80)
-    print("TEST 3C: Stream Pool Impact (CUDA_STATES)")
-    print("="*80)
-    
-    results = []
-    n_samples = 4000
-    stream_counts = [1, 2, 4, 8]
-    
-    print(f"\n{'Streams':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-"*60)
-    
-    for num_streams in stream_counts:
-        config = BACKEND_CONFIGS["cuda_states"].copy()
-        config["num_streams"] = num_streams
-        
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name="cuda_states",
-            config=config,
-        )
-        
-        if result:
-            result["num_streams"] = num_streams
-            results.append(result)
-            print(f"{num_streams:<12} {result['time_s']:<12.3f} "
-                  f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
-    
-    if results:
-        best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: num_streams={best.get('num_streams', 4)} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return pd.DataFrame(results)
 
@@ -884,27 +787,17 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
         df_tile = test_tile_optimization()
         all_results.append(df_tile)
     
-    if tests is None or 'vram' in tests:
-        df_vram = benchmark_vram_fraction_impact()
-        all_results.append(df_vram)
-    
-    if tests is None or 'streams' in tests:
-        df_streams = benchmark_stream_pool_impact()
-        all_results.append(df_streams)
-    
     if tests is None or 'ablation' in tests:
         df_ablation = benchmark_optimization_ablation()
         all_results.append(df_ablation)
-    
-    if tests is None or 'profile' in tests:
+        
         df_profiling = benchmark_with_profiling()
         all_results.append(df_profiling)
     
     if tests is None or 'torch' in tests:
         df_torch_opt = benchmark_torch_optimizations()
         all_results.append(df_torch_opt)
-    
-    if tests is None or 'torch_tiles' in tests:
+        
         df_torch_tile = benchmark_torch_tile_sizes()
         all_results.append(df_torch_tile)
     
@@ -943,73 +836,33 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
     print("="*80)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Comprehensive GPU Backend Benchmark")
-    
-    # Test selection
-    parser.add_argument("--all", action="store_true", help="Run all benchmarks")
-    parser.add_argument("--backend-comparison", action="store_true", help="Run backend comparison benchmark")
-    parser.add_argument("--cuda-states-ablation", action="store_true", help="Run cuda_states optimization ablation")
-    parser.add_argument("--cuda-states-state-tile", action="store_true", help="Run cuda_states state tile optimization")
-    parser.add_argument("--cuda-states-vram", action="store_true", help="Run cuda_states VRAM fraction test")
-    parser.add_argument("--cuda-states-streams", action="store_true", help="Run cuda_states stream pool test")
-    parser.add_argument("--torch-ablation", action="store_true", help="Run torch optimization ablation")
-    parser.add_argument("--torch-tiles", action="store_true", help="Run torch tile size optimization")
-    parser.add_argument("--memory-profiling", action="store_true", help="Run memory profiling benchmark")
-    parser.add_argument("--qubit-scaling", action="store_true", help="Run qubit scaling analysis")
-    parser.add_argument("--sample-scaling", action="store_true", help="Run sample scaling analysis")
-    
-    # Configuration
-    parser.add_argument("--n-samples", type=int, default=N_SAMPLES_DEFAULT, help=f"Number of samples (default: {N_SAMPLES_DEFAULT})")
-    parser.add_argument("--n-qubits", type=int, default=N_QUBITS_DEFAULT, help=f"Number of qubits (default: {N_QUBITS_DEFAULT})")
-    parser.add_argument("--output-dir", type=str, default="benchmark_results", help="Output directory for results")
-    parser.add_argument("--warmup-runs", type=int, default=1, help="Number of warmup runs (default: 1)")
-    parser.add_argument("--benchmark-runs", type=int, default=3, help="Number of benchmark runs (default: 3)")
-    parser.add_argument("--verbose", action="store_true", help="Print detailed information")
-    
-    # Legacy support
+    parser = argparse.ArgumentParser(description="Run production performance benchmark")
     parser.add_argument('--tests', nargs='+', choices=['qubit', 'sample', 'tile', 'ablation', 'torch', 'compare', 'all'],
-                       help="Legacy: Tests to run")
+                       default=['all'], help="Tests to run (default: all)")
     parser.add_argument('--backends', nargs='+', choices=list(BACKEND_CONFIGS.keys()) + ['all'],
-                       help="Legacy: Backends to test")
+                       default=['all'], help="Backends to test (default: all)")
+    parser.add_argument('--run-ablation', action='store_true',
+                       help="Run optimization ablation study")
+    parser.add_argument('--profile-all', action='store_true',
+                       help="Enable memory profiling for all tests")
     
     args = parser.parse_args()
     
-    # Map new args to tests list
-    tests_to_run = []
-    if args.all:
-        tests_to_run = ['all']
-    else:
-        if args.backend_comparison:
-            tests_to_run.append('compare')
-        if args.cuda_states_ablation:
-            tests_to_run.append('ablation')
-        if args.cuda_states_state_tile:
-            tests_to_run.append('tile')
-        if args.cuda_states_vram:
-            tests_to_run.append('vram')
-        if args.cuda_states_streams:
-            tests_to_run.append('streams')
-        if args.torch_ablation:
-            tests_to_run.append('torch')
-        if args.torch_tiles:
-            tests_to_run.append('torch_tiles')
-        if args.memory_profiling:
-            tests_to_run.append('profile')
-        if args.qubit_scaling:
-            tests_to_run.append('qubit')
-        if args.sample_scaling:
-            tests_to_run.append('sample')
+    # Handle convenience flags
+    if args.run_ablation:
+        if 'all' not in args.tests:
+            args.tests.append('ablation')
+        else:
+            args.tests = ['ablation']
     
-    # Legacy support - merge with new args
-    if args.tests:
-        tests_to_run.extend(args.tests)
+    if args.profile_all:
+        if 'all' not in args.tests:
+            args.tests.append('profile')
+        else:
+            args.tests = ['profile']
     
-    # If no tests specified, run all
-    if not tests_to_run:
-        tests_to_run = ['all']
-    
-    tests = None if 'all' in tests_to_run else tests_to_run
-    backends = None if not args.backends or 'all' in args.backends else args.backends
+    tests = None if 'all' in args.tests else args.tests
+    backends = None if 'all' in args.backends else args.backends
     
     try:
         run_production_benchmark(tests=tests, backends=backends)

@@ -420,7 +420,8 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
             if not cpu_subset.empty and not gpu_subset.empty:
                 cpu_time = cpu_subset['time_s'].values[0]
                 gpu_time = gpu_subset['time_s'].values[0]
-                if gpu_time > 0:  # Avoid division by zero
+                # Validate both times are valid before calculating speedup
+                if gpu_time > 0 and cpu_time > 0 and np.isfinite(cpu_time) and np.isfinite(gpu_time):
                     speedup = cpu_time / gpu_time
                     speedup_data.append({'n_qubits': n_qubits, 'speedup': speedup})
         
@@ -439,9 +440,10 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
             # Annotate bars
             for bar, (_, row) in zip(bars, speedup_df.iterrows()):
                 height = bar.get_height()
-                ax6.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{height:.1f}×', ha='center', va='bottom',
-                        fontweight='bold', fontsize=10)
+                if np.isfinite(height):  # Only annotate valid values
+                    ax6.text(bar.get_x() + bar.get_width()/2., height,
+                            f'{height:.1f}×', ha='center', va='bottom',
+                            fontweight='bold', fontsize=10)
     
     plt.savefig(OUTPUT_PLOTS, dpi=300, bbox_inches='tight')
     print(f"🖼️  Plots saved to: {OUTPUT_PLOTS}")

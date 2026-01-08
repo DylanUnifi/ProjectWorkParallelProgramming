@@ -247,8 +247,8 @@ def run_qubit_impact_test() -> pd.DataFrame:
             qubits = backend_df['n_qubits'].values
             
             # Fit log(time) vs qubits to find scaling
-            # Filter out invalid times before log transformation
-            valid_mask = times > 0
+            # Filter out invalid times (must be positive and not too small)
+            valid_mask = (times > 1e-6) & np.isfinite(times)
             if valid_mask.sum() > 1:
                 valid_times = times[valid_mask]
                 valid_qubits = qubits[valid_mask]

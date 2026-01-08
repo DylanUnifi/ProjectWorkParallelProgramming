@@ -136,11 +136,11 @@ The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 To unleash the full performance on high-end GPUs, use `cuda_states` with huge tiles.
 
 ```bash
-python scripts/train_svm_qkernel.py \
-  --config configs/cifar10.yaml \
+python train_svm_qkernel.py \
+  --config configs/fashion.yaml \
   --gram-backend cuda_states \
   --dtype float64 \
-  --tile-size 10000 \
+  --tile-size -1 \
   --cache-kernels \
   --angle-scale 1.5 \
   --normalize-kernel

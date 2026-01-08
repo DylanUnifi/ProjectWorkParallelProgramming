@@ -1,5 +1,3 @@
-
-
 import numpy as np
 import time
 import itertools
@@ -67,49 +65,6 @@ def test_numpy_ncores():
     print(f"\n✅ OPTIMAL: tile_size={best[0]} → {best[1]['throughput']:.3f} Mpairs/s")
     
     return results
-
-def test_cuda_states_massive_vram():
-    print("\n" + "="*80)
-    print("TEST 2: CUDA_STATES")
-    print("="*80 + "\n")
-    
-    configs = [
-        # (N, nq, state_tile, autotune, precompute_all_states, vram_fraction)
-        (10000, 8, -1, True, True, 0.85),
-        (20000, 8, -1, True, True, 0.85),
-        (30000, 8, -1, True, True, 0.85),
-    ]
-    
-    print(f"{'N':<8} {'nq':<4} {'state_tile':<12} {'tile_m':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-" * 90)
-    
-    for n, nq, state_tile, autotune, precompute_all_states, vram_fraction in configs:
-        try:
-            res = benchmark_config(
-                "cuda_states",
-                n, nq,
-                device_name="lightning.gpu",
-                symmetric=True,
-                dtype="float32",
-                gram_backend="cuda_states",
-                state_tile=state_tile,
-                autotune=autotune,
-                precompute_all_states=precompute_all_states,
-                vram_fraction=vram_fraction,
-                progress=True,
-            )
-            
-            # Estime VRAM usage
-            dim = 2 ** nq
-            vram_states = n * dim * 8 * 2 / 1024**3  # 2 copies, complex64
-            vram_kernel = n * n * 4 / 1024**3  # float32
-            vram_total = vram_states + vram_kernel
-            
-            print(f"{n:<8} {nq:<4} {state_tile:<12} {autotune:<8} {res['time']:<12.2f} "
-                  f"{res['throughput']:<12.3f} {vram_total:<12.1f}")
-        
-        except Exception as e:
-            print(f"{n:<8} {nq:<4} {state_tile:<12} {autotune:<8} ERROR: {e}")
         
 
 def test_tensorcore_blackwell():

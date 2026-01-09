@@ -131,7 +131,7 @@ def test_tensorcore_blackwell():
     print("TEST 3: TENSORCORE sur Blackwell - FP16 vs BF16")
     print("="*80 + "\n")
     
-    n_samples_list = [50000, 60000, 70000, 80000, 90000, 100000]
+    n_samples_list = [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000]
     n_qubits = 4
 
     for n in n_samples_list:

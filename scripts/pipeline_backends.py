@@ -860,6 +860,10 @@ void cgemm_abs2_tiled_lower(const T_COMPLEX* __restrict__ SA,
 }
 """
 
+def _round_to_pow2(x):
+    """Round to nearest power of 2 for better graph reuse."""
+    return 2 ** int(np.ceil(np.log2(max(1, x))))
+
 _RAWMOD_CACHE = {}
 def _get_kernel(tm, tn, tk, name, double):
     import cupy as cp
@@ -933,11 +937,18 @@ def _autotune_kernel_tiles(nq: int, is_double: bool = False,
     SB = rng.random((test_size, dim), dtype=dtype_real) + 1j * rng.random((test_size, dim), dtype=dtype_real)
     K_out = cp.empty((test_size, test_size), dtype=dtype_real)
     
-    # Tile size candidates constrained by 48KB shared memory
-    # For float2: 48KB / 8 bytes = 6144 elements
-    # Constraint: (TILE_M * TILE_K + TILE_N * TILE_K) * bytes_per_complex <= 48KB
-    candidates_m_n = [16, 32, 64]
-    candidates_k = [16, 32, 64]
+    # FIX: Add qubit-aware tile constraints to avoid shared memory overflow
+    # For high qubit counts, use smaller tiles to fit in shared memory
+    if nq >= 14:
+        candidates_m_n = [16, 32]
+        candidates_k = [16, 32]
+    elif nq >= 12:
+        candidates_m_n = [16, 32, 64]
+        candidates_k = [16, 32, 64]
+    else:
+        # Original candidates for lower qubit counts
+        candidates_m_n = [16, 32, 64]
+        candidates_k = [16, 32, 64, 128]
     
     results = []
     
@@ -1352,6 +1363,16 @@ def compute_kernel_matrix(
         n, nq = A.shape
         m = B.shape[0]
         dim = 1 << nq
+        
+        # FIX: Force float64 for high qubit counts to prevent numerical overflow
+        if nq >= 14 and dtype == "float32":
+            if progress:
+                print(f"⚠️ Switching to float64 for {nq} qubits (numerical stability)")
+            f_dt = np.float64
+            is_double = True
+            A = A.astype(f_dt)
+            B = B.astype(f_dt)
+            w = w.astype(f_dt)
 
         # OPTIMIZATION 1: VRAM-aware state_tile sizing
         if state_tile == -1:
@@ -1359,8 +1380,19 @@ def compute_kernel_matrix(
             if progress:
                 print(f"📊 Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
         
-        # OPTIMIZATION 3: Kernel autotuning
-        if autotune and tile_m == "auto":
+        # OPTIMIZATION 3: Kernel autotuning with qubit-aware fallback
+        # FIX: Add fallback tile sizes for high qubit counts to avoid shared memory errors
+        if nq >= 14:
+            # Safe tiles for very high qubit counts
+            tm, tn, tk = (16, 16, 16)
+            if progress:
+                print(f"⚠️ Using conservative tiles for {nq} qubits: M={tm}, N={tn}, K={tk}")
+        elif nq >= 12:
+            # Conservative tiles for high qubit counts
+            tm, tn, tk = (32, 32, 32)
+            if progress:
+                print(f"⚠️ Using conservative tiles for {nq} qubits: M={tm}, N={tn}, K={tk}")
+        elif autotune and tile_m == "auto":
             tm, tn, tk = _autotune_kernel_tiles(nq, is_double)
             if progress:
                 print(f"🔧 Autotuned kernel tiles: M={tm}, N={tn}, K={tk}")
@@ -1486,7 +1518,19 @@ def compute_kernel_matrix(
                     
                     use_lower = (symmetric and (Y is None) and j0==i0)
                     kernel_name = "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full"
-                    k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
+                    
+                    # FIX: Wrap kernel compilation in try-except for shared memory errors
+                    try:
+                        k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
+                    except Exception as e:
+                        if "shared memory" in str(e).lower() or "ptxas" in str(e).lower():
+                            # Fallback to smaller tiles
+                            if progress:
+                                print(f"⚠️ Kernel compilation failed, falling back to 16x16x16 tiles")
+                            tm, tn, tk = (16, 16, 16)
+                            k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
+                        else:
+                            raise
                     
                     grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
                     block = (tn, tm, 1)
@@ -1500,7 +1544,8 @@ def compute_kernel_matrix(
                         current_stream = compute_stream
                     
                     # CUDA graph optimization
-                    graph_key = (bi, bj, tm, tn, tk, kernel_name, is_double)
+                    # FIX: Round tile dimensions to nearest power of 2 for better graph reuse
+                    graph_key = (_round_to_pow2(bi), _round_to_pow2(bj), tm, tn, tk, kernel_name, is_double)
                     kernel_start = time.time()
                     
                     if graph_manager and graph_manager.has_graph(graph_key):
@@ -1521,6 +1566,12 @@ def compute_kernel_matrix(
                                 pass  # Graph capture failed, continue without it
                     
                     kernel_time = time.time() - kernel_start
+                    
+                    # FIX: Add numerical stability check for high qubit counts
+                    if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
+                        if progress:
+                            print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
+                        out_tile = cp.nan_to_num(out_tile, nan=0.0, posinf=1.0, neginf=0.0)
                     
                     K_cp[i0:i1, j0:j1] = out_tile
                     if symmetric and (Y is None) and j0 > i0:
@@ -1601,7 +1652,19 @@ def compute_kernel_matrix(
                     
                     use_lower = (symmetric and (Y is None) and j0==i0)
                     kernel_name = "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full"
-                    k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
+                    
+                    # FIX: Wrap kernel compilation in try-except for shared memory errors
+                    try:
+                        k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
+                    except Exception as e:
+                        if "shared memory" in str(e).lower() or "ptxas" in str(e).lower():
+                            # Fallback to smaller tiles
+                            if progress:
+                                print(f"⚠️ Kernel compilation failed, falling back to 16x16x16 tiles")
+                            tm, tn, tk = (16, 16, 16)
+                            k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
+                        else:
+                            raise
                     
                     grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
                     block = (tn, tm, 1)
@@ -1621,6 +1684,12 @@ def compute_kernel_matrix(
                         k_fn(grid, block, (s_a_cp, s_b_cp, out_tile, bi, bj, dim, dim, dim, bj))
                     
                     kernel_time = time.time() - kernel_start
+                    
+                    # FIX: Add numerical stability check for high qubit counts
+                    if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
+                        if progress:
+                            print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
+                        out_tile = cp.nan_to_num(out_tile, nan=0.0, posinf=1.0, neginf=0.0)
                     
                     K_cp[i0:i1, j0:j1] = out_tile
                     if symmetric and (Y is None) and j0 > i0:

@@ -72,7 +72,7 @@ def test_numpy_n_cores():
         except Exception as e:
             print(f"{n_sample:<12} ERROR: {e}")
             break
-        print(f"\n✅ OPTIMAL: sample_size={best_size} → {best_throughput:.3f} Mpairs/s")
+    print(f"\n✅ OPTIMAL: sample_size={best_size} → {best_throughput:.3f} Mpairs/s")
 
 def test_cuda_states_massive_vram():
     print("\n" + "="*80)

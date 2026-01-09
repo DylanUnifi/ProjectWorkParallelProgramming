@@ -1,6 +1,7 @@
 import numpy as np
 import time
-import itertools
+import gc
+import sys
 from scripts.pipeline_backends import compute_kernel_matrix
 
 def benchmark_config(backend, n_samples, n_qubits, **kwargs):
@@ -40,31 +41,38 @@ def test_numpy_n_cores():
     print(f"{'sample_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'Efficiency':<12}")
     print("-" * 60)
     
-    results = []
+    best_throughput = 0
+    best_size = 0
     for n_sample in n_samples:
-        res = benchmark_config(
-            "numpy",
-            n_sample, n_qubits,
-            device_name="lightning.qubit",
-            tile_size=tile_size,
-            symmetric=True,
-            n_workers=n,
-            dtype="float32",
-            gram_backend="numpy",
-        )
-        results.append((n_sample, res))
-        
-        # Efficiency = throughput / theoretical_peak
-        # Avec 96 cores, peak théorique ~25-30 Mpairs/s
-        efficiency = res["throughput"] / 30.0 * 100
-        
-        print(f"{n_sample:<12} {res['time']:<12.2f} {res['throughput']:<12.3f} {efficiency:<12.1f}%")
-    
-    # Trouve optimal
-    best = max(results, key=lambda x: x[1]["throughput"])
-    print(f"\n✅ OPTIMAL: sample_size={best[0]} → {best[1]['throughput']:.3f} Mpairs/s")
-    
-    return results
+        try:
+            res = benchmark_config(
+                "numpy",
+                n_sample, n_qubits,
+                device_name="lightning.qubit",
+                tile_size=tile_size,
+                symmetric=True,
+                n_workers=n,
+                dtype="float32",
+                gram_backend="numpy",
+            )
+            
+            # Efficiency = throughput / theoretical_peak
+            # Avec 96 cores, peak théorique ~25-30 Mpairs/s
+            efficiency = res["throughput"] / 30.0 * 100
+            
+            print(f"{n_sample:<12} {res['time']:<12.2f} {res['throughput']:<12.3f} {efficiency:<12.1f}%")
+            if res["throughput"] > best_throughput:
+                best_throughput = res["throughput"]
+                best_size = n_sample
+
+            # NETTOYAGE MÉMOIRE
+            del res
+            gc.collect()
+
+        except Exception as e:
+            print(f"{n_sample:<12} ERROR: {e}")
+            break
+        print(f"\n✅ OPTIMAL: sample_size={best_size} → {best_throughput:.3f} Mpairs/s")
 
 def test_cuda_states_massive_vram():
     print("\n" + "="*80)

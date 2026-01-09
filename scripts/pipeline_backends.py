@@ -1141,7 +1141,7 @@ def _dispatch_kernel_async(kernel_fn, grid, block, args, stream=None):
 # Main Compute Functions
 # =====================================================================
 def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric, float_dt, ret_dt, angle_scale, re_embed_between_layers, embed_mode,
-                       use_pinned_memory=False, use_cuda_streams=False, use_amp=False, use_compile=False):
+                       use_pinned_memory=False, use_cuda_streams=False, use_amp=False, use_compile=False, tensorcore_precision="fp32"):
     import torch as th
     import pennylane as qml
     
@@ -1186,6 +1186,20 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
         _ = build(a[:2])
     except: 
         build = lambda x: th.stack([_state(x[i]) for i in range(len(x))]).to(dtype=tc)
+
+    # --- CONFIGURATION TENSOR CORES ---
+    autocast_dtype = None
+    if tensorcore_precision == "bf16" and th.cuda.is_bf16_supported():
+        autocast_dtype = th.bfloat16
+        # Active les matmul optimisés sur Ampere+
+        th.set_float32_matmul_precision('high') 
+    elif tensorcore_precision == "fp16":
+        autocast_dtype = th.float16
+    elif tensorcore_precision == "tf32":
+        th.set_float32_matmul_precision('medium') # Force TF32 sur Ampere+
+    
+    # Active AMP si une précision réduite est demandée
+    enable_amp = (autocast_dtype is not None)
     
     # OPTIMIZATION 3: torch.compile (PyTorch 2.0+)
     if use_compile and hasattr(th, 'compile'):
@@ -1219,10 +1233,9 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
                 k[j0:j1, i0:i1] = res.T
         del sa
     
-    # OPTIMIZATION 4: Automatic Mixed Precision (experimental)
-    # Use nested context managers for proper gradient and AMP handling
+    # OPTIMIZATION 4: --- EXECUTION AVEC PRECISION DYNAMIQUE ---
     with th.no_grad():
-        with th.cuda.amp.autocast(enabled=(use_amp and th.cuda.is_available()), dtype=th.float16):
+        with th.cuda.amp.autocast(enabled=enable_amp, dtype=autocast_dtype):
             for i0 in range(0, n, tile_size):
                 i1 = min(i0+tile_size, n)
                 
@@ -1309,7 +1322,8 @@ def compute_kernel_matrix(
         use_pinned_memory: bool = False,
         use_cuda_streams: bool = False,
         use_amp: bool = False,
-        use_compile: bool = False
+        use_compile: bool = False, 
+        tensorcore_precision: str = "fp32"
 ):
     f_dt = np.float32 if dtype=="float32" else np.float64
     r_dt = np.float32 if return_dtype=="float32" else np.float64
@@ -1685,7 +1699,7 @@ def compute_kernel_matrix(
                 tile_size=tile_size, symmetric=symmetric, float_dt=f_dt, ret_dt=r_dt,
                 angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers, embed_mode=embed_mode,
                 use_pinned_memory=use_pinned_memory, use_cuda_streams=use_cuda_streams,
-                use_amp=use_amp, use_compile=use_compile
+                use_amp=use_amp, use_compile=use_compile, tensorcore_precision=tensorcore_precision
             )
         except Exception as e:
             if gram_backend=="torch": raise e

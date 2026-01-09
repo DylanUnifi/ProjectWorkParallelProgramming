@@ -223,4 +223,4 @@ if __name__ == "__main__":
     # Run all tests
     test_numpy_n_cores()
     test_cuda_states_massive_vram()
-    #test_tensorcore_blackwell()
+    test_tensorcore_blackwell()

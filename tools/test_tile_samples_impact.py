@@ -41,7 +41,7 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════
 
 # Fixed qubit count for tile/sample tests
-N_QUBITS = 10
+N_QUBITS = 16
 
 # Sample sizes to test
 SAMPLE_SIZES = [1000, 2000, 4000, 8000, 16000]
@@ -53,18 +53,19 @@ BACKEND_CONFIGS = {
         "gram_backend": "cuda_states",
         "dtype": "float64",
         "symmetric": True,
+        "autotune": True,
     },
-    "torch": {
-        "device_name": "lightning.gpu",
-        "gram_backend": "torch",
-        "dtype": "float64",
-        "symmetric": True,
+    #"torch": {
+    #    "device_name": "lightning.gpu",
+    #    "gram_backend": "torch",
+    #    "dtype": "float64",
+    #    "symmetric": True,
         # Torch-specific optimizations
-        "use_pinned_memory": True,
-        "use_cuda_streams": True,
-        "use_amp": False,
-        "use_compile": False,
-    },
+    #    "use_pinned_memory": True,
+    #    "use_cuda_streams": True,
+    #    "use_amp": False,
+    #    "use_compile": False,
+    #},
     "numpy": {
         "device_name": "default.qubit",
         "gram_backend": "numpy",
@@ -76,15 +77,15 @@ BACKEND_CONFIGS = {
 # Tile sizes to test
 TILE_SIZES = {
     "cuda_states": {
-        "state_tile": [512, 1024, 2048, 4096, 8192],
+        "state_tile": [1024, 4096, 8192, 16384, -1],
         "tile_size": [1000, 5000, 10000],  # Kernel tile
     },
-    "torch": {
-        "tile_size": [64, 128, 256, 512, 1024, 2048],
-    },
+    #"torch": {
+    #    "tile_size": [64, 128, 256, 512, 1024, 2048],
+    #},
     "numpy": {
-        "tile_size": [32, 64, 128, 256, 512],
-        "n_workers": [1, 2, 4, 8, 16],
+        "tile_size": [64, 128, 256],
+        "n_workers": [8, 16, 24],
     },
 }
 
@@ -96,7 +97,9 @@ OUTPUT_CSV = OUTPUT_DIR / "tile_samples_impact_results.csv"
 # ═══════════════════════════════════════════════════════════
 
 def reset_gpu():
+    import gc;
     if HAS_TORCH:
+        gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
@@ -160,7 +163,7 @@ def test_cuda_states_tile_impact():
     print("="*80)
     
     results = []
-    n_samples = 8000
+    n_samples = 80000
     
     print(f"\n{'state_tile':<12} {'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*70)
@@ -209,8 +212,8 @@ def test_state_tile_optimization():
     print("="*80)
     
     results = []
-    n_samples = 4000
-    state_tiles = [-1, 512, 1024, 2048, 4096, 8192]  # -1 = auto
+    n_samples = 80000
+    state_tiles = [-1, 512, 1024, 2048, 4096, 8192, 16384]  # -1 = auto
     
     print(f"\n{'state_tile':<12} {'Mode':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*70)
@@ -289,7 +292,7 @@ def test_vram_fraction_impact():
     print("="*80)
     
     results = []
-    n_samples = 4000
+    n_samples = 80000
     vram_fractions = [0.5, 0.7, 0.85, 0.95]
     
     print(f"\n{'vram_fraction':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -326,7 +329,7 @@ def test_optimization_ablation():
     print("="*80)
     
     results = []
-    n_samples = 4000
+    n_samples = 80000
     
     # Define test configurations
     configs = {
@@ -633,14 +636,14 @@ def test_sample_scaling():
             **BACKEND_CONFIGS["cuda_states"],
             "state_tile": 4096
         },
-        "torch": {
-            **BACKEND_CONFIGS["torch"],
-            "tile_size": 512
-        },
+        #"torch": {
+        #    **BACKEND_CONFIGS["torch"],
+        #    "tile_size": 512
+        #},
         "numpy": {
             **BACKEND_CONFIGS["numpy"],
-            "tile_size": 128,
-            "n_workers": 4
+            "tile_size": 192,
+            "n_workers": 24
         }
     }
     
@@ -689,17 +692,23 @@ def run_all_tile_tests():
     
     # Run original tests
     all_results.extend(test_cuda_states_tile_impact())
+    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
     all_results.extend(test_numpy_tile_workers_impact())
-    all_results.extend(test_torch_tile_impact())
-    all_results.extend(test_torch_optimizations())
-    all_results.extend(test_sample_scaling())
+    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
+    # all_results.extend(test_torch_tile_impact())
+    # all_results.extend(test_torch_optimizations())
+    # all_results.extend(test_sample_scaling())
     
     # Run new optimization tests
-    all_results.extend(test_state_tile_optimization())
+    # all_results.extend(test_state_tile_optimization())
+    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
     all_results.extend(test_num_streams_impact())
+    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
     all_results.extend(test_vram_fraction_impact())
+    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
     all_results.extend(test_optimization_ablation())
-    all_results.extend(test_sample_scaling_with_optimizations())
+    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
+    # all_results.extend(test_sample_scaling_with_optimizations())
     
     # Save results
     df = pd.DataFrame(all_results)

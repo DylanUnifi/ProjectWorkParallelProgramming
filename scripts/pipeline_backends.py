@@ -768,6 +768,9 @@ void cgemm_abs2_tiled_full(const T_COMPLEX* __restrict__ SA,
 {
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
     const int i = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    // Safety check moved slightly later to allow shared mem init if needed, 
+    // but typically we return early to save ops.
     if (i >= BM || j >= BN) return;
 
     __shared__ T_COMPLEX sA[TILE_M][TILE_K];
@@ -776,12 +779,15 @@ void cgemm_abs2_tiled_full(const T_COMPLEX* __restrict__ SA,
     T_COMPLEX acc = MAKE_COMPLEX(0.0, 0.0);
 
     for (int k0 = 0; k0 < D; k0 += TILE_K) {
+        // Load sA
         if (i < BM) {
             for (int tk = threadIdx.x; tk < TILE_K; tk += blockDim.x) {
                 int k = k0 + tk;
                 sA[threadIdx.y][tk] = (k < D) ? SA[i * lda + k] : MAKE_COMPLEX(0.0, 0.0);
             }
         }
+        
+        // Load sB
         if (j < BN) {
             for (int tk = threadIdx.y; tk < TILE_K; tk += blockDim.y) {
                 int k = k0 + tk;
@@ -791,7 +797,7 @@ void cgemm_abs2_tiled_full(const T_COMPLEX* __restrict__ SA,
         }
         __syncthreads();
 
-        #pragma unroll
+        // COMPUTE: Removed #pragma unroll to prevent ptxas register spill on large tiles
         for (int tk = 0; tk < TILE_K; ++tk) {
             T_COMPLEX a = sA[threadIdx.y][tk];
             T_COMPLEX b = sB[threadIdx.x][tk];
@@ -811,9 +817,12 @@ void cgemm_abs2_tiled_lower(const T_COMPLEX* __restrict__ SA,
                             const int BM, const int BN, const int D,
                             const int lda, const int ldb, const int ldk)
 {
+    // Block-level optimization for symmetric matrix
     if (blockIdx.x > blockIdx.y) return;
+
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
     const int i = blockIdx.y * blockDim.y + threadIdx.y;
+    
     if (i >= BM || j >= BN) return;
     if (BM == BN && j > i) return;
 
@@ -837,7 +846,7 @@ void cgemm_abs2_tiled_lower(const T_COMPLEX* __restrict__ SA,
         }
         __syncthreads();
 
-        #pragma unroll
+        // COMPUTE: Removed #pragma unroll here too
         for (int tk = 0; tk < TILE_K; ++tk) {
             T_COMPLEX a = sA[threadIdx.y][tk];
             T_COMPLEX b = sB[threadIdx.x][tk];
@@ -928,7 +937,7 @@ def _autotune_kernel_tiles(nq: int, is_double: bool = False,
     # For float2: 48KB / 8 bytes = 6144 elements
     # Constraint: (TILE_M * TILE_K + TILE_N * TILE_K) * bytes_per_complex <= 48KB
     candidates_m_n = [16, 32, 64]
-    candidates_k = [16, 32, 64, 128]
+    candidates_k = [16, 32, 64]
     
     results = []
     

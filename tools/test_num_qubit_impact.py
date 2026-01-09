@@ -47,7 +47,7 @@ except ImportError:
 QUBITS_RANGE = [4, 8, 12, 16]
 
 # Fixed sample size (large enough to amortize overhead)
-N_SAMPLES = 50000
+N_SAMPLES = 80000
 
 # Backend configurations with VALID parameters only
 BACKEND_CONFIGS = {
@@ -69,18 +69,18 @@ BACKEND_CONFIGS = {
         "profile_memory": False,    # Enable per-test if needed
         "verbose_profile": False,
     },
-    "torch": {
-        "device_name": "lightning.gpu",
-        "gram_backend": "torch",
-        "dtype": "float64",
-        "symmetric": True,
-        "tile_size": 512,           # Smaller tiles for torch
+    #"torch": {
+    #    "device_name": "lightning.gpu",
+    #    "gram_backend": "torch",
+    #    "dtype": "float64",
+    #   "symmetric": True,
+    #    "tile_size": 512,           # Smaller tiles for torch
         # Torch-specific optimizations
-        "use_pinned_memory": True,  # Enable pinned memory
-        "use_cuda_streams": True,   # Enable stream overlap
-        "use_amp": False,           # Auto-mixed precision (experimental)
-        "use_compile": False,       # torch.compile (PyTorch 2.0+)
-    },
+    #    "use_pinned_memory": True,  # Enable pinned memory
+    #    "use_cuda_streams": True,   # Enable stream overlap
+    #    "use_amp": False,           # Auto-mixed precision (experimental)
+    #    "use_compile": False,       # torch.compile (PyTorch 2.0+)
+    #},
     "numpy": {
         "device_name": "default.qubit",
         "gram_backend": "numpy",
@@ -93,9 +93,9 @@ BACKEND_CONFIGS = {
 
 # Qubit limits per backend (beyond this, backend becomes impractical)
 BACKEND_QUBIT_LIMITS = {
-    "cuda_states": 20,
-    "torch": 16,
-    "numpy": 10,
+    "cuda_states": 16,
+    #"torch": 16,
+    "numpy": 12,
 }
 
 # Output configuration

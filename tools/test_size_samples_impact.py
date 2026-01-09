@@ -56,7 +56,7 @@ def test_numpy_n_cores():
         
         # Efficiency = throughput / theoretical_peak
         # Avec 96 cores, peak théorique ~25-30 Mpairs/s
-        efficiency = res["throughput"] / 25.0 * 100
+        efficiency = res["throughput"] / 30.0 * 100
         
         print(f"{n_sample:<12} {res['time']:<12.2f} {res['throughput']:<12.3f} {efficiency:<12.1f}%")
     
@@ -123,81 +123,83 @@ def test_tensorcore_blackwell():
     print("TEST 3: TENSORCORE sur Blackwell - FP16 vs BF16")
     print("="*80 + "\n")
     
-    n_samples = 15000
-    n_qubits = 8
+    n_samples_list = [50000, 60000, 70000, 80000, 90000, 100000]
+    n_qubits = 4
+
+    for n in n_samples_list:
     
-    # Baseline FP32
-    print("Running FP32 baseline...")
-    res_fp32 = benchmark_config(
-        "torch",
-        n_samples, n_qubits,
-        device_name="lightning.gpu",
-        symmetric=True,
-        dtype="float32",
-        gram_backend="torch",
-        state_tile=2048,
-        tile_m=32, tile_n=32, tile_k=32,
-    )
-    
-    # FP16
-    print("Running FP16 Tensor Cores...")
-    try:
-        res_fp16 = benchmark_config(
+        # Baseline FP32
+        print("Running FP32 baseline...")
+        res_fp32 = benchmark_config(
             "torch",
-            n_samples, n_qubits,
+            n, n_qubits,
             device_name="lightning.gpu",
             symmetric=True,
             dtype="float32",
             gram_backend="torch",
-            state_tile=4096,
-            #tensorcore_precision="fp16",
+            state_tile=2048,
+            tile_m=32, tile_n=32, tile_k=32,
         )
-        speedup_fp16 = res_fp32["time"] / res_fp16["time"]
-        rel_err_fp16 = np.max(np.abs(res_fp16["kernel"] - res_fp32["kernel"])) / np.max(np.abs(res_fp32["kernel"]))
-    except Exception as e:
-        print(f"FP16 failed: {e}")
-        res_fp16 = None
-    
-    # BF16
-    print("Running BF16 Tensor Cores...")
-    try:
-        res_bf16 = benchmark_config(
-            "tensorcore",
-            n_samples, n_qubits,
-            device_name="lightning.gpu",
-            symmetric=True,
-            dtype="float32",
-            gram_backend="torch",
-            state_tile=4096,
-            tensorcore_precision="bf16",
-        )
-        speedup_bf16 = res_fp32["time"] / res_bf16["time"]
-        rel_err_bf16 = np.max(np.abs(res_bf16["kernel"] - res_fp32["kernel"])) / np.max(np.abs(res_fp32["kernel"]))
-    except Exception as e:
-        print(f"BF16 failed: {e}")
-        res_bf16 = None
-    
-    print(f"\n{'Backend':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'Speedup':<10} {'Rel Error':<12}")
-    print("-" * 70)
-    print(f"{'FP32':<15} {res_fp32['time']:<12.2f} {res_fp32['throughput']:<12.3f} {'1.00x':<10} {'-':<12}")
-    
-    if res_fp16:
-        print(f"{'FP16 TensorCore':<15} {res_fp16['time']:<12.2f} {res_fp16['throughput']:<12.3f} "
-              f"{speedup_fp16:<10.2f}x {rel_err_fp16:<12.2e}")
-    
-    if res_bf16:
-        print(f"{'BF16 TensorCore':<15} {res_bf16['time']:<12.2f} {res_bf16['throughput']:<12.3f} "
-              f"{speedup_bf16:<10.2f}x {rel_err_bf16:<12.2e}")
-    
-    if res_bf16 and res_fp16:
-        winner = "BF16" if res_bf16["throughput"] > res_fp16["throughput"] else "FP16"
-        print(f"\n🏆 Winner on Blackwell: {winner}")
+        
+        # FP16
+        print("Running FP16 Tensor Cores...")
+        try:
+            res_fp16 = benchmark_config(
+                "torch",
+                n, n_qubits,
+                device_name="lightning.gpu",
+                symmetric=True,
+                dtype="float32",
+                gram_backend="torch",
+                state_tile=4096,
+                tensorcore_precision="fp16",
+            )
+            speedup_fp16 = res_fp32["time"] / res_fp16["time"]
+            rel_err_fp16 = np.max(np.abs(res_fp16["kernel"] - res_fp32["kernel"])) / np.max(np.abs(res_fp32["kernel"]))
+        except Exception as e:
+            print(f"FP16 failed: {e}")
+            res_fp16 = None
+        
+        # BF16
+        print("Running BF16 Tensor Cores...")
+        try:
+            res_bf16 = benchmark_config(
+                "tensorcore",
+                n, n_qubits,
+                device_name="lightning.gpu",
+                symmetric=True,
+                dtype="float32",
+                gram_backend="torch",
+                state_tile=4096,
+                tensorcore_precision="bf16",
+            )
+            speedup_bf16 = res_fp32["time"] / res_bf16["time"]
+            rel_err_bf16 = np.max(np.abs(res_bf16["kernel"] - res_fp32["kernel"])) / np.max(np.abs(res_fp32["kernel"]))
+        except Exception as e:
+            print(f"BF16 failed: {e}")
+            res_bf16 = None
+        
+        print(f"\n{'Backend':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'Speedup':<10} {'Rel Error':<12}")
+        print("-" * 70)
+        print(f"{'FP32':<15} {res_fp32['time']:<12.2f} {res_fp32['throughput']:<12.3f} {'1.00x':<10} {'-':<12}")
+        
+        if res_fp16:
+            print(f"{'FP16 TensorCore':<15} {res_fp16['time']:<12.2f} {res_fp16['throughput']:<12.3f} "
+                f"{speedup_fp16:<10.2f}x {rel_err_fp16:<12.2e}")
+        
+        if res_bf16:
+            print(f"{'BF16 TensorCore':<15} {res_bf16['time']:<12.2f} {res_bf16['throughput']:<12.3f} "
+                f"{speedup_bf16:<10.2f}x {rel_err_bf16:<12.2e}")
+        
+        if res_bf16 and res_fp16:
+            winner = "BF16" if res_bf16["throughput"] > res_fp16["throughput"] else "FP16"
+            print(f"\n🏆 Winner on Blackwell: {winner}")
 
 if __name__ == "__main__":
     import sys
     sys.path.insert(0, str(__file__).replace("tools/test_tile_impact_monster.py", ""))
     
     # Run all tests
-    test_numpy_n_cores()
+    #test_numpy_n_cores()
     test_cuda_states_massive_vram()
-    #test_tensorcore_blackwell()
+    test_tensorcore_blackwell()

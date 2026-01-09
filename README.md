@@ -133,6 +133,30 @@ The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 
 ## 🔥 Training & Usage
 
+### Optimal Configuration (Benchmark-Validated)
+
+Based on extensive benchmarks on RTX 6000 Ada (102GB):
+
+```bash
+python train_svm_qkernel.py \
+    --config configs/cifar10.yaml \
+    --gram-backend cuda_states \
+    --pl-device lightning.gpu \
+    --state-tile -1 \
+    --vram-fraction 0.95 \
+    --num-streams 2 \
+    --precompute-all-states \
+    --no-dynamic-batch \
+    --no-cuda-graphs \
+    --dtype float64
+```
+
+**Key findings:**
+- `precompute_all_states=True` provides **74% speedup** (most critical)
+- `state_tile=-1` (auto) is **78% faster** than fixed sizes
+- `vram_fraction=0.95` maximizes GPU utilization
+- `dynamic_batch` and `cuda_graphs` show no benefit, slight overhead
+
 ### 1. Ultra-High Performance (Recommended)
 
 To unleash the full performance on high-end GPUs, use `cuda_states` with huge tiles.

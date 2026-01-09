@@ -1506,6 +1506,13 @@ def compute_kernel_matrix(
             
             for i0, i1 in i_ranges:
                 s_a_tile = s_a_cp[i0:i1]
+                
+                # FIX: Add intermediate normalization for high qubit counts
+                if nq >= 12:
+                    norms_a = cp.linalg.norm(s_a_tile, axis=1, keepdims=True)
+                    norms_a = cp.where(norms_a > 1e-12, norms_a, 1.0)  # Avoid division by zero
+                    s_a_tile = s_a_tile / norms_a
+                
                 j_start = i0 if (symmetric and Y is None) else 0
                 
                 for j0, j1 in j_ranges:
@@ -1514,6 +1521,13 @@ def compute_kernel_matrix(
                         continue
                     
                     s_b_tile = s_b_cp[j0:j1]
+                    
+                    # FIX: Add intermediate normalization for high qubit counts
+                    if nq >= 12 and not (symmetric and Y is None and j0 == i0):
+                        norms_b = cp.linalg.norm(s_b_tile, axis=1, keepdims=True)
+                        norms_b = cp.where(norms_b > 1e-12, norms_b, 1.0)  # Avoid division by zero
+                        s_b_tile = s_b_tile / norms_b
+                    
                     bi, bj = int(i1-i0), int(j1-j0)
                     
                     use_lower = (symmetric and (Y is None) and j0==i0)
@@ -1643,10 +1657,23 @@ def compute_kernel_matrix(
                 s_a_th = _build_states_block_torch_cuda(A[i0:i1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
                 s_a_cp = _torch_cuda_to_cupy(s_a_th)
                 
+                # FIX: Add intermediate normalization for high qubit counts
+                if nq >= 12:
+                    norms_a = cp.linalg.norm(s_a_cp, axis=1, keepdims=True)
+                    norms_a = cp.where(norms_a > 1e-12, norms_a, 1.0)  # Avoid division by zero
+                    s_a_cp = s_a_cp / norms_a
+                
                 relevant_j = [ (j0, j1) for (j0, j1) in j_ranges if (not symmetric or j1 > i0) ]
                 for j0, j1 in relevant_j:
                     s_b_cp = b_cache.get((j0, j1))
                     if s_b_cp is None: s_b_cp = b_cache[(j0, j1)] = s_a_cp
+                    
+                    # FIX: Add intermediate normalization for high qubit counts
+                    s_b_tile = s_b_cp
+                    if nq >= 12 and s_b_cp is not s_a_cp:
+                        norms_b = cp.linalg.norm(s_b_cp, axis=1, keepdims=True)
+                        norms_b = cp.where(norms_b > 1e-12, norms_b, 1.0)  # Avoid division by zero
+                        s_b_tile = s_b_cp / norms_b
                     
                     bi, bj = int(i1-i0), int(j1-j0)
                     
@@ -1681,7 +1708,7 @@ def compute_kernel_matrix(
                     
                     # Dispatch (graphs less useful in tiled approach due to varying sizes)
                     with current_stream:
-                        k_fn(grid, block, (s_a_cp, s_b_cp, out_tile, bi, bj, dim, dim, dim, bj))
+                        k_fn(grid, block, (s_a_cp, s_b_tile, out_tile, bi, bj, dim, dim, dim, bj))
                     
                     kernel_time = time.time() - kernel_start
                     

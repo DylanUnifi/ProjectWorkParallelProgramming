@@ -201,5 +201,3 @@ python tools/benchmark_pl_kernel.py \
 ✍️ **Author**: Dylan Fouepe — Master’s in AI, University of Florence
 
 GitHub: [@DylanUnifi](https://github.com/DylanUnifi)
-
-```

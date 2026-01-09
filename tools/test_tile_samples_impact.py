@@ -77,8 +77,8 @@ BACKEND_CONFIGS = {
 # Tile sizes to test
 TILE_SIZES = {
     "cuda_states": {
-        "state_tile": [1024, 4096, 8192, 16384, -1],
-        "tile_size": [1000, 5000, 10000],  # Kernel tile
+        "state_tile": [512, 1024, 2048, 4096, -1],
+        "tile_size": [1000, 5000],  # Kernel tile
     },
     #"torch": {
     #    "tile_size": [64, 128, 256, 512, 1024, 2048],
@@ -163,7 +163,7 @@ def test_cuda_states_tile_impact():
     print("="*80)
     
     results = []
-    n_samples = 80000
+    n_samples = 20000
     
     print(f"\n{'state_tile':<12} {'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*70)
@@ -473,7 +473,7 @@ def test_numpy_tile_workers_impact():
     print("="*80)
     
     results = []
-    n_samples = 2000  # Smaller for CPU
+    n_samples = 500  # Smaller for CPU
     
     print(f"\n{'tile_size':<12} {'n_workers':<12} {'Time (s)':<12} {'Mpairs/s':<12}")
     print("-"*60)

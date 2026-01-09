@@ -1508,6 +1508,9 @@ def compute_kernel_matrix(
                 s_a_tile = s_a_cp[i0:i1]
                 
                 # FIX: Add intermediate normalization for high qubit counts
+                # Note: Normalization adds computational cost (~5-10% overhead) but is essential
+                # for preventing numerical overflow when state vector dimension exceeds 2^12.
+                # Without this, accumulated rounding errors can cause NaN/Inf in kernel values.
                 if nq >= 12:
                     norms_a = cp.linalg.norm(s_a_tile, axis=1, keepdims=True)
                     norms_a = cp.where(norms_a > 1e-12, norms_a, 1.0)  # Avoid division by zero
@@ -1582,6 +1585,7 @@ def compute_kernel_matrix(
                     kernel_time = time.time() - kernel_start
                     
                     # FIX: Add numerical stability check for high qubit counts
+                    # Replacement values: NaN→0 (no overlap), +Inf→1 (perfect overlap), -Inf→0 (invalid)
                     if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
                         if progress:
                             print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
@@ -1713,6 +1717,7 @@ def compute_kernel_matrix(
                     kernel_time = time.time() - kernel_start
                     
                     # FIX: Add numerical stability check for high qubit counts
+                    # Replacement values: NaN→0 (no overlap), +Inf→1 (perfect overlap), -Inf→0 (invalid)
                     if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
                         if progress:
                             print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")

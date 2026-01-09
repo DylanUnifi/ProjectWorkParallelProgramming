@@ -221,7 +221,12 @@ def benchmark_single_config(
         elif "out of memory" in error_msg.lower() or "oom" in error_msg.lower():
             print(f"  ❌ Out of memory at {n_qubits} qubits")
         else:
-            print(f"  ❌ ERROR: {error_msg[:80]}")
+            # Show more of error message with ellipsis if truncated
+            max_len = 120
+            if len(error_msg) > max_len:
+                print(f"  ❌ ERROR: {error_msg[:max_len]}...")
+            else:
+                print(f"  ❌ ERROR: {error_msg}")
         return None
 
 def run_qubit_impact_test() -> pd.DataFrame:

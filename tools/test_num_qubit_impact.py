@@ -46,8 +46,18 @@ except ImportError:
 # Qubit range to test
 QUBITS_RANGE = [4, 8, 12, 16, 20]
 
-# Fixed sample size (large enough to amortize overhead)
-N_SAMPLES = 500
+# Default sample size (large enough to amortize overhead)
+DEFAULT_SAMPLES = 10000
+
+# Qubit-specific sample configurations (for 102GB VRAM)
+# These are calculated using get_safe_sample_size() with 85% VRAM utilization
+QUBIT_SAMPLE_CONFIGS = {
+    4: 50000,   # Can handle large samples (limited by kernel memory)
+    8: 50000,   # Can handle large samples (limited by kernel memory)
+    12: 30000,  # Can handle large samples (limited by kernel memory)
+    16: 15000,  # Reduced for VRAM (state memory starts to dominate)
+    20: 3000,   # Significantly reduced (state memory dominates)
+}
 
 # Backend configurations with VALID parameters only
 BACKEND_CONFIGS = {
@@ -128,7 +138,8 @@ def calculate_state_vector_size(n_qubits: int, dtype: str = "float64") -> float:
     return dim * bytes_per_element / (1024**3)
 
 def get_safe_sample_size(n_qubits: int, base_samples: int = 80000, 
-                         available_vram_gb: float = 102.0) -> int:
+                         available_vram_gb: float = 102.0, 
+                         vram_fraction: float = 0.85) -> int:
     """
     Calculate safe sample size for given qubit count.
     
@@ -136,6 +147,7 @@ def get_safe_sample_size(n_qubits: int, base_samples: int = 80000,
         n_qubits: Number of qubits
         base_samples: Base sample size to use if memory allows
         available_vram_gb: Available VRAM in GB
+        vram_fraction: Fraction of VRAM to use (default 0.85)
     
     Returns:
         Safe sample size that fits in VRAM
@@ -143,11 +155,22 @@ def get_safe_sample_size(n_qubits: int, base_samples: int = 80000,
     dim = 2 ** n_qubits
     bytes_per_complex = 16  # complex128 for stability
     
-    # Memory for states (with 2x safety margin)
-    max_states_mem = available_vram_gb * 0.4 * 1e9  # 40% for states
-    max_samples = int(max_states_mem / (dim * bytes_per_complex * 2))
+    usable_vram = available_vram_gb * vram_fraction * 1e9  # bytes
     
-    return min(base_samples, max_samples)
+    # Memory for states: n_samples × dim × bytes_per_complex
+    # Memory for kernel: n_samples² × 8 bytes (float64)
+    # Total: n × dim × 16 + n² × 8
+    
+    # Solve for n: n × dim × 16 + n² × 8 < usable_vram
+    # For large dim, state memory dominates: n < usable_vram / (dim × 16)
+    
+    max_by_states = int(usable_vram / (dim * bytes_per_complex * 1.5))  # 1.5x safety
+    
+    # Also check kernel output memory: n² × 8 < usable_vram × 0.5
+    max_by_kernel = int(np.sqrt(usable_vram * 0.5 / 8))
+    
+    safe_samples = min(base_samples, max_by_states, max_by_kernel)
+    return max(100, safe_samples)  # At least 100 samples
 
 def adjust_state_tile_for_qubits(n_qubits: int, base_tile: int = 4096) -> int:
     """Reduce state_tile for high qubit counts to avoid OOM."""
@@ -173,8 +196,13 @@ def benchmark_single_config(
 ) -> Optional[Dict]:
     """Run benchmark for a single configuration."""
     
-    # Reduce samples automatically for high qubits to avoid OOM
-    if n_qubits >= 16:
+    # Use qubit-specific sample configuration if available
+    if n_qubits in QUBIT_SAMPLE_CONFIGS:
+        n_samples = QUBIT_SAMPLE_CONFIGS[n_qubits]
+        if config.get("verbose_profile", False):
+            print(f"  📊 Using {n_samples} samples for {n_qubits} qubits (qubit-specific config)")
+    # Otherwise, reduce samples automatically for high qubits to avoid OOM
+    elif n_qubits >= 16:
         n_samples = get_safe_sample_size(n_qubits, n_samples)
         print(f"  ⚠️ Reduced samples to {n_samples} for {n_qubits} qubits (VRAM limit)")
     
@@ -266,7 +294,8 @@ def run_qubit_impact_test() -> pd.DataFrame:
     print("="*80)
     print(f"📊 Configuration:")
     print(f"   - Qubits range: {QUBITS_RANGE}")
-    print(f"   - Samples: {N_SAMPLES}")
+    print(f"   - Default samples: {DEFAULT_SAMPLES}")
+    print(f"   - Qubit-specific configs: {QUBIT_SAMPLE_CONFIGS}")
     print(f"   - Backends: {list(BACKEND_CONFIGS.keys())}")
     print("="*80 + "\n")
     
@@ -279,21 +308,21 @@ def run_qubit_impact_test() -> pd.DataFrame:
         print(f"\n🔧 Backend: {backend_name.upper()}")
         print(f"   Qubit range: {applicable_qubits}")
         print("-"*60)
-        print(f"{'Qubits':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12} {'State Vec':<12}")
+        print(f"{'Qubits':<8} {'Samples':<10} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
         print("-"*60)
         
         for n_qubits in applicable_qubits:
             result = benchmark_single_config(
                 n_qubits=n_qubits,
-                n_samples=N_SAMPLES,
+                n_samples=DEFAULT_SAMPLES,
                 backend_name=backend_name,
                 config=config,
             )
             
             if result:
                 results.append(result)
-                print(f"{n_qubits:<8} {result['time_s']:<12.3f} {result['throughput_mpairs_s']:<12.3f} "
-                      f"{result['peak_vram_gb']:<12.2f} {result['state_vector_size_gb']:<12.4f}")
+                print(f"{n_qubits:<8} {result['n_samples']:<10} {result['time_s']:<12.3f} "
+                      f"{result['throughput_mpairs_s']:<12.2f} {result['peak_vram_gb']:<12.2f}")
             else:
                 print(f"{n_qubits:<8} FAILED")
     

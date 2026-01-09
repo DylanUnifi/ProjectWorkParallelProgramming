@@ -31,7 +31,7 @@ Project developed in the *Parallel Programming* course (University of Florence).
 We provide SVM binary classification of classical images dataset (CIFAR-10, Fashion-MNIST, SVHN) using Quantum Kernels computed on GPU:
 
 - `scripts/train_svm_qkernel.py` — **Main script** for SVM Quantum kernels training (CV, Optuna, Cache).
-- `scripts/pipeline_backends.py` — **The Engine**: Unified API to compute \(K\) with:
+- `scripts/pipeline_backends.py` — **The Engine**: Unified API to compute $K$ with:
   - **`cuda_states`**: *Flagship backend*. Custom C++ CUDA kernels compiled via NVRTC + CuPy. Supports massive tiling.
   - **`torch`**: Streaming GPU implementation using native PyTorch operations.
   - **`numpy`**: Fallback CPU implementation with multiprocessing.
@@ -49,13 +49,13 @@ tools/
   ├─ benchmark_pl_kernel.py        # Throughput benchmark
   └─ check_nan.py                  # Numerical stability check
 configs/
-  ├─ cifar10.yaml                  # Config for huge datasets (10k+ samples)
-  ├─ fashion.yaml
-  └─ svhn.yaml
+  ├─ fashion_med.yaml                  
+  ├─ fashion_easy.yaml
+  └─ fashion_hard.yaml
 models/
   └─ svm_extension.py              # Custom SVM wrapper (Save/Load/Thresholds)
-kernel_cache/                      # Stores computed .npy matrices (ignored by git)
-````
+kernel_cache/                      # Stores computed .npy matrices
+```
 
 -----
 
@@ -110,7 +110,7 @@ We provide a Docker image optimized for CUDA 13.0 and Blackwell/Ada architecture
 docker build -t parallel-programming:gpu -f Dockerfile.gpu25 .
 
 # Run container (mounting current dir)
-docker run --rm -it --gpus all -v $(pwd):/app parallel-programming:gpu
+docker run --rm -it --gpus all --shm-size=16g -v $(pwd):/app parallel-programming:gpu
 ```
 
 -----
@@ -120,10 +120,10 @@ docker run --rm -it --gpus all -v $(pwd):/app parallel-programming:gpu
 The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 
   - **`--gram-backend`**:
-      - `cuda_states`: **Fastest**. Custom CUDA kernels. Requires CuPy.
-      - `torch`: Very fast. Uses PyTorch streams. Good fallback.
+      - `cuda_states`: Custom CUDA kernels. Requires CuPy.
+      - `torch`: Uses PyTorch streams.
       - `numpy`: CPU only.
-  - **`--tile-size`**: Number of rows computed at once. On RTX 6000 (96GB), use **10000**.
+  - **`--tile-size`**: Number of rows computed at once.
   - **`--dtype`**: `float32` (speed) or `float64` (precision). **Float64 is recommended** for stability.
   - **`--cache-kernels`**: Saves computed matrices to disk to skip re-computation during hyperparameter tuning.
 
@@ -137,25 +137,28 @@ To unleash the full performance on high-end GPUs, use `cuda_states` with huge ti
 
 ```bash
 python train_svm_qkernel.py \
-  --config configs/fashion.yaml \
+  --config configs/fashion_easy.yaml \
   --gram-backend cuda_states \
   --dtype float64 \
   --tile-size -1 \
   --cache-kernels \
-  --angle-scale 1.5 \
-  --normalize-kernel
+  --pca-components 16 \
+  --embed-mode ryrz \
+  --kernel-centering \
+  --normalize-kernel \
+  --angle-scale 0.1
 ```
 
 ### 2\. Multi-GPU Training
 
-Since the system has 2 GPUs, you can train two datasets simultaneously:
+If your system has multiple GPUs, you can train multiple configuration simultaneously:
 
 ```bash
-# Terminal 1: GPU 0 -> CIFAR-10
-CUDA_VISIBLE_DEVICES=0 python scripts/train_svm_qkernel.py --config configs/cifar10.yaml ...
+# Terminal 1: GPU 0 -> Fashion-MNIST EASY
+CUDA_VISIBLE_DEVICES=0 python scripts/train_svm_qkernel.py --config configs/fashion_easy.yaml ...
 
-# Terminal 2: GPU 1 -> Fashion-MNIST
-CUDA_VISIBLE_DEVICES=1 python scripts/train_svm_qkernel.py --config configs/fashion.yaml ...
+# Terminal 2: GPU 1 -> Fashion-MNIST HARD
+CUDA_VISIBLE_DEVICES=1 python scripts/train_svm_qkernel.py --config configs/fashion_hard.yaml ...
 ```
 
 -----

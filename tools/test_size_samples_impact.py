@@ -109,7 +109,7 @@ def test_cuda_states_massive_vram():
                 autotune=autotune,
                 precompute_all_states=precompute_all_states,
                 vram_fraction=vram_fraction,
-                progress=True,
+                progress=False,
             )
             
             # Estime VRAM usage

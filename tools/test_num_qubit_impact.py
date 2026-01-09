@@ -186,6 +186,11 @@ def benchmark_single_config(
                 torch.cuda.synchronize()
             
             times.append(time.perf_counter() - t0)
+            
+            # FIX: Check for NaN/Inf in output
+            if not np.all(np.isfinite(K)):
+                print(f"  ⚠️ WARNING: NaN/Inf detected in kernel matrix for {n_qubits} qubits")
+            
             del K
         
         _, peak_vram = get_gpu_memory_info()
@@ -209,7 +214,19 @@ def benchmark_single_config(
         }
         
     except Exception as e:
-        print(f"  ❌ ERROR: {str(e)[:60]}")
+        error_msg = str(e)
+        # FIX: Provide more detailed error reporting
+        if "shared memory" in error_msg.lower() or "ptxas" in error_msg.lower():
+            print(f"  ❌ CUDA shared memory error at {n_qubits} qubits")
+        elif "out of memory" in error_msg.lower() or "oom" in error_msg.lower():
+            print(f"  ❌ Out of memory at {n_qubits} qubits")
+        else:
+            # Show more of error message with ellipsis if truncated
+            max_len = 120
+            if len(error_msg) > max_len:
+                print(f"  ❌ ERROR: {error_msg[:max_len]}...")
+            else:
+                print(f"  ❌ ERROR: {error_msg}")
         return None
 
 def run_qubit_impact_test() -> pd.DataFrame:

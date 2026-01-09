@@ -44,10 +44,10 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════
 
 # Qubit range to test
-QUBITS_RANGE = [16]
+QUBITS_RANGE = [4, 8, 12, 16, 20]
 
 # Fixed sample size (large enough to amortize overhead)
-N_SAMPLES = 80000
+N_SAMPLES = 500
 
 # Backend configurations with VALID parameters only
 BACKEND_CONFIGS = {
@@ -93,9 +93,9 @@ BACKEND_CONFIGS = {
 
 # Qubit limits per backend (beyond this, backend becomes impractical)
 BACKEND_QUBIT_LIMITS = {
-    "cuda_states": 16,
+    "cuda_states": 20,
     #"torch": 16,
-    "numpy": 12,
+    "numpy": 16,
 }
 
 # Output configuration

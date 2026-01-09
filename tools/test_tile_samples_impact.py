@@ -44,7 +44,7 @@ except ImportError:
 N_QUBITS = 16
 
 # Sample sizes to test
-SAMPLE_SIZES = [1000, 2000, 4000, 8000, 16000]
+SAMPLE_SIZES = [2000, 4000, 8000, 16000, 20000]
 
 # Backend base configurations
 BACKEND_CONFIGS = {
@@ -84,8 +84,8 @@ TILE_SIZES = {
     #    "tile_size": [64, 128, 256, 512, 1024, 2048],
     #},
     "numpy": {
-        "tile_size": [64, 128, 256],
-        "n_workers": [8, 16, 24],
+        "tile_size": [64, 128, 192, 256],
+        "n_workers": [16, 24],
     },
 }
 
@@ -212,8 +212,8 @@ def test_state_tile_optimization():
     print("="*80)
     
     results = []
-    n_samples = 80000
-    state_tiles = [-1, 512, 1024, 2048, 4096, 8192, 16384]  # -1 = auto
+    n_samples = 20000
+    state_tiles = [-1, 512, 1024, 2048, 4096]  # -1 = auto
     
     print(f"\n{'state_tile':<12} {'Mode':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*70)
@@ -251,7 +251,7 @@ def test_num_streams_impact():
     print("="*80)
     
     results = []
-    n_samples = 4000
+    n_samples = 20000
     num_streams_values = [1, 2, 4, 8]
     
     print(f"\n{'num_streams':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -292,7 +292,7 @@ def test_vram_fraction_impact():
     print("="*80)
     
     results = []
-    n_samples = 80000
+    n_samples = 20000
     vram_fractions = [0.5, 0.7, 0.85, 0.95]
     
     print(f"\n{'vram_fraction':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -329,7 +329,7 @@ def test_optimization_ablation():
     print("="*80)
     
     results = []
-    n_samples = 80000
+    n_samples = 20000
     
     # Define test configurations
     configs = {
@@ -427,7 +427,7 @@ def test_sample_scaling_with_optimizations():
     print("="*80)
     
     results = []
-    sample_sizes = [1000, 2000, 4000, 8000]
+    sample_sizes = [2000, 4000, 8000, 16000, 20000]
     
     print(f"\n{'N':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'N²/Time':<12} {'VRAM (GB)':<12}")
     print("-"*70)
@@ -473,7 +473,7 @@ def test_numpy_tile_workers_impact():
     print("="*80)
     
     results = []
-    n_samples = 500  # Smaller for CPU
+    n_samples = 2000  # Smaller for CPU
     
     print(f"\n{'tile_size':<12} {'n_workers':<12} {'Time (s)':<12} {'Mpairs/s':<12}")
     print("-"*60)
@@ -700,7 +700,7 @@ def run_all_tile_tests():
     # all_results.extend(test_sample_scaling())
     
     # Run new optimization tests
-    # all_results.extend(test_state_tile_optimization())
+    all_results.extend(test_state_tile_optimization())
     pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
     all_results.extend(test_num_streams_impact())
     pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
@@ -708,7 +708,7 @@ def run_all_tile_tests():
     pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
     all_results.extend(test_optimization_ablation())
     pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
-    # all_results.extend(test_sample_scaling_with_optimizations())
+    all_results.extend(test_sample_scaling_with_optimizations())
     
     # Save results
     df = pd.DataFrame(all_results)

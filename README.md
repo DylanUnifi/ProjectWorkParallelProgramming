@@ -1,4 +1,3 @@
-````markdown
 # Parallel Programming Project
 
 [![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CuPy%20%7C%20CUDA-green?logo=pytorch)](#)
@@ -44,20 +43,21 @@ We provide SVM binary classification of classical images dataset (CIFAR-10, Fash
 ```text
 train_svm_qkernel.py               # Main Entry Point
 scripts/
-  └─ pipeline_backends.py          # Unified kernel API (The "Engine")
+ └─ pipeline_backends.py           # Unified kernel API (The "Engine")
 tools/
-  ├─ benchmark_pl_kernel.py        # Throughput benchmark
-  └─ check_nan.py                  # Numerical stability check
+ ├─ benchmark_pl_kernel.py         # Throughput benchmark
+ └─ check_nan.py                   # Numerical stability check
 configs/
-  ├─ fashion_med.yaml                  
-  ├─ fashion_easy.yaml
-  └─ fashion_hard.yaml
+ ├─ fashion_med.yaml                 
+ ├─ fashion_easy.yaml
+ └─ fashion_hard.yaml
 models/
-  └─ svm_extension.py              # Custom SVM wrapper (Save/Load/Thresholds)
+ └─ svm_extension.py               # Custom SVM wrapper (Save/Load/Thresholds)
 kernel_cache/                      # Stores computed .npy matrices
+
 ```
 
------
+---
 
 ## 🚀 High-Performance Architecture
 
@@ -65,32 +65,30 @@ This project implements a custom **GPU-accelerated pipeline** (`cuda_states`) de
 
 ### Key Features
 
-1.  **Zero-Copy Memory Management:** Uses `DLPack` to transfer state vectors from PennyLane/PyTorch to CuPy/CUDA without CPU round-trips.
-2.  **Custom CUDA Kernels:** Implements raw C++ CUDA kernels (`cgemm_abs2_tiled`) to fuse dot-product and magnitude-squared operations, minimizing VRAM bandwidth.
-3.  **Synchronization:** Explicit CUDA stream synchronization to prevent race conditions between PyTorch (State Generation) and CuPy (Kernel Calculation).
-4.  **Float64 Support:** Full support for double precision to ensure numerical stability in SVM solvers.
+1. **Zero-Copy Memory Management:** Uses `DLPack` to transfer state vectors from PennyLane/PyTorch to CuPy/CUDA without CPU round-trips.
+2. **Custom CUDA Kernels:** Implements raw C++ CUDA kernels (`cgemm_abs2_tiled`) to fuse dot-product and magnitude-squared operations, minimizing VRAM bandwidth.
+3. **Synchronization:** Explicit CUDA stream synchronization to prevent race conditions between PyTorch (State Generation) and CuPy (Kernel Calculation).
+4. **Float64 Support:** Full support for double precision to ensure numerical stability in SVM solvers.
 
------
+---
 
 ## 💻 Hardware Specs
 
 Benchmarks and training were performed on a high-end HPC node:
 
-  * **GPU:** 2x **NVIDIA RTX 6000 Ada Generation** (96 GB VRAM each)
-  * **CPU:** Dual **AMD EPYC 74F3** 24-Core Processor (96 threads total)
-  * **RAM:** 512 GB DDR4
-  * **CUDA:** Version 13.0
+* **GPU:** 2x **NVIDIA RTX 6000 Ada Generation** (96 GB VRAM each)
+* **CPU:** Dual **AMD EPYC 74F3** 24-Core Processor (96 threads total)
+* **RAM:** 512 GB DDR4
+* **CUDA:** Version 13.0
 
------
+---
 
 ## Setup
 
 ### Environment
 
-  - **OS**: Linux (tested on Ubuntu 22.04/24.04)
-  - **CUDA**: 12.x or 13.x
-
-<!-- end list -->
+* **OS**: Linux (tested on Ubuntu 22.04/24.04)
+* **CUDA**: 12.x or 13.x
 
 ```bash
 # Clone
@@ -99,6 +97,7 @@ cd ProjectWorkParallelProgramming
 
 # Install dependencies
 pip install -r requirements.txt
+
 ```
 
 ### Docker (Recommended)
@@ -111,27 +110,30 @@ docker build -t parallel-programming:gpu -f Dockerfile.gpu25 .
 
 # Run container (mounting current dir)
 docker run --rm -it --gpus all --shm-size=16g -v $(pwd):/app parallel-programming:gpu
+
 ```
 
------
+---
 
 ## Backends & knobs
 
 The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 
-  - **`--gram-backend`**:
-      - `cuda_states`: Custom CUDA kernels. Requires CuPy.
-      - `torch`: Uses PyTorch streams.
-      - `numpy`: CPU only.
-  - **`--tile-size`**: Number of rows computed at once.
-  - **`--dtype`**: `float32` (speed) or `float64` (precision). **Float64 is recommended** for stability.
-  - **`--cache-kernels`**: Saves computed matrices to disk to skip re-computation during hyperparameter tuning.
+* **`--gram-backend`**:
+* `cuda_states`: Custom CUDA kernels. Requires CuPy.
+* `torch`: Uses PyTorch streams.
+* `numpy`: CPU only.
 
------
+
+* **`--tile-size`**: Number of rows computed at once.
+* **`--dtype`**: `float32` (speed) or `float64` (precision). **Float64 is recommended** for stability.
+* **`--cache-kernels`**: Saves computed matrices to disk to skip re-computation during hyperparameter tuning.
+
+---
 
 ## 🔥 Training & Usage
 
-### 1\. Ultra-High Performance (Recommended)
+### 1. Ultra-High Performance (Recommended)
 
 To unleash the full performance on high-end GPUs, use `cuda_states` with huge tiles.
 
@@ -147,11 +149,12 @@ python train_svm_qkernel.py \
   --kernel-centering \
   --normalize-kernel \
   --angle-scale 0.1
+
 ```
 
-### 2\. Multi-GPU Training
+### 2. Multi-GPU Training
 
-If your system has multiple GPUs, you can train multiple configuration simultaneously:
+If your system has multiple GPUs, you can train multiple configurations simultaneously:
 
 ```bash
 # Terminal 1: GPU 0 -> Fashion-MNIST EASY
@@ -159,9 +162,10 @@ CUDA_VISIBLE_DEVICES=0 python scripts/train_svm_qkernel.py --config configs/fash
 
 # Terminal 2: GPU 1 -> Fashion-MNIST HARD
 CUDA_VISIBLE_DEVICES=1 python scripts/train_svm_qkernel.py --config configs/fashion_hard.yaml ...
+
 ```
 
------
+---
 
 ## Benchmarking
 
@@ -175,26 +179,27 @@ python tools/benchmark_pl_kernel.py \
   --dtype float64 \
   --state-tile 10000 \
   --device lightning.gpu
+
 ```
 
------
+---
 
 ## 📦 Logging & artifacts
 
-  - **Weights & Biases**: Tracks F1-score, AUC, Accuracy, and **Confusion Matrices**.
-  - **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data & params).
+* **Weights & Biases**: Tracks F1-score, AUC, Accuracy, and **Confusion Matrices**.
+* **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data & params).
 
------
+---
 
 ## License & citation
 
-  - Code released for academic use within the Parallel Programming course.
-  - Please cite the repo and upstream frameworks (PennyLane, PyTorch, CuPy) if you build on it.
+* Code released for academic use within the Parallel Programming course.
+* Please cite the repo and upstream frameworks (PennyLane, PyTorch, CuPy) if you build on it.
 
------
+---
 
-✍️ **Author**: Dylan Fouepe — Master’s in AI, University of Florence  
+✍️ **Author**: Dylan Fouepe — Master’s in AI, University of Florence
+
 GitHub: [@DylanUnifi](https://github.com/DylanUnifi)
 
-```
 ```

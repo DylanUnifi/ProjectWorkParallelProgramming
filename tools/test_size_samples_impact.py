@@ -34,7 +34,7 @@ def test_numpy_n_cores():
     print("="*80 + "\n")
     
     n_samples = [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000]
-    n_qubits = 8
+    n_qubits = 4
     tile_size = 192
     
     print(f"{'sample_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'Efficiency':<12}")
@@ -73,16 +73,16 @@ def test_cuda_states_massive_vram():
     
     configs = [
         # (N, nq, state_tile, autotune, precompute_all_states, vram_fraction)
-        (10000, 8, -1, True, True, 0.85),
-        (20000, 8, -1, True, True, 0.85),
-        (30000, 8, -1, True, True, 0.85),
-        (40000, 8, -1, True, True, 0.85),
-        (50000, 8, -1, True, True, 0.85),
-        (60000, 8, -1, True, True, 0.85),
-        (70000, 8, -1, True, True, 0.85),
-        (80000, 8, -1, True, True, 0.85),
-        (90000, 8, -1, True, True, 0.85),
-        (100000, 8, -1, True, True, 0.85),
+        (10000, 4, -1, True, True, 0.85),
+        (20000, 4, -1, True, True, 0.85),
+        (30000, 4, -1, True, True, 0.85),
+        (40000, 4, -1, True, True, 0.85),
+        (50000, 4, -1, True, True, 0.85),
+        (60000, 4, -1, True, True, 0.85),
+        (70000, 4, -1, True, True, 0.85),
+        (80000, 4, -1, True, True, 0.85),
+        (90000, 4, -1, True, True, 0.85),
+        (100000, 4, -1, True, True, 0.85),
     ]
     
     print(f"{'N':<8} {'nq':<4} {'state_tile':<12} {'tile_m':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -198,6 +198,6 @@ if __name__ == "__main__":
     sys.path.insert(0, str(__file__).replace("tools/test_tile_impact_monster.py", ""))
     
     # Run all tests
-    # test_numpy_n_cores()
-    # test_cuda_states_massive_vram()
-    test_tensorcore_blackwell()
+    test_numpy_n_cores()
+    test_cuda_states_massive_vram()
+    #test_tensorcore_blackwell()

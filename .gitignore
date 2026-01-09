@@ -56,3 +56,5 @@ benchmark_results/
 *.backup
 *_new.py
 
+# Local libraries
+local_libs/

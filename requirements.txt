@@ -10,3 +10,4 @@ pyyaml
 optuna
 pandas
 torchvision
+seaborn

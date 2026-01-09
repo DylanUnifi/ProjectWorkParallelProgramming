@@ -47,7 +47,7 @@ except ImportError:
 QUBITS_RANGE = [4, 6, 8, 10, 12, 14, 16, 18, 20]
 
 # Fixed sample size (large enough to amortize overhead)
-N_SAMPLES = 2000
+N_SAMPLES = 50000
 
 # Backend configurations with VALID parameters only
 BACKEND_CONFIGS = {
@@ -86,8 +86,8 @@ BACKEND_CONFIGS = {
         "gram_backend": "numpy",
         "dtype": "float64",
         "symmetric": True,
-        "tile_size": 64,
-        "n_workers": 4,
+        "tile_size": 192,
+        "n_workers": 24,
     },
 }
 

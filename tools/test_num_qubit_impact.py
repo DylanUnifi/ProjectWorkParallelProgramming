@@ -127,6 +127,28 @@ def calculate_state_vector_size(n_qubits: int, dtype: str = "float64") -> float:
     bytes_per_element = 16 if dtype == "float64" else 8  # complex128 or complex64
     return dim * bytes_per_element / (1024**3)
 
+def get_safe_sample_size(n_qubits: int, base_samples: int = 80000, 
+                         available_vram_gb: float = 102.0) -> int:
+    """
+    Calculate safe sample size for given qubit count.
+    
+    Args:
+        n_qubits: Number of qubits
+        base_samples: Base sample size to use if memory allows
+        available_vram_gb: Available VRAM in GB
+    
+    Returns:
+        Safe sample size that fits in VRAM
+    """
+    dim = 2 ** n_qubits
+    bytes_per_complex = 16  # complex128 for stability
+    
+    # Memory for states (with 2x safety margin)
+    max_states_mem = available_vram_gb * 0.4 * 1e9  # 40% for states
+    max_samples = int(max_states_mem / (dim * bytes_per_complex * 2))
+    
+    return min(base_samples, max_samples)
+
 def adjust_state_tile_for_qubits(n_qubits: int, base_tile: int = 4096) -> int:
     """Reduce state_tile for high qubit counts to avoid OOM."""
     if n_qubits >= 18:
@@ -150,6 +172,11 @@ def benchmark_single_config(
     repeats: int = 3,
 ) -> Optional[Dict]:
     """Run benchmark for a single configuration."""
+    
+    # Reduce samples automatically for high qubits to avoid OOM
+    if n_qubits >= 16:
+        n_samples = get_safe_sample_size(n_qubits, n_samples)
+        print(f"  ⚠️ Reduced samples to {n_samples} for {n_qubits} qubits (VRAM limit)")
     
     # Generate test data
     rng = np.random.default_rng(42)

@@ -650,6 +650,41 @@ def _compute_max_precompute_size(vram_fraction: float = 0.85, nq: int = 6,
     except Exception:
         return 8192
 
+def _can_precompute_all(n_samples: int, n_qubits: int, dtype, vram_fraction: float = 0.85) -> bool:
+    """
+    Check if bulk precomputation will fit in VRAM.
+    
+    Args:
+        n_samples: Number of samples to precompute
+        n_qubits: Number of qubits
+        dtype: Data type (np.float32 or np.float64)
+        vram_fraction: Target fraction of VRAM to use
+    
+    Returns:
+        True if bulk precomputation is feasible, False otherwise
+    """
+    try:
+        import cupy as cp
+        device = cp.cuda.Device()
+        available_vram = device.mem_info[0]  # Free memory in bytes
+        total_vram = device.mem_info[1]
+        
+        dim = 1 << n_qubits
+        bytes_per_complex = 16 if dtype == np.float64 else 8
+        
+        # Memory for states (A and B if needed)
+        states_mem = n_samples * dim * bytes_per_complex * 2  # Factor of 2 for safety
+        
+        # Memory for kernel output
+        kernel_mem = n_samples * n_samples * (8 if dtype == np.float64 else 4)
+        
+        total_needed = states_mem + kernel_mem
+        usable_vram = total_vram * vram_fraction
+        
+        return total_needed < usable_vram
+    except:
+        return False
+
 def _setup_cupy():
     import cupy as cp
     # Use managed memory pool for GPU allocations
@@ -1463,8 +1498,33 @@ def compute_kernel_matrix(
         if mem_profiler:
             mem_profiler.track_allocation("kernel_output", K_cp.nbytes)
         
-        # OPTIMIZATION 2: Bulk state precomputation
+        # Add VRAM estimation to progress output
+        if progress:
+            dim = 1 << nq
+            states_gb = n * dim * (16 if is_double else 8) / 1e9
+            kernel_gb = n * m * (8 if is_double else 4) / 1e9
+            print(f"📊 Estimated VRAM: states={states_gb:.1f}GB, kernel={kernel_gb:.1f}GB, "
+                  f"total={states_gb + kernel_gb:.1f}GB")
+        
+        # OPTIMIZATION 2: Bulk state precomputation with VRAM-aware check
         max_precompute = _compute_max_precompute_size(vram_fraction, nq, f_dt)
+        
+        # Check if bulk precomputation is feasible
+        if precompute_all_states:
+            can_precompute = _can_precompute_all(n, nq, f_dt, vram_fraction)
+            if not can_precompute:
+                if progress:
+                    print(f"⚠️ VRAM insufficient for bulk precompute ({n} samples × {nq} qubits). "
+                          f"Falling back to tiled approach.")
+                precompute_all_states = False
+                
+                # Also reduce state_tile to fit
+                max_states = _compute_max_precompute_size(vram_fraction, nq, f_dt)
+                if state_tile > max_states:
+                    state_tile = max(256, max_states // 2)
+                    if progress:
+                        print(f"   Reduced state_tile to {state_tile}")
+        
         use_bulk_precompute = precompute_all_states and (max(n, m) <= max_precompute)
         
         if use_bulk_precompute:

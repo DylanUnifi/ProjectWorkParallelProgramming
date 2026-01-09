@@ -695,6 +695,7 @@ def run_all_tile_tests():
     pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
     all_results.extend(test_numpy_tile_workers_impact())
     pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
+    
     # all_results.extend(test_torch_tile_impact())
     # all_results.extend(test_torch_optimizations())
     # all_results.extend(test_sample_scaling())

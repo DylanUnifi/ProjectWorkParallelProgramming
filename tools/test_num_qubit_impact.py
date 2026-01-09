@@ -50,12 +50,13 @@ QUBITS_RANGE = [4, 8, 12, 16, 20]
 DEFAULT_SAMPLES = 10000
 
 # Qubit-specific sample configurations (for 102GB VRAM)
+# These are calculated using get_safe_sample_size() with 85% VRAM utilization
 QUBIT_SAMPLE_CONFIGS = {
-    4: 50000,   # Can handle large samples
-    8: 50000,
-    12: 30000,
-    16: 15000,  # Reduced for VRAM
-    20: 3000,   # Significantly reduced
+    4: 50000,   # Can handle large samples (limited by kernel memory)
+    8: 50000,   # Can handle large samples (limited by kernel memory)
+    12: 30000,  # Can handle large samples (limited by kernel memory)
+    16: 15000,  # Reduced for VRAM (state memory starts to dominate)
+    20: 3000,   # Significantly reduced (state memory dominates)
 }
 
 # Backend configurations with VALID parameters only

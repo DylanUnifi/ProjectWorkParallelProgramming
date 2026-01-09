@@ -49,8 +49,8 @@ def test_numpy_n_cores():
     print(f"TEST 1: NUMPY avec {n} CORES - Impact du sample_size")
     print("="*80 + "\n")
     
-    n_samples = [50000, 60000, 70000, 80000, 90000, 100000]
-    n_qubits = 12
+    n_samples = [50000, 60000, 70000, 80000, 90000]
+    n_qubits = 16
     tile_size = 192
     
     print(f"{'sample_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'Efficiency':<12}")
@@ -96,12 +96,11 @@ def test_cuda_states_massive_vram():
     
     configs = [
         # (N, nq, state_tile, autotune, precompute_all_states, vram_fraction)
-        (50000, 12, -1, True, True, 0.85),
-        (60000, 12, -1, True, True, 0.85),
-        (70000, 12, -1, True, True, 0.85),
-        (80000, 12, -1, True, True, 0.85),
-        (90000, 12, -1, True, True, 0.85),
-        (100000, 12, -1, True, True, 0.85),
+        (50000, 16, -1, True, True, 0.85),
+        (60000, 16, -1, True, True, 0.85),
+        (70000, 16, -1, True, True, 0.85),
+        (80000, 16, -1, True, True, 0.85),
+        (90000, 16, -1, True, True, 0.85),
     ]
     
     print(f"{'N':<8} {'nq':<4} {'state_tile':<12} {'autotune':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -142,8 +141,8 @@ def test_tensorcore_blackwell():
     print("TEST 3: TENSORCORE sur Blackwell - FP16 vs BF16")
     print("="*80 + "\n")
     
-    n_samples_list = [50000, 60000, 70000, 80000]
-    n_qubits = 12
+    n_samples_list = [10000]
+    n_qubits = 16
 
     for n in n_samples_list:
     
@@ -224,4 +223,4 @@ if __name__ == "__main__":
     # Run all tests
     test_numpy_n_cores()
     test_cuda_states_massive_vram()
-    test_tensorcore_blackwell()
+    #test_tensorcore_blackwell()

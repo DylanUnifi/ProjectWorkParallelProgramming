@@ -44,7 +44,7 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════
 
 # Qubit range to test
-QUBITS_RANGE = [4, 6, 8, 10, 12, 14, 16, 18, 20]
+QUBITS_RANGE = [4, 8, 12, 16]
 
 # Fixed sample size (large enough to amortize overhead)
 N_SAMPLES = 50000

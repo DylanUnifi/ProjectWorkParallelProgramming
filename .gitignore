@@ -52,3 +52,7 @@ benchmark_results/
 # Tile optimizer history
 .tile_optimizer_history.json
 
+# Backup files
+*.backup
+*_new.py
+

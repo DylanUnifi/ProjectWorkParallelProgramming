@@ -4,14 +4,29 @@ import gc
 import sys
 from scripts.pipeline_backends import compute_kernel_matrix
 
-def benchmark_config(backend, n_samples, n_qubits, **kwargs):
+def benchmark_config(backend, n_samples, n_qubits, return_kernel=False, **kwargs):
     """Benchmark une config spécifique."""
     rng = np.random.default_rng(42)
     angles = rng.uniform(-np.pi, np.pi, (n_samples, n_qubits)).astype(np.float32)
     weights = rng.normal(0, 0.1, (2, n_qubits)).astype(np.float32)
     
-    # Warmup
-    _ = compute_kernel_matrix(angles, weights=weights, **kwargs)
+    # --- WARMUP OPTIMISÉ (FIXE) ---
+    # On ne chauffe que sur 100 échantillons, quelle que soit la taille N demandée.
+    # Cela suffit pour charger les kernels CUDA sans saturer la VRAM.
+    try:
+        warmup_size = min(100, n_samples)
+        _ = compute_kernel_matrix(angles[:warmup_size], weights=weights, **kwargs)
+    except Exception:
+        pass # Si le warmup échoue, on continue quand même
+    
+    # Nettoyage forcé avant le vrai test
+    gc.collect()
+    try:
+        import cupy
+        cupy.get_default_memory_pool().free_all_blocks()
+    except:
+        pass
+    # -----------------------------
     
     # Timed run
     t0 = time.perf_counter()
@@ -24,7 +39,7 @@ def benchmark_config(backend, n_samples, n_qubits, **kwargs):
     return {
         "time": elapsed,
         "throughput": throughput,
-        "kernel": K,
+        "kernel": K if return_kernel else None,
     }
 
 def test_numpy_n_cores():
@@ -34,8 +49,8 @@ def test_numpy_n_cores():
     print(f"TEST 1: NUMPY avec {n} CORES - Impact du sample_size")
     print("="*80 + "\n")
     
-    n_samples = [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000]
-    n_qubits = 4
+    n_samples = [50000, 60000, 70000, 80000, 90000, 100000]
+    n_qubits = 12
     tile_size = 192
     
     print(f"{'sample_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'Efficiency':<12}")
@@ -81,19 +96,15 @@ def test_cuda_states_massive_vram():
     
     configs = [
         # (N, nq, state_tile, autotune, precompute_all_states, vram_fraction)
-        (10000, 4, -1, True, True, 0.85),
-        (20000, 4, -1, True, True, 0.85),
-        (30000, 4, -1, True, True, 0.85),
-        (40000, 4, -1, True, True, 0.85),
-        (50000, 4, -1, True, True, 0.85),
-        (60000, 4, -1, True, True, 0.85),
-        (70000, 4, -1, True, True, 0.85),
-        (80000, 4, -1, True, True, 0.85),
-        (90000, 4, -1, True, True, 0.85),
-        (100000, 4, -1, True, True, 0.85),
+        (50000, 12, -1, True, True, 0.85),
+        (60000, 12, -1, True, True, 0.85),
+        (70000, 12, -1, True, True, 0.85),
+        (80000, 12, -1, True, True, 0.85),
+        (90000, 12, -1, True, True, 0.85),
+        (100000, 12, -1, True, True, 0.85),
     ]
     
-    print(f"{'N':<8} {'nq':<4} {'state_tile':<12} {'tile_m':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+    print(f"{'N':<8} {'nq':<4} {'state_tile':<12} {'autotune':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-" * 90)
     
     for n, nq, state_tile, autotune, precompute_all_states, vram_fraction in configs:
@@ -131,8 +142,8 @@ def test_tensorcore_blackwell():
     print("TEST 3: TENSORCORE sur Blackwell - FP16 vs BF16")
     print("="*80 + "\n")
     
-    n_samples_list = [10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000]
-    n_qubits = 4
+    n_samples_list = [50000, 60000, 70000, 80000]
+    n_qubits = 12
 
     for n in n_samples_list:
     
@@ -146,7 +157,8 @@ def test_tensorcore_blackwell():
             dtype="float32",
             gram_backend="torch",
             state_tile=2048,
-            tile_m=32, tile_n=32, tile_k=32,
+            tensorcore_precision="fp32",
+            return_kernel=True
         )
         
         # FP16
@@ -160,6 +172,7 @@ def test_tensorcore_blackwell():
                 dtype="float32",
                 gram_backend="torch",
                 state_tile=4096,
+                return_kernel=True,
                 tensorcore_precision="fp16",
             )
             speedup_fp16 = res_fp32["time"] / res_fp16["time"]
@@ -179,6 +192,7 @@ def test_tensorcore_blackwell():
                 dtype="float32",
                 gram_backend="torch",
                 state_tile=4096,
+                return_kernel=True,
                 tensorcore_precision="bf16",
             )
             speedup_bf16 = res_fp32["time"] / res_bf16["time"]

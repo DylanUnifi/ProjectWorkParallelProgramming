@@ -58,3 +58,4 @@ benchmark_results/
 
 # Local libraries
 local_libs/
+tmp/

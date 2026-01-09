@@ -342,6 +342,7 @@ class MemoryProfiler:
         self.peak_allocated = 0.0
         self.kernel_launches = 0
         self.kernel_times = []
+        self.stream_operations = 0
     
     def track_allocation(self, name: str, size_bytes: int):
         """
@@ -378,6 +379,15 @@ class MemoryProfiler:
         """Track a kernel execution."""
         self.kernel_launches += 1
         self.kernel_times.append(duration_ms)
+    
+    def record_stream_usage(self, stream_count: int):
+        """
+        Record stream usage for utilization tracking.
+        
+        Args:
+            stream_count: Number of stream operations performed
+        """
+        self.stream_operations = stream_count
     
     def snapshot(self) -> dict:
         """Capture current memory state."""
@@ -1533,18 +1543,26 @@ def compute_kernel_matrix(
                 print(f"⚡ Bulk precomputing {n} + {m} states...")
             
             start_time = time.time()
+            transfer_start = time.time()
             s_a_cp = _build_all_states_torch_cuda(A, w, device_name, angle_scale, 
                                                    re_embed_between_layers, embed_mode, use_pinned=True)
+            transfer_time_a = (time.time() - transfer_start) * 1000  # Convert to ms
+            
             if Y is None:
                 s_b_cp = s_a_cp
+                transfer_time_b = 0
             else:
+                transfer_start = time.time()
                 s_b_cp = _build_all_states_torch_cuda(B, w, device_name, angle_scale,
                                                        re_embed_between_layers, embed_mode, use_pinned=True)
+                transfer_time_b = (time.time() - transfer_start) * 1000  # Convert to ms
             
             if mem_profiler:
                 mem_profiler.track_allocation("states_A", s_a_cp.nbytes)
+                mem_profiler.track_transfer("H2D", s_a_cp.nbytes, transfer_time_a)
                 if Y is not None:
                     mem_profiler.track_allocation("states_B", s_b_cp.nbytes)
+                    mem_profiler.track_transfer("H2D", s_b_cp.nbytes, transfer_time_b)
             
             # Use stream pool or fallback to single stream
             if stream_pool:
@@ -1658,6 +1676,9 @@ def compute_kernel_matrix(
                     # Track kernel performance
                     if mem_profiler:
                         mem_profiler.track_kernel(kernel_time * 1000)  # Convert to ms
+                        # Record stream usage
+                        if stream_pool:
+                            mem_profiler.record_stream_usage(tile_count)
                     
                     # Dynamic batch adjustment
                     if batch_sizer and tile_count % BATCH_ADJUST_INTERVAL == 0:
@@ -1789,6 +1810,9 @@ def compute_kernel_matrix(
                     
                     if mem_profiler:
                         mem_profiler.track_kernel(kernel_time * 1000)
+                        # Record stream usage
+                        if stream_pool:
+                            mem_profiler.record_stream_usage(tile_count)
                     
                     tile_count += 1
                     if tile_count % BATCH_SYNC_INTERVAL == 0:
@@ -1808,7 +1832,13 @@ def compute_kernel_matrix(
             total_time = time.time() - start_time
         
         # OPTIMIZATION 5: Memory cleanup
+        transfer_start = time.time()
         K = K_cp.get().astype(r_dt)
+        transfer_time_d2h = (time.time() - transfer_start) * 1000  # Convert to ms
+        
+        if mem_profiler:
+            mem_profiler.track_transfer("D2H", K.nbytes, transfer_time_d2h)
+        
         cp.get_default_memory_pool().free_all_blocks()
         
         # Record performance for tile learning

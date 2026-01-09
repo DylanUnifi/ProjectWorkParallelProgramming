@@ -416,7 +416,7 @@ if __name__ == "__main__":
     # cuda_states optimization parameters
     p.add_argument("--state-tile", type=int, default=-1,
                    help="State tile size (-1 for auto VRAM-aware)")
-    p.add_argument("--vram-fraction", type=float, default=0.85,
+    p.add_argument("--vram-fraction", type=float, default=0.95,
                    help="Maximum VRAM fraction to use (0-1)")
     p.add_argument("--autotune", action="store_true", default=True,
                    help="Enable kernel tile autotuning")
@@ -424,15 +424,15 @@ if __name__ == "__main__":
     p.add_argument("--precompute-all-states", action="store_true", default=True,
                    help="Bulk precompute all quantum states")
     p.add_argument("--no-precompute", action="store_false", dest="precompute_all_states")
-    p.add_argument("--dynamic-batch", action="store_true", default=True,
+    p.add_argument("--dynamic-batch", action="store_true", default=False,
                    help="Enable dynamic batch sizing")
     p.add_argument("--no-dynamic-batch", action="store_false", dest="dynamic_batch")
-    p.add_argument("--num-streams", type=int, default=4,
+    p.add_argument("--num-streams", type=int, default=2,
                    help="Number of CUDA streams for parallelism")
     p.add_argument("--learn-tiles", action="store_true", default=True,
                    help="Learn optimal tiles from run history")
     p.add_argument("--no-learn-tiles", action="store_false", dest="learn_tiles")
-    p.add_argument("--use-cuda-graphs", action="store_true", default=True,
+    p.add_argument("--use-cuda-graphs", action="store_true", default=False,
                    help="Enable CUDA graph optimization")
     p.add_argument("--no-cuda-graphs", action="store_false", dest="use_cuda_graphs")
     p.add_argument("--profile-memory", action="store_true", default=False,

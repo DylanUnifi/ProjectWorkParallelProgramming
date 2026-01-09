@@ -1369,19 +1369,19 @@ def _gram_pennylane_angles_mp(
 
 def compute_kernel_matrix(
         X: Any, Y: Optional[Any] = None, *, weights: np.ndarray,
-        device_name: str = "lightning.qubit", tile_size: int = 64, symmetric: bool = True,
-        n_workers: int = 0, dtype: str = "float32", return_dtype: str = "float32",
+        device_name: str = "lightning.qubit", tile_size: int = 128, symmetric: bool = True,
+        n_workers: int = 16, dtype: str = "float64", return_dtype: str = "float64",
         gram_backend: str = "auto", progress: bool = False, desc: str = "Gram",
         angle_scale: float = 1.0, re_embed_between_layers: bool = False, embed_mode: str = "ryrz",
         normalize: bool = False, jitter: float = 0.0,
         state_tile: int = -1, tile_m="auto", tile_n="auto", tile_k="auto",
-        autotune: bool = True, precompute_all_states: bool = True, vram_fraction: float = 0.85,
+        autotune: bool = True, precompute_all_states: bool = True, vram_fraction: float = 0.95,
         # NEW parameters for advanced optimizations
-        dynamic_batch: bool = True,
-        num_streams: int = 4,
+        dynamic_batch: bool = False,
+        num_streams: int = 2,
         learn_tiles: bool = True,
         profile_memory: bool = False,
-        use_cuda_graphs: bool = True,
+        use_cuda_graphs: bool = False,
         verbose_profile: bool = False,
         # Torch backend optimizations
         use_pinned_memory: bool = False,

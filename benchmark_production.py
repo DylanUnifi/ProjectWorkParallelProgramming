@@ -672,7 +672,7 @@ def benchmark_backend_comparison() -> pd.DataFrame:
 # REPORTING AND VISUALIZATION
 # ═══════════════════════════════════════════════════════════
 
-def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.DataFrame):
+def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.DataFrame, df_ablation:  pd.DataFrame):
     """Generate comprehensive performance plots."""
     
     sns.set_theme(style="whitegrid", context="paper", font_scale=1.2)

@@ -96,8 +96,8 @@ BACKEND_CONFIGS = {
         "gram_backend": "numpy",
         "dtype": "float64",
         "symmetric": True,
-        "tile_size": 192,
-        "n_workers": 24,
+        "tile_size": 128,
+        "n_workers": 16,
     },
 }
 

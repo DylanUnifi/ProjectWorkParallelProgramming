@@ -748,9 +748,36 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
         ax4.legend()
         ax4.grid(True, which="both", alpha=0.3)
     
-    # --- PLOT 5: Tile Size Optimization ---
+    # --- PLOT 5: Optimization Ablation Study ---
     ax5 = fig.add_subplot(gs[1, 1])
-    if not df_tile.empty and 'state_tile' in df_tile.columns:
+    
+    # Use ablation results if available, otherwise use tile data as fallback
+    if 'df_ablation' in dir() and not df_ablation.empty and 'configuration' in df_ablation.columns:
+        # Sort by speedup for better visualization
+        ablation_sorted = df_ablation.sort_values('speedup', ascending=True)
+        
+        # Create horizontal bar chart for ablation study
+        colors = ['#2ca02c' if row['speedup'] >= 1.0 else '#d62728' 
+                  for _, row in ablation_sorted.iterrows()]
+        
+        bars = ax5.barh(ablation_sorted['configuration'], ablation_sorted['speedup'],
+                       color=colors, alpha=0.8, edgecolor='black')
+        
+        ax5.axvline(x=1.0, color='red', linestyle='--', linewidth=2, alpha=0.7, label='Baseline')
+        ax5.set_title("Optimization Ablation Study", fontsize=14, fontweight='bold')
+        ax5.set_xlabel("Speedup vs Baseline", fontsize=12)
+        ax5.set_ylabel("Configuration", fontsize=12)
+        ax5.grid(axis='x', alpha=0.3)
+        ax5.legend(loc='lower right')
+        
+        # Annotate bars with speedup values
+        for bar, (_, row) in zip(bars, ablation_sorted.iterrows()):
+            width = bar.get_width()
+            ax5.text(width + 0.02, bar.get_y() + bar.get_height()/2,
+                    f'{width:.2f}×', ha='left', va='center', fontweight='bold', fontsize=9)
+    
+    elif not df_tile.empty and 'state_tile' in df_tile.columns:
+        # Fallback to tile optimization if no ablation data
         ax5.bar(df_tile['state_tile'].astype(str), df_tile['throughput_mpairs_s'],
                color='steelblue', alpha=0.8, edgecolor='black')
         
@@ -764,6 +791,9 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
             height = row['throughput_mpairs_s']
             ax5.text(i, height, f'{height:.1f}',
                     ha='center', va='bottom', fontweight='bold', fontsize=10)
+    else:
+        ax5.text(0.5, 0.5, "No ablation/tile data available",
+                ha='center', va='center', transform=ax5.transAxes, fontsize=12)
     
     # --- PLOT 6: Speedup Comparison ---
     ax6 = fig.add_subplot(gs[1, 2])

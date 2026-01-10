@@ -963,7 +963,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-qubits", type=int, default=N_QUBITS_DEFAULT, help=f"Number of qubits (default: {N_QUBITS_DEFAULT})")
     parser.add_argument("--output-dir", type=str, default="benchmark_results", help="Output directory for results")
     parser.add_argument("--warmup-runs", type=int, default=1, help="Number of warmup runs (default: 1)")
-    parser.add_argument("--benchmark-runs", type=int, default=3, help="Number of benchmark runs (default: 3)")
+    parser.add_argument("--benchmark-runs", type=int, default=1, help="Number of benchmark runs (default: 1)")
     parser.add_argument("--verbose", action="store_true", help="Print detailed information")
     
     # Legacy support

@@ -346,7 +346,7 @@ def run_train(args):
         train_dataset = Subset(train_dataset, range(min(len(train_dataset), args.train_subset)))
         print(f"⚠️ Subset Train: {len(train_dataset)}")
 
-    n_components = args.pca_components or config.get("svm", {}).get("pca_components", 10)
+    n_components = args.pca_components or config.get("svm", {}).get("pca_components", 16)
     X_train_raw, y_train, pca = extract_features(train_dataset, use_pca=True, n_components=n_components)
     X_test_raw, y_test, _ = extract_features(test_dataset, use_pca=True, n_components=n_components, pca_model=pca)
     
@@ -403,7 +403,7 @@ if __name__ == "__main__":
     p.add_argument("--dtype", type=str, default="float32")
     p.add_argument("--return-dtype", type=str, default="float32")
     
-    p.add_argument("--angle-scale", type=float, default=1.0, help="Scaling factor for AngleEmbedding (gamma)")
+    p.add_argument("--angle-scale", type=float, default=0.1, help="Scaling factor for AngleEmbedding (gamma)")
     p.add_argument("--embed-mode", type=str, default="ryrz", choices=["angle", "ry", "ryrz"])
     p.add_argument("--normalize-kernel", action="store_true", help="Force diag(K)=1")
     p.add_argument("--kernel-centering", action="store_true")

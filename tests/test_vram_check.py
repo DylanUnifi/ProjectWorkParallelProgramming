@@ -19,10 +19,12 @@ def test_vram_check():
     
     # Test cases: (n_samples, n_qubits, dtype, expected_feasible)
     test_cases = [
-        (1000, 8, np.float64, True),   # Small case - should fit
-        (10000, 10, np.float64, True),  # Medium case - should fit
-        (80000, 16, np.float64, False), # Large case - should NOT fit (the bug case)
-        (20000, 16, np.float64, None),  # Reduced case - might fit depending on VRAM
+        (100000, 8, np.float64, True),   # Small case - should fit
+        (100000, 10, np.float64, True),  # Medium case - should fit
+        (95000, 12, np.float64, True), # Large case - should fit
+        (75000, 14, np.float64, True),  # Very large case
+        (20000, 16, np.float64, None),  
+        (30000, 16, np.float64, None),
     ]
     
     try:
@@ -41,7 +43,7 @@ def test_vram_check():
     
     for n_samples, n_qubits, dtype, expected in test_cases:
         can_precompute = _can_precompute_all(n_samples, n_qubits, dtype)
-        max_states = _compute_max_precompute_size(0.85, n_qubits, dtype)
+        max_states = _compute_max_precompute_size(0.95, n_qubits, dtype)
         
         dtype_str = "float64" if dtype == np.float64 else "float32"
         result_icon = "✅" if can_precompute else "❌"

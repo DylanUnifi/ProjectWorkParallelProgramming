@@ -32,8 +32,8 @@ CLI Arguments:
 - --sample-scaling: Test scaling with sample count
 
 Configuration:
-- --n-samples: Number of samples (default: 8000)
-- --n-qubits: Number of qubits (default: 10)
+- --n-samples: Number of samples (default: 20000)
+- --n-qubits: Number of qubits (default: 16)
 - --output-dir: Output directory (default: benchmark_results)
 - --warmup-runs: Number of warmup runs (default: 1)
 - --benchmark-runs: Number of benchmark runs (default: 3)
@@ -78,8 +78,8 @@ except ImportError:
 
 # Test configurations
 QUBITS_RANGE = [4, 8, 12, 16]
-SAMPLE_SIZES = [5000, 8000, 10000]
-N_SAMPLES_DEFAULT = 10000
+SAMPLE_SIZES = [10000, 15000, 20000]
+N_SAMPLES_DEFAULT = 20000
 N_QUBITS_DEFAULT = 16
 
 # Backend configurations with VALID parameters only
@@ -89,7 +89,7 @@ BACKEND_CONFIGS = {
         "gram_backend": "cuda_states",
         "dtype": "float64",
         "symmetric": True,
-        "tile_size": 10000,
+        "tile_size": 5000,
         # cuda_states optimization parameters
         "state_tile": -1,
         "vram_fraction": 0.95,
@@ -99,8 +99,8 @@ BACKEND_CONFIGS = {
         "num_streams": 2,
         "learn_tiles": True,
         "use_cuda_graphs": True,
-        "profile_memory": False,
-        "verbose_profile": False,
+        "profile_memory": True,
+        "verbose_profile": True,
     },
     #"torch": {
     #    "device_name": "lightning.gpu",

@@ -77,9 +77,9 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════
 
 # Test configurations
-QUBITS_RANGE = [4, 8, 12, 16]
-SAMPLE_SIZES = [10000, 15000, 20000]
-N_SAMPLES_DEFAULT = 20000
+QUBITS_RANGE = [8, 12, 16]
+SAMPLE_SIZES = [10000, 20000, 30000]
+N_SAMPLES_DEFAULT = 10000
 N_QUBITS_DEFAULT = 16
 
 # Backend configurations with VALID parameters only
@@ -258,7 +258,7 @@ def test_qubit_impact(backends: List[str] = None) -> pd.DataFrame:
             continue
             
         config = BACKEND_CONFIGS[backend_name]
-        qubit_limit = 16 if backend_name == "torch" else (16 if backend_name == "numpy" else 16)
+        qubit_limit = 16 
         applicable_qubits = [q for q in QUBITS_RANGE if q <= qubit_limit]
         
         print(f"\n🔧 Backend: {backend_name.upper()}")
@@ -284,7 +284,7 @@ def test_sample_scaling(backends: List[str] = None) -> pd.DataFrame:
     """Test how performance scales with sample count."""
     
     if backends is None:
-        backends = ["cuda_states", "numpy"]
+        backends = list(BACKEND_CONFIGS.keys())
     
     print("\n" + "="*80)
     print("TEST 2: Sample Count Scaling (O(N²) verification)")
@@ -300,7 +300,7 @@ def test_sample_scaling(backends: List[str] = None) -> pd.DataFrame:
             continue
             
         config = BACKEND_CONFIGS[backend_name]
-        sample_limits = SAMPLE_SIZES if backend_name == "cuda_states" else [s for s in SAMPLE_SIZES if s <= 4000]
+        sample_limits = SAMPLE_SIZES
         
         for n_samples in sample_limits:
             result = benchmark_single_config(
@@ -325,8 +325,8 @@ def test_tile_optimization() -> pd.DataFrame:
     print("="*80)
     
     results = []
-    n_samples = 10000
-    state_tiles = [2048, 4096, -1]
+    n_samples = N_SAMPLES_DEFAULT
+    state_tiles = [2048, 4096, 8192, 16384, 32768, -1]
     
     print(f"\n{'state_tile':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*60)
@@ -362,7 +362,7 @@ def benchmark_vram_fraction_impact() -> pd.DataFrame:
     print("="*80)
     
     results = []
-    n_samples = 10000
+    n_samples = N_SAMPLES_DEFAULT
     vram_fractions = [0.5, 0.7, 0.85, 0.95]
     
     print(f"\n{'VRAM Frac':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -400,8 +400,8 @@ def benchmark_stream_pool_impact() -> pd.DataFrame:
     print("="*80)
     
     results = []
-    n_samples = 10000
-    stream_counts = [1, 2, 4]
+    n_samples = N_SAMPLES_DEFAULT
+    stream_counts = [1, 2, 4, 8]
     
     print(f"\n{'Streams':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*60)
@@ -437,7 +437,7 @@ def benchmark_optimization_ablation() -> pd.DataFrame:
     print("="*80)
     
     results = []
-    n_samples = 10000
+    n_samples = N_SAMPLES_DEFAULT
     
     # Define test configurations
     configs = {
@@ -525,7 +525,7 @@ def benchmark_with_profiling() -> pd.DataFrame:
     print("="*80)
     
     results = []
-    n_samples = 10000
+    n_samples = N_SAMPLES_DEFAULT
     
     print("\nRunning cuda_states with full profiling enabled...")
     
@@ -557,7 +557,7 @@ def benchmark_torch_optimizations() -> pd.DataFrame:
     print("="*80)
     
     results = []
-    n_samples = 4000
+    n_samples = N_SAMPLES_DEFAULT
     tile_size = 512
     
     configs = [
@@ -606,7 +606,7 @@ def benchmark_torch_tile_sizes() -> pd.DataFrame:
     print("="*80)
     
     results = []
-    n_samples = 4000
+    n_samples = N_SAMPLES_DEFAULT
     tile_sizes = [64, 128, 256, 512, 1024, 2048]
     
     print(f"\n{'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -643,7 +643,7 @@ def benchmark_backend_comparison() -> pd.DataFrame:
     print("="*80)
     
     results = []
-    n_samples = 10000
+    n_samples = N_SAMPLES_DEFAULT
     
     print(f"\n{'Backend':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*60)

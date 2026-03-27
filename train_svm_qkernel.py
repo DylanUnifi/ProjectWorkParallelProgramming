@@ -11,7 +11,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, KernelCenterer
 from sklearn.metrics import (
     f1_score, accuracy_score, precision_score, recall_score,
-    balanced_accuracy_score, roc_auc_score, precision_recall_curve, confusion_matrix
+    balanced_accuracy_score, roc_auc_score, average_precision_score
 )
 from tqdm import tqdm
 import yaml
@@ -107,6 +107,25 @@ def extract_features(dataset):
     
     return X, y
 
+def _compute_binary_metrics(y_true, y_pred, y_score):
+    """Compute a compact set of binary classification metrics."""
+    metrics = {
+        "f1": f1_score(y_true, y_pred, average="binary", zero_division=0),
+        "acc": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, average="binary", zero_division=0),
+        "recall": recall_score(y_true, y_pred, average="binary", zero_division=0),
+        "balanced_acc": balanced_accuracy_score(y_true, y_pred),
+    }
+
+    if np.unique(y_true).size < 2:
+        metrics["auc"] = float("nan")
+        metrics["pr_auc"] = float("nan")
+        return metrics
+
+    metrics["auc"] = roc_auc_score(y_true, y_score)
+    metrics["pr_auc"] = average_precision_score(y_true, y_score)
+    return metrics
+
 def train_fold(
     fold_idx, train_idx, val_idx, test_idx,
     X_full, y_full, weights, config, args, cache_mgr
@@ -189,21 +208,49 @@ def train_fold(
         K_train = centerer.fit_transform(K_train)
         K_val = centerer.transform(K_val)
 
-    print(f"🔍 Optimizing C (Optuna)...")
-    def objective(trial):
-        C = trial.suggest_float('C', 0.1, 10.0, log=True)
-        svm = EnhancedSVM(C=C, kernel="precomputed", probability=True, class_weight="balanced", max_iter=50000, tol=1e-4)
-        svm.fit(K_train, y_train)
-        y_pred = svm.predict(K_val)
-        return 1.0 - f1_score(y_val, y_pred, average="binary")
+    optuna_best_value = float("nan")
+    if args.svm_c is not None:
+        best_C = float(args.svm_c)
+        print(f"Using user-provided C: {best_C}")
+    else:
+        print(f"🔍 Optimizing C (Optuna)...")
 
-    study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=config.get("svm", {}).get("n_trials", 10))
-    best_C = study.best_params["C"]
-    print(f"Best C found by Optuna: {best_C}")
+        def objective(trial):
+            C = trial.suggest_float('C', 0.1, 10.0, log=True)
+            svm = EnhancedSVM(C=C, kernel="precomputed", probability=True, class_weight="balanced", max_iter=50000, tol=1e-4)
+            svm.fit(K_train, y_train)
+            y_pred = svm.predict(K_val)
+            return 1.0 - f1_score(y_val, y_pred, average="binary")
+
+        study = optuna.create_study(direction="minimize")
+        study.optimize(objective, n_trials=config.get("svm", {}).get("n_trials", 10))
+        best_C = study.best_params["C"]
+        optuna_best_value = study.best_value
+        print(f"Best C found by Optuna: {best_C}")
+
+    selected_val_svm = EnhancedSVM(
+        C=best_C,
+        kernel="precomputed",
+        probability=True,
+        class_weight="balanced",
+        max_iter=50000,
+        tol=1e-4
+    )
+    selected_val_svm.fit(K_train, y_train)
+    val_pred = selected_val_svm.predict(K_val)
+    val_proba = selected_val_svm.predict_proba(K_val)[:, 1]
+    val_metrics = _compute_binary_metrics(y_val, val_pred, val_proba)
     
     wandb.log({
         f"fold_{fold_idx}/best_C": best_C,
+        f"fold_{fold_idx}/optuna_objective": optuna_best_value,
+        f"fold_{fold_idx}/val_f1": val_metrics["f1"],
+        f"fold_{fold_idx}/val_acc": val_metrics["acc"],
+        f"fold_{fold_idx}/val_precision": val_metrics["precision"],
+        f"fold_{fold_idx}/val_recall": val_metrics["recall"],
+        f"fold_{fold_idx}/val_balanced_acc": val_metrics["balanced_acc"],
+        f"fold_{fold_idx}/val_auc": val_metrics["auc"],
+        f"fold_{fold_idx}/val_pr_auc": val_metrics["pr_auc"],
         f"fold_{fold_idx}/config/state_tile": args.state_tile,
         f"fold_{fold_idx}/config/vram_fraction": args.vram_fraction,
         f"fold_{fold_idx}/config/autotune": args.autotune,
@@ -255,24 +302,40 @@ def train_fold(
     
     y_pred = final_svm.predict(K_test)
     y_proba = final_svm.predict_proba(K_test)[:, 1]
-
-    f1 = f1_score(y_test, y_pred, average="binary")
-    acc = accuracy_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, y_proba)
+    test_metrics = _compute_binary_metrics(y_test, y_pred, y_proba)
     
     wandb.log({
-        f"fold_{fold_idx}/test_f1": f1,
-        f"fold_{fold_idx}/test_acc": acc,
-        f"fold_{fold_idx}/test_auc": auc,
-        f"fold_{fold_idx}/confusion_matrix": wandb.plot.confusion_matrix(
+        f"fold_{fold_idx}/test_f1": test_metrics["f1"],
+        f"fold_{fold_idx}/test_acc": test_metrics["acc"],
+        f"fold_{fold_idx}/test_precision": test_metrics["precision"],
+        f"fold_{fold_idx}/test_recall": test_metrics["recall"],
+        f"fold_{fold_idx}/test_balanced_acc": test_metrics["balanced_acc"],
+        f"fold_{fold_idx}/test_auc": test_metrics["auc"],
+        f"fold_{fold_idx}/test_pr_auc": test_metrics["pr_auc"],
+        f"fold_{fold_idx}/test_confusion_matrix": wandb.plot.confusion_matrix(
             probs=None,
             y_true=y_test, preds=y_pred,
             class_names=["Class 0", "Class 1"]
         )
     })
     
-    print(f"✅ Result Fold {fold_idx+1}: F1={f1:.4f} AUC={auc:.4f}")
-    return {"f1": f1, "auc": auc}
+    print(f"✅ Result Fold {fold_idx+1}: F1={test_metrics['f1']:.4f} AUC={test_metrics['auc']:.4f}")
+    return {
+        "val_f1": val_metrics["f1"],
+        "val_acc": val_metrics["acc"],
+        "val_precision": val_metrics["precision"],
+        "val_recall": val_metrics["recall"],
+        "val_balanced_acc": val_metrics["balanced_acc"],
+        "val_auc": val_metrics["auc"],
+        "val_pr_auc": val_metrics["pr_auc"],
+        "test_f1": test_metrics["f1"],
+        "test_acc": test_metrics["acc"],
+        "test_precision": test_metrics["precision"],
+        "test_recall": test_metrics["recall"],
+        "test_balanced_acc": test_metrics["balanced_acc"],
+        "test_auc": test_metrics["auc"],
+        "test_pr_auc": test_metrics["pr_auc"],
+    }
 
 
 def run_train(args):
@@ -334,11 +397,19 @@ def run_train(args):
         )
         results.append(res)
         
-    avg_f1 = np.mean([r["f1"] for r in results])
-    avg_auc = np.mean([r["auc"] for r in results])
+    summary = {}
+    for metric_name in results[0]:
+        values = np.asarray([r[metric_name] for r in results], dtype=np.float64)
+        summary[f"mean/{metric_name}"] = float(np.nanmean(values))
+        summary[f"std/{metric_name}"] = float(np.nanstd(values))
     
-    wandb.log({"avg/f1": avg_f1, "avg/auc": avg_auc})
-    print(f"\n🏆 Final Average: F1={avg_f1:.4f}, AUC={avg_auc:.4f}")
+    wandb.log(summary)
+    print(
+        f"\n🏆 Final Average: "
+        f"val_F1={summary['mean/val_f1']:.4f} "
+        f"test_F1={summary['mean/test_f1']:.4f} "
+        f"test_AUC={summary['mean/test_auc']:.4f}"
+    )
     wandb.finish()
 
 

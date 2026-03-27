@@ -4,7 +4,7 @@
 [![Hardware](https://img.shields.io/badge/Hardware-NVIDIA%20RTX%206000%20(96GB)%20%7C%20AMD%20EPYC%2074F3-red)](#-hardware-specs)
 [![W&B](https://img.shields.io/badge/Weights_&_Biases-logging-orange?logo=weightsandbiases)](#-logging--artifacts)
 
-SVM **quantum and classical training** for binary image classification with a focus on **parallel** and **heterogeneous** computation of **quantum kernel matrices**.  
+SVM **quantum and classical training** for binary image classification on CIFAR-10, Fashion-MNIST, and SVHN, with a focus on **parallel** and **heterogeneous** computation of **quantum kernel matrices**.  
 Project developed in the *Parallel Programming* course (University of Florence).
 
 > **Core Innovation:** We implemented a custom **High-Performance Backend** (`cuda_states`) using Raw CUDA Kernels via CuPy and Zero-Copy memory transfer (DLPack) to bypass standard library overheads.
@@ -27,14 +27,17 @@ Project developed in the *Parallel Programming* course (University of Florence).
 
 ## Overview
 
-We provide SVM binary classification of classical images dataset (CIFAR-10, Fashion-MNIST, SVHN) using Quantum Kernels computed on GPU:
+We provide binary SVM classification on classical image datasets (CIFAR-10, Fashion-MNIST, SVHN) using quantum kernels computed on GPU:
 
-- `scripts/train_svm_qkernel.py` — **Main script** for SVM Quantum kernels training (CV, Optuna, Cache).
-- `scripts/pipeline_backends.py` — **The Engine**: Unified API to compute $K$ with:
+- `train_svm_qkernel.py` — Main script for quantum-kernel SVM training (CV, Optuna, caching).
+- `train_svm_classical.py` — Classical SVM baseline for direct CPU comparisons.
+- `scripts/pipeline_backends.py` — Unified API to compute $K$ with:
   - **`cuda_states`**: *Flagship backend*. Custom C++ CUDA kernels compiled via NVRTC + CuPy. Supports massive tiling.
   - **`torch`**: Streaming GPU implementation using native PyTorch operations.
   - **`numpy`**: Fallback CPU implementation with multiprocessing.
 - `tools/benchmark_pl_kernel.py` — Tool to measure throughput (Mpairs/s) and VRAM usage.
+- `tools/profile_kernel.py` — Standalone profiler for kernel execution and memory usage.
+- `benchmark_production.py` — End-to-end benchmark suite that writes CSV, JSON, and plot artifacts.
 
 ---
 
@@ -42,18 +45,25 @@ We provide SVM binary classification of classical images dataset (CIFAR-10, Fash
 
 ```text
 train_svm_qkernel.py               # Main Entry Point
+train_svm_classical.py             # Classical baseline
+benchmark_production.py            # Full benchmark suite
+run_all_cpu.sh                     # CPU batch launcher
+run_all_gpu.sh                     # GPU batch launcher
 scripts/
  └─ pipeline_backends.py           # Unified kernel API (The "Engine")
 tools/
  ├─ benchmark_pl_kernel.py         # Throughput benchmark
+ └─ profile_kernel.py              # Kernel profiler
+tests/
  └─ check_nan.py                   # Numerical stability check
 configs/
- ├─ fashion_med.yaml                 
+ ├─ fashion_med.yaml
  ├─ fashion_easy.yaml
  └─ fashion_hard.yaml
 models/
  └─ svm_extension.py               # Custom SVM wrapper (Save/Load/Thresholds)
-kernel_cache/                      # Stores computed .npy matrices
+benchmark_results/                 # Default benchmark outputs
+kernel_cache/                      # Runtime kernel cache
 
 ```
 
@@ -66,7 +76,7 @@ This project implements a custom **GPU-accelerated pipeline** (`cuda_states`) de
 ### Key Features
 
 1. **Zero-Copy Memory Management:** Uses `DLPack` to transfer state vectors from PennyLane/PyTorch to CuPy/CUDA without CPU round-trips.
-2. **Custom CUDA Kernels:** Implements raw C++ CUDA kernels (`cgemm_abs2_tiled`) to fuse dot-product and magnitude-squared operations, minimizing VRAM bandwidth.
+2. **Custom CUDA Kernels:** Implements output-stationary raw CUDA kernels (`cgemm_abs2_os_full`) to fuse dot-product and magnitude-squared operations while keeping numerical accumulation in double precision.
 3. **Synchronization:** Explicit CUDA stream synchronization to prevent race conditions between PyTorch (State Generation) and CuPy (Kernel Calculation).
 4. **Float64 Support:** Full support for double precision to ensure numerical stability in SVM solvers.
 
@@ -92,7 +102,7 @@ Benchmarks and training were performed on a high-end HPC node:
 
 ```bash
 # Clone
-git clone [https://github.com/DylanUnifi/ProjectWorkParallelProgramming.git](https://github.com/DylanUnifi/ProjectWorkParallelProgramming.git)
+git clone https://github.com/DylanUnifi/ProjectWorkParallelProgramming.git
 cd ProjectWorkParallelProgramming
 
 # Install dependencies
@@ -119,15 +129,11 @@ docker run --rm -it --gpus all --shm-size=16g -v $(pwd):/app parallel-programmin
 
 The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 
-* **`--gram-backend`**:
-* `cuda_states`: Custom CUDA kernels. Requires CuPy.
-* `torch`: Uses PyTorch streams.
-* `numpy`: CPU only.
-
-
-* **`--tile-size`**: Number of rows computed at once.
-* **`--dtype`**: `float32` (speed) or `float64` (precision). **Float64 is recommended** for stability.
-* **`--cache-kernels`**: Saves computed matrices to disk to skip re-computation during hyperparameter tuning.
+- **`--gram-backend`**: `cuda_states`, `torch`, or `numpy`.
+- **`--state-tile`**: Number of quantum states processed per GPU batch for `cuda_states`.
+- **`--tile-size`**: Tile size used by the non-`cuda_states` backends.
+- **`--dtype`**: `float32` (speed) or `float64` (precision). `float64` is recommended for numerical stability.
+- **`--cache-kernels`**: Save computed matrices to disk to skip re-computation during hyperparameter tuning.
 
 ---
 
@@ -137,7 +143,7 @@ The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 
 ```bash
 python train_svm_qkernel.py \
-    --config configs/cifar10.yaml \
+    --config configs/cifar10_med.yaml \
     --gram-backend cuda_states \
     --pl-device lightning.gpu \
     --state-tile -1 \
@@ -164,7 +170,7 @@ python3 train_svm_qkernel.py \
   --config configs/fashion_easy.yaml \
   --gram-backend cuda_states \
   --dtype float64 \
-  --tile-size -1 \
+  --state-tile -1 \
   --cache-kernels \
   --pca-components 16 \
   --embed-mode ryrz \
@@ -180,14 +186,23 @@ If your system has multiple GPUs, you can train multiple configurations simultan
 
 ```bash
 # Terminal 1: GPU 0 -> Fashion-MNIST EASY
-CUDA_VISIBLE_DEVICES=0 python scripts/train_svm_qkernel.py --config configs/fashion_easy.yaml ...
+CUDA_VISIBLE_DEVICES=0 python train_svm_qkernel.py --config configs/fashion_easy.yaml ...
 
 # Terminal 2: GPU 1 -> Fashion-MNIST HARD
-CUDA_VISIBLE_DEVICES=1 python scripts/train_svm_qkernel.py --config configs/fashion_hard.yaml ...
+CUDA_VISIBLE_DEVICES=1 python train_svm_qkernel.py --config configs/fashion_hard.yaml ...
+```
+
+Batch helpers are also available:
+
+```bash
+bash run_all_gpu.sh   # quantum runs
+bash run_all_cpu.sh   # classical baseline runs
 
 ```
 
 ---
+
+## Benchmarking
 
 ### Example 1: Quick Backend Comparison
 
@@ -212,14 +227,14 @@ python benchmark_production.py \
     --verbose
 ```
 
-### Example 3: torch Backend Optimization
+### Example 3: Focused torch Comparison
 
-Find optimal torch settings:
+Compare `torch` directly against `cuda_states` and `numpy`:
 
 ```bash
 python benchmark_production.py \
-    --torch-ablation \
-    --torch-tiles \
+    --backend-comparison \
+    --backends torch cuda_states numpy \
     --n-samples 8000 \
     --verbose
 ```
@@ -258,31 +273,18 @@ python benchmark_production.py \
     --n-qubits 10 \
     --warmup-runs 2 \
     --benchmark-runs 5 \
-    --output-dir production_benchmark_results \
+    --output-dir benchmark_results \
     --verbose
 ```
 
 ## Output Files
 
-The benchmark generates comprehensive output in the specified output directory:
+The benchmark generates comprehensive output in the selected output directory. By default this is `benchmark_results/`.
 
-### CSV Files
+### Main Artifacts
 
-- `backend_comparison.csv` - Backend comparison results
-- `cuda_states_ablation.csv` - cuda_states ablation study results
-- `cuda_states_state_tile.csv` - State tile optimization results
-- `cuda_states_vram_fraction.csv` - VRAM fraction impact results
-- `cuda_states_streams.csv` - Stream pool impact results
-- `torch_ablation.csv` - torch ablation study results
-- `torch_tile_sizes.csv` - torch tile optimization results
-- `memory_profiling.csv` - Memory profiling results
-- `qubit_scaling.csv` - Qubit scaling results
-- `sample_scaling.csv` - Sample scaling results
-- `production_benchmark.csv` - Combined results from all tests
-- `production_benchmark_summary.json` - Summary statistics
-
-### Plots
-
+- `production_benchmark.csv` - Combined row-wise results from every executed benchmark test.
+- `production_benchmark_summary.json` - Aggregated summary statistics.
 - `production_benchmark.png` - Comprehensive visualization with 6 subplots:
   - Throughput vs Qubits
   - Time vs Qubits (Log Scale)
@@ -408,7 +410,8 @@ done
 ## 📦 Logging & artifacts
 
 * **Weights & Biases**: Tracks F1-score, AUC, Accuracy, and **Confusion Matrices**.
-* **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data & params).
+* **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data and parameters).
+* **Batch Logs**: `run_all_cpu.sh` writes `log_*_classical_*.txt` and `run_all_gpu.sh` writes `log_*_torch_*.txt`.
 
 ---
 

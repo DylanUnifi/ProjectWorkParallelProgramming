@@ -15,7 +15,7 @@ def validate_pipeline_backends():
     print("STATIC VALIDATION: pipeline_backends.py")
     print("="*60)
     
-    file_path = Path(__file__).parent / "scripts" / "pipeline_backends.py"
+    file_path = Path(__file__).resolve().parents[1] / "scripts" / "pipeline_backends.py"
     
     try:
         with open(file_path, 'r') as f:
@@ -153,7 +153,7 @@ def validate_documentation():
     print("DOCUMENTATION CHECK")
     print("="*60)
     
-    file_path = Path(__file__).parent / "scripts" / "pipeline_backends.py"
+    file_path = Path(__file__).resolve().parents[1] / "scripts" / "pipeline_backends.py"
     
     try:
         with open(file_path, 'r') as f:

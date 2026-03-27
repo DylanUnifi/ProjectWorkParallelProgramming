@@ -1416,8 +1416,15 @@ def compute_kernel_matrix(
                 print(f"📊 Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
         
         # OPTIMIZATION 3: Kernel autotuning with qubit-aware fallback
+        # Reuse cached autotune results first when available.
+        cache_key = f"nq{nq}_{'double' if is_double else 'float'}"
+        cached_tiles = _AUTOTUNE_CACHE.get(cache_key) if autotune and tile_m == "auto" else None
+        if cached_tiles is not None:
+            tm, tn, tk = cached_tiles
+            if progress:
+                print(f"🗂️ Loaded cached kernel tiles: M={tm}, N={tn}, K={tk}")
         # FIX: Add fallback tile sizes for high qubit counts to avoid shared memory errors
-        if nq >= 14:
+        elif nq >= 14:
             # Safe tiles for very high qubit counts
             tm, tn, tk = (16, 16, 16)
             if progress:

@@ -3,8 +3,9 @@
 Benchmark PRODUCTION - Comprehensive Performance Analysis
 =========================================================
 
-This script provides comprehensive benchmarking of ALL optimizations available
-in both the cuda_states and torch backends.
+This script provides comprehensive benchmarking of the production benchmark
+suite, with a focus on the currently exposed cuda_states analyses and backend
+comparison paths.
 
 Comprehensive benchmark sections:
 1. Backend Comparison (Baseline) - Compare all backends with default optimizations
@@ -12,11 +13,9 @@ Comprehensive benchmark sections:
 3. cuda_states State Tile Optimization - Find optimal state_tile for different workloads
 4. cuda_states VRAM Fraction Impact - Test impact of vram_fraction on performance  
 5. cuda_states Stream Pool Impact - Test num_streams impact on throughput
-6. torch Optimization Ablation - Test each torch optimization individually
-7. torch Tile Size Optimization - Find optimal tile_size for torch backend
-8. Memory Profiling - Run benchmarks with detailed memory profiling
-9. Qubit Scaling Analysis - Measure exponential scaling with qubit count
-10. Sample Scaling Analysis - Verify O(N²) scaling with sample count
+6. Memory Profiling - Run benchmarks with detailed memory profiling
+7. Qubit Scaling Analysis - Measure exponential scaling with qubit count
+8. Sample Scaling Analysis - Verify O(N²) scaling with sample count
 
 CLI Arguments:
 - --all: Run all benchmarks
@@ -25,8 +24,6 @@ CLI Arguments:
 - --cuda-states-state-tile: Test state_tile values
 - --cuda-states-vram: Test VRAM fraction impact
 - --cuda-states-streams: Test stream pool sizes
-- --torch-ablation: Test torch optimizations
-- --torch-tiles: Test torch tile sizes
 - --memory-profiling: Run with memory profiling
 - --qubit-scaling: Test scaling with qubit count
 - --sample-scaling: Test scaling with sample count
@@ -36,7 +33,7 @@ Configuration:
 - --n-qubits: Number of qubits (default: 16)
 - --output-dir: Output directory (default: benchmark_results)
 - --warmup-runs: Number of warmup runs (default: 1)
-- --benchmark-runs: Number of benchmark runs (default: 3)
+- --benchmark-runs: Number of benchmark runs (default: 1)
 - --verbose: Print detailed information
 
 Author: Dylan Fouepe

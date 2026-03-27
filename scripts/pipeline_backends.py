@@ -794,114 +794,69 @@ def _pl_states_for_rows(rows, mat):
 # CUDA Kernels
 # =====================================================================
 CUDA_TEMPLATE = r"""
-#ifndef TILE_M
-#define TILE_M 32
-#endif
-#ifndef TILE_N
-#define TILE_N 32
-#endif
-#ifndef TILE_K
-#define TILE_K 32
-#endif
-
 extern "C" __global__
-void cgemm_abs2_tiled_full(const T_COMPLEX* __restrict__ SA,
-                           const T_COMPLEX* __restrict__ SB,
-                           T_REAL* __restrict__ K,
-                           const int BM, const int BN, const int D,
-                           const int lda, const int ldb, const int ldk)
+void cgemm_abs2_os_full(const double2* __restrict__ A,
+                        const double2* __restrict__ B,
+                        double* __restrict__ C,
+                        const int M, const int N, const int K_dim,
+                        const int lda, const int ldb, const int ldc)
 {
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
     const int i = blockIdx.y * blockDim.y + threadIdx.y;
     
-    // Safety check moved slightly later to allow shared mem init if needed, 
-    // but typically we return early to save ops.
-    if (i >= BM || j >= BN) return;
+    if (i >= M || j >= N) return;
 
-    __shared__ T_COMPLEX sA[TILE_M][TILE_K];
-    __shared__ T_COMPLEX sB[TILE_N][TILE_K];
-    
-    T_COMPLEX acc = MAKE_COMPLEX(0.0, 0.0);
+    double sum_real = 0.0;
+    double sum_imag = 0.0;
 
-    for (int k0 = 0; k0 < D; k0 += TILE_K) {
-        // Load sA
-        if (i < BM) {
-            for (int tk = threadIdx.x; tk < TILE_K; tk += blockDim.x) {
-                int k = k0 + tk;
-                sA[threadIdx.y][tk] = (k < D) ? SA[i * lda + k] : MAKE_COMPLEX(0.0, 0.0);
-            }
-        }
+    for (int k = 0; k < K_dim; ++k) {
+        double2 a_val = A[i * lda + k];
+        double2 b_val = B[j * ldb + k];
         
-        // Load sB
-        if (j < BN) {
-            for (int tk = threadIdx.y; tk < TILE_K; tk += blockDim.y) {
-                int k = k0 + tk;
-                T_COMPLEX v = (k < D) ? SB[j * ldb + k] : MAKE_COMPLEX(0.0, 0.0);
-                sB[threadIdx.x][tk] = MAKE_COMPLEX(v.x, -v.y); 
-            }
-        }
-        __syncthreads();
+        double a_r = a_val.x;
+        double a_i = a_val.y;
+        double b_r = b_val.x;
+        double b_i = b_val.y;
 
-        // COMPUTE: Removed #pragma unroll to prevent ptxas register spill on large tiles
-        for (int tk = 0; tk < TILE_K; ++tk) {
-            T_COMPLEX a = sA[threadIdx.y][tk];
-            T_COMPLEX b = sB[threadIdx.x][tk];
-            T_REAL rx = a.x * b.x - a.y * b.y;
-            T_REAL ry = a.x * b.y + a.y * b.x;
-            acc.x += rx; acc.y += ry;
-        }
-        __syncthreads();
+        sum_real += (a_r * b_r + a_i * b_i);
+        sum_imag += (a_i * b_r - a_r * b_i);
     }
-    K[i * ldk + j] = acc.x * acc.x + acc.y * acc.y;
+
+    C[i * ldc + j] = (sum_real * sum_real) + (sum_imag * sum_imag);
 }
 
 extern "C" __global__
-void cgemm_abs2_tiled_lower(const T_COMPLEX* __restrict__ SA,
-                            const T_COMPLEX* __restrict__ SB,
-                            T_REAL* __restrict__ K,
-                            const int BM, const int BN, const int D,
-                            const int lda, const int ldb, const int ldk)
+void cgemm_abs2_os_lower(const double2* __restrict__ A,
+                         const double2* __restrict__ B,
+                         double* __restrict__ C,
+                         const int M, const int N, const int K_dim,
+                         const int lda, const int ldb, const int ldc)
 {
-    // Block-level optimization for symmetric matrix
     if (blockIdx.x > blockIdx.y) return;
 
     const int j = blockIdx.x * blockDim.x + threadIdx.x;
     const int i = blockIdx.y * blockDim.y + threadIdx.y;
     
-    if (i >= BM || j >= BN) return;
-    if (BM == BN && j > i) return;
+    if (i >= M || j >= N) return;
+    if (M == N && j > i) return;
 
-    __shared__ T_COMPLEX sA[TILE_M][TILE_K];
-    __shared__ T_COMPLEX sB[TILE_N][TILE_K];
-    T_COMPLEX acc = MAKE_COMPLEX(0.0, 0.0);
+    double sum_real = 0.0;
+    double sum_imag = 0.0;
 
-    for (int k0 = 0; k0 < D; k0 += TILE_K) {
-        if (i < BM) {
-            for (int tk = threadIdx.x; tk < TILE_K; tk += blockDim.x) {
-                int k = k0 + tk;
-                sA[threadIdx.y][tk] = (k < D) ? SA[i * lda + k] : MAKE_COMPLEX(0.0, 0.0);
-            }
-        }
-        if (j < BN) {
-            for (int tk = threadIdx.y; tk < TILE_K; tk += blockDim.y) {
-                int k = k0 + tk;
-                T_COMPLEX v = (k < D) ? SB[j * ldb + k] : MAKE_COMPLEX(0.0, 0.0);
-                sB[threadIdx.x][tk] = MAKE_COMPLEX(v.x, -v.y);
-            }
-        }
-        __syncthreads();
+    for (int k = 0; k < K_dim; ++k) {
+        double2 a_val = A[i * lda + k];
+        double2 b_val = B[j * ldb + k];
+        
+        double a_r = a_val.x;
+        double a_i = a_val.y;
+        double b_r = b_val.x;
+        double b_i = b_val.y;
 
-        // COMPUTE: Removed #pragma unroll here too
-        for (int tk = 0; tk < TILE_K; ++tk) {
-            T_COMPLEX a = sA[threadIdx.y][tk];
-            T_COMPLEX b = sB[threadIdx.x][tk];
-            T_REAL rx = a.x * b.x - a.y * b.y;
-            T_REAL ry = a.x * b.y + a.y * b.x;
-            acc.x += rx; acc.y += ry;
-        }
-        __syncthreads();
+        sum_real += (a_r * b_r + a_i * b_i);
+        sum_imag += (a_i * b_r - a_r * b_i);
     }
-    K[i * ldk + j] = acc.x * acc.x + acc.y * acc.y;
+
+    C[i * ldc + j] = (sum_real * sum_real) + (sum_imag * sum_imag);
 }
 """
 
@@ -915,9 +870,7 @@ def _get_kernel(tm, tn, tk, name, double):
     key = (tm, tn, tk, name, double)
     if key in _RAWMOD_CACHE: return _RAWMOD_CACHE[key]
     
-    t_m = ("-DT_REAL=double", "-DT_COMPLEX=double2", "-DMAKE_COMPLEX=make_double2") if double else \
-          ("-DT_REAL=float", "-DT_COMPLEX=float2", "-DMAKE_COMPLEX=make_float2")
-    opts = ("--std=c++14", "--use_fast_math") + t_m + (f"-DTILE_M={tm}", f"-DTILE_N={tn}", f"-DTILE_K={tk}")
+    opts = ("--std=c++14", "--use_fast_math")
     
     mod = cp.RawModule(code=CUDA_TEMPLATE, options=opts, name_expressions=(name,))
     fn = mod.get_function(name)
@@ -1612,25 +1565,18 @@ def compute_kernel_matrix(
                     bi, bj = int(i1-i0), int(j1-j0)
                     
                     use_lower = (symmetric and (Y is None) and j0==i0)
-                    kernel_name = "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full"
+                    kernel_name = "cgemm_abs2_os_lower" if use_lower else "cgemm_abs2_os_full"
                     
-                    # FIX: Wrap kernel compilation in try-except for shared memory errors
                     try:
                         k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
                     except Exception as e:
-                        if "shared memory" in str(e).lower() or "ptxas" in str(e).lower():
-                            # Fallback to smaller tiles
-                            if progress:
-                                print(f"⚠️ Kernel compilation failed, falling back to 16x16x16 tiles")
-                            tm, tn, tk = (16, 16, 16)
-                            k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
-                        else:
-                            raise
+                        raise
                     
-                    grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
+                    import math
+                    grid = (math.ceil(bj / tn), math.ceil(bi / tm), 1)
                     block = (tn, tm, 1)
                     
-                    out_tile = cp.empty((bi, bj), dtype=K_cp.dtype)
+                    out_tile = cp.empty((bi, bj), dtype=cp.float64)
                     
                     # Select stream
                     if stream_pool:
@@ -1650,13 +1596,15 @@ def compute_kernel_matrix(
                     else:
                         # Execute kernel normally
                         with current_stream:
-                            k_fn(grid, block, (cp.ascontiguousarray(s_a_tile), cp.ascontiguousarray(s_b_tile), out_tile, bi, bj, dim, dim, dim, bj))
+                            s_a_contig = cp.ascontiguousarray(s_a_tile, dtype=cp.complex128)
+                            s_b_contig = cp.ascontiguousarray(s_b_tile, dtype=cp.complex128)
+                            k_fn(grid, block, (s_a_contig, s_b_contig, out_tile, bi, bj, dim, dim, dim, bj))
                         
                         # Capture graph for future reuse
                         if graph_manager and tile_count > 0:  # Skip first tile to avoid capture issues
                             try:
                                 graph_manager.capture_graph(graph_key, current_stream, k_fn, grid, block,
-                                                           (s_a_tile, s_b_tile, out_tile, bi, bj, dim, dim, dim, bj))
+                                                           (s_a_contig, s_b_contig, out_tile, bi, bj, dim, dim, dim, bj))
                             except Exception:
                                 pass  # Graph capture failed, continue without it
                     
@@ -1763,25 +1711,18 @@ def compute_kernel_matrix(
                     bi, bj = int(i1-i0), int(j1-j0)
                     
                     use_lower = (symmetric and (Y is None) and j0==i0)
-                    kernel_name = "cgemm_abs2_tiled_lower" if use_lower else "cgemm_abs2_tiled_full"
+                    kernel_name = "cgemm_abs2_os_lower" if use_lower else "cgemm_abs2_os_full"
                     
-                    # FIX: Wrap kernel compilation in try-except for shared memory errors
                     try:
                         k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
                     except Exception as e:
-                        if "shared memory" in str(e).lower() or "ptxas" in str(e).lower():
-                            # Fallback to smaller tiles
-                            if progress:
-                                print(f"⚠️ Kernel compilation failed, falling back to 16x16x16 tiles")
-                            tm, tn, tk = (16, 16, 16)
-                            k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
-                        else:
-                            raise
+                        raise
                     
-                    grid = ((bj + tn - 1) // tn, (bi + tm - 1) // tm, 1)
+                    import math
+                    grid = (math.ceil(bj / tn), math.ceil(bi / tm), 1)
                     block = (tn, tm, 1)
                     
-                    out_tile = cp.empty((bi, bj), dtype=K_cp.dtype)
+                    out_tile = cp.empty((bi, bj), dtype=cp.float64)
                     
                     # Select stream
                     if stream_pool:
@@ -1793,7 +1734,9 @@ def compute_kernel_matrix(
                     
                     # Dispatch (graphs less useful in tiled approach due to varying sizes)
                     with current_stream:
-                        k_fn(grid, block, (cp.ascontiguousarray(s_a_cp), cp.ascontiguousarray(s_b_tile), out_tile, bi, bj, dim, dim, dim, bj))
+                        s_a_contig = cp.ascontiguousarray(s_a_cp, dtype=cp.complex128)
+                        s_b_contig = cp.ascontiguousarray(s_b_tile, dtype=cp.complex128)
+                        k_fn(grid, block, (s_a_contig, s_b_contig, out_tile, bi, bj, dim, dim, dim, bj))
                     
                     kernel_time = time.time() - kernel_start
                     

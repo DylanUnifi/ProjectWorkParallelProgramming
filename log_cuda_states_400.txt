@@ -1,0 +1,327 @@
+📂 Loading fashion_mnist...
+⚠️ Subset Train: 400
+🚀 Starting 3-Fold CV on None via cuda_states
+⚙️  Params: tile=-1, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (266x266)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_c59f0d7c97cb8586321dd719275a58a3.npy
+🔹 Fold 1: Kernel Val (134x266)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_e5372e119b7236feb498b071673cdf6c.npy
+🔍 Optimizing C (Optuna) - SKIPPED FOR MANUAL OVERRIDE
+
+⚠️ OVERRIDE : Utilisation manuelle de C=0.45 (Zone optimale identifiée)
+🔹 Fold 1: Kernel TrainVal (400x400)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_38f8412441fa6dc31dccddfde11da8fc.npy
+🔹 Fold 1: Kernel Test (2000x400)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_b37eb55e87b7c5584e7c0b0bd5afa19e.npy
+🚀 Retraining final SVM with best C: 0.45...
+✅ Result Fold 1: F1=0.0000 AUC=0.5000
+
+🔹 Fold 2: Kernel Train (267x267)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_91dfa916c2f228e3abc567c2e7e12635.npy
+🔹 Fold 2: Kernel Val (133x267)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_0220ab4b888aa7420efe433b50ccfc8a.npy
+🔍 Optimizing C (Optuna) - SKIPPED FOR MANUAL OVERRIDE
+
+⚠️ OVERRIDE : Utilisation manuelle de C=0.45 (Zone optimale identifiée)
+🔹 Fold 2: Kernel TrainVal (400x400)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_218dfcc389f8650193d66ba02a0bdf65.npy
+🔹 Fold 2: Kernel Test (2000x400)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_c2f1836e5a9fef44e5de34599e626ec8.npy
+🚀 Retraining final SVM with best C: 0.45...
+✅ Result Fold 2: F1=0.0000 AUC=0.5009
+
+🔹 Fold 3: Kernel Train (267x267)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_8a95eb3fabee84b18cc716712f25d3d3.npy
+🔹 Fold 3: Kernel Val (133x267)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_799ad009527e56e8e546ff9fc54d6c1a.npy
+🔍 Optimizing C (Optuna) - SKIPPED FOR MANUAL OVERRIDE
+
+⚠️ OVERRIDE : Utilisation manuelle de C=0.45 (Zone optimale identifiée)
+🔹 Fold 3: Kernel TrainVal (400x400)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_276b50e9d30d188658dea67a63fff7de.npy
+🔹 Fold 3: Kernel Test (2000x400)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_3b5da98e9d8aff9a198352e10ae84655.npy
+🚀 Retraining final SVM with best C: 0.45...
+✅ Result Fold 3: F1=0.0000 AUC=0.5000
+
+🏆 Final Average: F1=0.0000, AUC=0.5003
+📂 Loading fashion_mnist...
+⚠️ Subset Train: 400
+🚀 Starting 3-Fold CV on None via cuda_states
+⚙️  Params: tile=-1, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (266x266)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_c59f0d7c97cb8586321dd719275a58a3.npy
+🔹 Fold 1: Kernel Val (134x266)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_e5372e119b7236feb498b071673cdf6c.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.7404655143605371
+🔹 Fold 1: Kernel TrainVal (400x400)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_38f8412441fa6dc31dccddfde11da8fc.npy
+🔹 Fold 1: Kernel Test (2000x400)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_b37eb55e87b7c5584e7c0b0bd5afa19e.npy
+🚀 Retraining final SVM with best C: 0.7404655143605371...
+✅ Result Fold 1: F1=0.0000 AUC=0.5000
+
+🔹 Fold 2: Kernel Train (267x267)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_91dfa916c2f228e3abc567c2e7e12635.npy
+🔹 Fold 2: Kernel Val (133x267)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_0220ab4b888aa7420efe433b50ccfc8a.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 2.8186467747543174
+🔹 Fold 2: Kernel TrainVal (400x400)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_218dfcc389f8650193d66ba02a0bdf65.npy
+🔹 Fold 2: Kernel Test (2000x400)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_c2f1836e5a9fef44e5de34599e626ec8.npy
+🚀 Retraining final SVM with best C: 2.8186467747543174...
+✅ Result Fold 2: F1=0.6667 AUC=0.5009
+
+🔹 Fold 3: Kernel Train (267x267)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_8a95eb3fabee84b18cc716712f25d3d3.npy
+🔹 Fold 3: Kernel Val (133x267)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_799ad009527e56e8e546ff9fc54d6c1a.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 4.678879347643247
+🔹 Fold 3: Kernel TrainVal (400x400)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_276b50e9d30d188658dea67a63fff7de.npy
+🔹 Fold 3: Kernel Test (2000x400)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_3b5da98e9d8aff9a198352e10ae84655.npy
+🚀 Retraining final SVM with best C: 4.678879347643247...
+✅ Result Fold 3: F1=0.6667 AUC=0.5000
+
+🏆 Final Average: F1=0.4444, AUC=0.5003
+📂 Loading fashion_mnist...
+⚠️ Subset Train: 400
+🚀 Starting 3-Fold CV on None via cuda_states
+⚙️  Params: tile=-1, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (266x266)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.3GB
+⚡ Bulk precomputing 266 + 266 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_c59f0d7c97cb8586321dd719275a58a3.npy
+🔹 Fold 1: Kernel Val (134x266)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.1GB, kernel=0.0GB, total=0.1GB
+⚡ Bulk precomputing 134 + 266 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_e5372e119b7236feb498b071673cdf6c.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.13197750203259861
+🔹 Fold 1: Kernel TrainVal (400x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.4GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 400 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_38f8412441fa6dc31dccddfde11da8fc.npy
+🔹 Fold 1: Kernel Test (2000x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_b37eb55e87b7c5584e7c0b0bd5afa19e.npy
+🚀 Retraining final SVM with best C: 0.13197750203259861...
+✅ Result Fold 1: F1=0.0000 AUC=0.5000
+
+🔹 Fold 2: Kernel Train (267x267)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.3GB
+⚡ Bulk precomputing 267 + 267 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_91dfa916c2f228e3abc567c2e7e12635.npy
+🔹 Fold 2: Kernel Val (133x267)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.1GB, kernel=0.0GB, total=0.1GB
+⚡ Bulk precomputing 133 + 267 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_0220ab4b888aa7420efe433b50ccfc8a.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 6.954685460491269
+🔹 Fold 2: Kernel TrainVal (400x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.4GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 400 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_218dfcc389f8650193d66ba02a0bdf65.npy
+🔹 Fold 2: Kernel Test (2000x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_c2f1836e5a9fef44e5de34599e626ec8.npy
+🚀 Retraining final SVM with best C: 6.954685460491269...
+✅ Result Fold 2: F1=0.6667 AUC=0.4965
+
+🔹 Fold 3: Kernel Train (267x267)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.3GB
+⚡ Bulk precomputing 267 + 267 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_8a95eb3fabee84b18cc716712f25d3d3.npy
+🔹 Fold 3: Kernel Val (133x267)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.1GB, kernel=0.0GB, total=0.1GB
+⚡ Bulk precomputing 133 + 267 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_799ad009527e56e8e546ff9fc54d6c1a.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 2.0081041836535896
+🔹 Fold 3: Kernel TrainVal (400x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.4GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 400 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_276b50e9d30d188658dea67a63fff7de.npy
+🔹 Fold 3: Kernel Test (2000x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_3b5da98e9d8aff9a198352e10ae84655.npy
+🚀 Retraining final SVM with best C: 2.0081041836535896...
+✅ Result Fold 3: F1=0.6667 AUC=0.4937
+
+🏆 Final Average: F1=0.4444, AUC=0.4967
+ 📂 Loading fashion_mnist...
+⚠️ Subset Train: 400
+🚀 Starting 3-Fold CV on None via cuda_states
+⚙️  Params: tile=-1, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (266x266)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.3GB
+⚡ Bulk precomputing 266 + 266 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_73ed4e7ac700e91e65ab1dffd9c8e688.npy
+🔹 Fold 1: Kernel Val (134x266)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.1GB, kernel=0.0GB, total=0.1GB
+⚡ Bulk precomputing 134 + 266 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_1e9ec44f531d90564c9ca0619d9c2427.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.10213209827677601
+🔹 Fold 1: Kernel TrainVal (400x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.4GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 400 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_24496bdfee928e60eac6afc5ff6409d4.npy
+🔹 Fold 1: Kernel Test (2000x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_fbc574de7442c5d995ee7251566318de.npy
+🚀 Retraining final SVM with best C: 0.10213209827677601...
+✅ Result Fold 1: F1=0.0000 AUC=0.5000
+
+🔹 Fold 2: Kernel Train (267x267)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.3GB
+⚡ Bulk precomputing 267 + 267 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_6af2f5e9de33ab1ab40a8a64b1796ea9.npy
+🔹 Fold 2: Kernel Val (133x267)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.1GB, kernel=0.0GB, total=0.1GB
+⚡ Bulk precomputing 133 + 267 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_08398909d0445817079114e3eb93b536.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.8392497404340622
+🔹 Fold 2: Kernel TrainVal (400x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.4GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 400 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_f6ee4da7b2136a9794a38aa13826b7d3.npy
+🔹 Fold 2: Kernel Test (2000x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_320bc565ad8e6ec3490be4ced1c747bb.npy
+🚀 Retraining final SVM with best C: 0.8392497404340622...
+✅ Result Fold 2: F1=0.0000 AUC=0.4961
+
+🔹 Fold 3: Kernel Train (267x267)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.3GB
+⚡ Bulk precomputing 267 + 267 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_33f1778a65516903b30b2356ff8a078d.npy
+🔹 Fold 3: Kernel Val (133x267)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.1GB, kernel=0.0GB, total=0.1GB
+⚡ Bulk precomputing 133 + 267 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_2b184694c39ee43ec0ac245a80581648.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 4.869698477005992
+🔹 Fold 3: Kernel TrainVal (400x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.4GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 400 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_b32b3c3be546b518965ce5cf8d1abffd.npy
+🔹 Fold 3: Kernel Test (2000x400)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 400 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_b228b2532e7ba8c6a6a1b996bedf62c3.npy
+🚀 Retraining final SVM with best C: 4.869698477005992...
+✅ Result Fold 3: F1=0.6667 AUC=0.5000
+
+🏆 Final Average: F1=0.2222, AUC=0.4987

@@ -11,3 +11,4 @@ optuna
 pandas
 torchvision
 seaborn
+gpustat

@@ -1,0 +1,45 @@
+ 📂 Loading fashion_mnist...
+⚠️ Subset Train: 400
+🚀 Starting 3-Fold CV on None via torch
+⚙️  Params: tile=None, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (266x266)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_65cda0c27a515414963671c05a8df57b.npy
+🔹 Fold 1: Kernel Val (134x266)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_1e1b0c7c869154a392cfe94570a2d09e.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 9.896815106707471
+🔹 Fold 1: Kernel TrainVal (400x400)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_bd8d1821ee8c801aae01d8a6b6e9ad8e.npy
+🔹 Fold 1: Kernel Test (2000x400)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_44ed2ef391e8da7e86764a7cf691577e.npy
+🚀 Retraining final SVM with best C: 9.896815106707471...
+✅ Result Fold 1: F1=0.9698 AUC=0.9961
+
+🔹 Fold 2: Kernel Train (267x267)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_e452791f0e761ea06dddafa4a6daf36c.npy
+🔹 Fold 2: Kernel Val (133x267)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_eff8831953eb27061f0e389c8306842e.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 4.661729463286883
+🔹 Fold 2: Kernel TrainVal (400x400)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_d7f98c240efb85c853e1875b5e0d7534.npy
+🔹 Fold 2: Kernel Test (2000x400)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_186b02c5f796d11cc8845de5517ca126.npy
+🚀 Retraining final SVM with best C: 4.661729463286883...
+✅ Result Fold 2: F1=0.9544 AUC=0.9951
+
+🔹 Fold 3: Kernel Train (267x267)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_520aec5599df9a6d4dddba86b5fac119.npy
+🔹 Fold 3: Kernel Val (133x267)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_ddd939caeaf8619d643f0ceada3631c5.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 9.166367353071914
+🔹 Fold 3: Kernel TrainVal (400x400)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_5d7c379ed7ae3f40bf71837c7d8629db.npy
+🔹 Fold 3: Kernel Test (2000x400)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_9d4bb37707c3288841252fb8a09e7949.npy
+🚀 Retraining final SVM with best C: 9.166367353071914...
+✅ Result Fold 3: F1=0.9642 AUC=0.9958
+
+🏆 Final Average: F1=0.9628, AUC=0.9957

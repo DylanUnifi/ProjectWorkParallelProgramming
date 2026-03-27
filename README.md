@@ -135,8 +135,6 @@ The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 
 ### Optimal Configuration (Benchmark-Validated)
 
-Based on extensive benchmarks on RTX 6000 Ada (102GB):
-
 ```bash
 python train_svm_qkernel.py \
     --config configs/cifar10.yaml \
@@ -162,7 +160,7 @@ python train_svm_qkernel.py \
 To unleash the full performance on high-end GPUs, use `cuda_states` with huge tiles.
 
 ```bash
-python train_svm_qkernel.py \
+python3 train_svm_qkernel.py \
   --config configs/fashion_easy.yaml \
   --gram-backend cuda_states \
   --dtype float64 \

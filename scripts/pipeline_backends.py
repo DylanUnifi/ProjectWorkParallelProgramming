@@ -1168,7 +1168,7 @@ def _build_all_states_torch_cuda(x_all, w_np, dev_name, ascale, re_emb, mode, us
     except:
         states = th.stack([_state(x[i]) for i in range(x.shape[0])])
     
-    states = states.to(device="cuda", dtype=t_cplx, non_blocking=False)
+    states = states.to(device="cuda", dtype=t_cplx, non_blocking=False).contiguous()
     th.cuda.synchronize()
     
     # Convert to CuPy with zero-copy DLPack
@@ -1650,7 +1650,7 @@ def compute_kernel_matrix(
                     else:
                         # Execute kernel normally
                         with current_stream:
-                            k_fn(grid, block, (s_a_tile, s_b_tile, out_tile, bi, bj, dim, dim, dim, bj))
+                            k_fn(grid, block, (cp.ascontiguousarray(s_a_tile), cp.ascontiguousarray(s_b_tile), out_tile, bi, bj, dim, dim, dim, bj))
                         
                         # Capture graph for future reuse
                         if graph_manager and tile_count > 0:  # Skip first tile to avoid capture issues
@@ -1793,7 +1793,7 @@ def compute_kernel_matrix(
                     
                     # Dispatch (graphs less useful in tiled approach due to varying sizes)
                     with current_stream:
-                        k_fn(grid, block, (s_a_cp, s_b_tile, out_tile, bi, bj, dim, dim, dim, bj))
+                        k_fn(grid, block, (cp.ascontiguousarray(s_a_cp), cp.ascontiguousarray(s_b_tile), out_tile, bi, bj, dim, dim, dim, bj))
                     
                     kernel_time = time.time() - kernel_start
                     

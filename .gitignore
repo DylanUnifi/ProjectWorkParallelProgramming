@@ -59,3 +59,5 @@ benchmark_results/
 # Local libraries
 local_libs/
 tmp/
+
+kernel_cache/

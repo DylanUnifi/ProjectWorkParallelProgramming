@@ -776,21 +776,21 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
             ax5.text(width + 0.02, bar.get_y() + bar.get_height()/2,
                     f'{width:.2f}×', ha='left', va='center', fontweight='bold', fontsize=9)
     
-    elif not df_tile.empty and 'state_tile' in df_tile.columns:
+    #elif not df_tile.empty and 'state_tile' in df_tile.columns:
         # Fallback to tile optimization if no ablation data
-        ax5.bar(df_tile['state_tile'].astype(str), df_tile['throughput_mpairs_s'],
-               color='steelblue', alpha=0.8, edgecolor='black')
-        
-        ax5.set_title("Tile Size Optimization", fontsize=14, fontweight='bold')
-        ax5.set_ylabel("Throughput (Mpairs/s)", fontsize=12)
-        ax5.set_xlabel("State Tile Size", fontsize=12)
-        ax5.grid(axis='y', alpha=0.3)
+    #    ax5.bar(df_tile['state_tile'].astype(str), df_tile['throughput_mpairs_s'],
+    #           color='steelblue', alpha=0.8, edgecolor='black')
+    #    
+    #    ax5.set_title("Tile Size Optimization", fontsize=14, fontweight='bold')
+    #    ax5.set_ylabel("Throughput (Mpairs/s)", fontsize=12)
+    #    ax5.set_xlabel("State Tile Size", fontsize=12)
+    #    ax5.grid(axis='y', alpha=0.3)
         
         # Annotate bars
-        for i, (idx, row) in enumerate(df_tile.iterrows()):
-            height = row['throughput_mpairs_s']
-            ax5.text(i, height, f'{height:.1f}',
-                    ha='center', va='bottom', fontweight='bold', fontsize=10)
+    #    for i, (idx, row) in enumerate(df_tile.iterrows()):
+    #        height = row['throughput_mpairs_s']
+    #        ax5.text(i, height, f'{height:.1f}',
+    #                ha='center', va='bottom', fontweight='bold', fontsize=10)
     else:
         ax5.text(0.5, 0.5, "No ablation/tile data available",
                 ha='center', va='center', transform=ax5.transAxes, fontsize=12)
@@ -897,8 +897,8 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
     df_qubit = pd.DataFrame()
     df_sample = pd.DataFrame()
     df_tile = pd.DataFrame()
-    df_torch_opt = pd.DataFrame()
-    df_torch_tile = pd.DataFrame()
+    #df_torch_opt = pd.DataFrame()
+    #df_torch_tile = pd.DataFrame()
     df_comparison = pd.DataFrame()
     
     # Run tests based on selection
@@ -930,13 +930,13 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
         df_profiling = benchmark_with_profiling()
         all_results.append(df_profiling)
     
-    if tests is None or 'torch' in tests:
-        df_torch_opt = benchmark_torch_optimizations()
-        all_results.append(df_torch_opt)
+   # if tests is None or 'torch' in tests:
+   #     df_torch_opt = benchmark_torch_optimizations()
+   #    all_results.append(df_torch_opt)
     
-    if tests is None or 'torch_tiles' in tests:
-        df_torch_tile = benchmark_torch_tile_sizes()
-        all_results.append(df_torch_tile)
+   # if tests is None or 'torch_tiles' in tests:
+   #     df_torch_tile = benchmark_torch_tile_sizes()
+   #     all_results.append(df_torch_tile)
     
     if tests is None or 'compare' in tests:
         df_comparison = benchmark_backend_comparison()
@@ -982,8 +982,8 @@ if __name__ == "__main__":
     parser.add_argument("--cuda-states-state-tile", action="store_true", help="Run cuda_states state tile optimization")
     parser.add_argument("--cuda-states-vram", action="store_true", help="Run cuda_states VRAM fraction test")
     parser.add_argument("--cuda-states-streams", action="store_true", help="Run cuda_states stream pool test")
-    parser.add_argument("--torch-ablation", action="store_true", help="Run torch optimization ablation")
-    parser.add_argument("--torch-tiles", action="store_true", help="Run torch tile size optimization")
+    #parser.add_argument("--torch-ablation", action="store_true", help="Run torch optimization ablation")
+    #parser.add_argument("--torch-tiles", action="store_true", help="Run torch tile size optimization")
     parser.add_argument("--memory-profiling", action="store_true", help="Run memory profiling benchmark")
     parser.add_argument("--qubit-scaling", action="store_true", help="Run qubit scaling analysis")
     parser.add_argument("--sample-scaling", action="store_true", help="Run sample scaling analysis")
@@ -1019,10 +1019,10 @@ if __name__ == "__main__":
             tests_to_run.append('vram')
         if args.cuda_states_streams:
             tests_to_run.append('streams')
-        if args.torch_ablation:
-            tests_to_run.append('torch')
-        if args.torch_tiles:
-            tests_to_run.append('torch_tiles')
+       # if args.torch_ablation:
+       #     tests_to_run.append('torch')
+       # if args.torch_tiles:
+       #     tests_to_run.append('torch_tiles')
         if args.memory_profiling:
             tests_to_run.append('profile')
         if args.qubit_scaling:

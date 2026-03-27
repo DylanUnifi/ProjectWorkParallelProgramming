@@ -20,7 +20,7 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from sklearn.model_selection import KFold
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, KernelCenterer
 from sklearn.metrics import (
     f1_score, accuracy_score, precision_score, recall_score,
     balanced_accuracy_score, roc_auc_score, precision_recall_curve, confusion_matrix
@@ -113,7 +113,7 @@ def preprocess_features(X_train, X_test, scaler_type="minmax", feature_range=(0,
 # ═══════════════════════════════════════════════════════════
 # 3. Pipeline d'Extraction
 # ═══════════════════════════════════════════════════════════
-def extract_features(dataset, use_pca=True, n_components=None, pca_model=None):
+def extract_features(dataset):
     """Extrait les features (pixels aplatis) + PCA optionnelle."""
     loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=2)
     
@@ -128,14 +128,7 @@ def extract_features(dataset, use_pca=True, n_components=None, pca_model=None):
     X = np.vstack(all_features).astype(np.float32)
     y = np.concatenate(all_labels).astype(np.int64)
     
-    if use_pca and n_components:
-        if pca_model is None:
-            pca_model = PCA(n_components=n_components, random_state=SEED)
-            X = pca_model.fit_transform(X)
-        else:
-            X = pca_model.transform(X)
-        
-    return X.astype(np.float32), y, pca_model
+    return X, y
 
 # ═══════════════════════════════════════════════════════════
 # 4. Entraînement d'un Fold
@@ -149,9 +142,20 @@ def train_fold(
     X_val, y_val = X_full[val_idx], y_full[val_idx]
     X_test, y_test = X_full[test_idx], y_full[test_idx]
     
-    # --- Scaling ---
+    # --- CORRECTION 1 : Application locale de la PCA (Anti Data-Leakage) ---
+    n_components = args.pca_components or config.get("svm", {}).get("pca_components", 16)
+    if n_components:
+        pca = PCA(n_components=n_components, random_state=SEED)
+        X_train = pca.fit_transform(X_train)
+        X_val = pca.transform(X_val)
+        X_test = pca.transform(X_test)
+        
+    # --- CORRECTION 2 : Scaling propre (Sans double-normalisation plus tard) ---
     scale_range = (0, np.pi) if args.embed_mode == "angle" else (0, 1)
-    X_train, X_val = preprocess_features(X_train, X_val, scaler_type="minmax", feature_range=scale_range)
+    scaler = MinMaxScaler(feature_range=scale_range)
+    X_train = scaler.fit_transform(X_train)
+    X_val = scaler.transform(X_val)
+    X_test = scaler.transform(X_test)
     
     # --- Configuration Backend ---
     pl_cfg = config.get("pennylane", {})
@@ -214,15 +218,14 @@ def train_fold(
         if args.cache_kernels:
             cache_mgr.save(K_val, X_val, X_train.shape, cache_params, desc="val")
 
+    # --- CORRECTION 4 : Utilisation de scikit-learn pour le centrage (Optimisé C++) ---
     if args.kernel_centering:
-        K_train_unc = K_train.copy()
-        K_train = _center_kernel_train(K_train)
-        K_val = _center_kernel_test(K_val, K_train_unc)
+        centerer = KernelCenterer()
+        K_train = centerer.fit_transform(K_train)
+        K_val = centerer.transform(K_val)
 
-    # ── Optimisation SVM (C) avec Optuna (BYPASS) ──
-    print(f"🔍 Optimizing C (Optuna) - SKIPPED FOR MANUAL OVERRIDE")
-    
-    # La fonction objective reste définie si besoin, mais on ne l'utilise pas
+        # ── Optimisation SVM (C) avec Optuna ──
+    print(f"🔍 Optimizing C (Optuna)...")
     def objective(trial):
         C = trial.suggest_float('C', 0.1, 10.0, log=True)
         svm = EnhancedSVM(C=C, kernel="precomputed", probability=True, class_weight="balanced", max_iter=50000, tol=1e-4)
@@ -230,14 +233,10 @@ def train_fold(
         y_pred = svm.predict(K_val)
         return 1.0 - f1_score(y_val, y_pred, average="binary")
 
-    # study = optuna.create_study(direction="maximize")
-    # study.optimize(objective, n_trials=config.get("svm", {}).get("n_trials", 20))
-    # best_C = study.best_params["C"]
-
-    # --- CORRECTION: DÉFINITION DE BEST_C AVANT UTILISATION ---
-    print("\n⚠️ OVERRIDE : Utilisation manuelle de C=0.45 (Zone optimale identifiée)")
-    best_C = 0.45  
-    # --------------------------------------------------------
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=config.get("svm", {}).get("n_trials", 10))
+    best_C = study.best_params["C"]
+    print(f"✅ Optuna a trouvé le meilleur C: {best_C}")
     
     # Maintenant on peut logger car best_C existe
     wandb.log({
@@ -257,8 +256,6 @@ def train_fold(
     X_trainval = np.vstack([X_train, X_val])
     y_trainval = np.concatenate([y_train, y_val])
     
-    _, X_test_scaled = preprocess_features(X_trainval, X_test, scaler_type="minmax", feature_range=scale_range)
-    
     print(f"🔹 Fold {fold_idx+1}: Kernel TrainVal ({len(X_trainval)}x{len(X_trainval)})")
     K_trainval = cache_mgr.load(X_trainval, X_trainval.shape, cache_params, desc="trainval")
     if K_trainval is None:
@@ -269,20 +266,20 @@ def train_fold(
         if args.cache_kernels:
              cache_mgr.save(K_trainval, X_trainval, X_trainval.shape, cache_params, desc="trainval")
 
-    print(f"🔹 Fold {fold_idx+1}: Kernel Test ({len(X_test_scaled)}x{len(X_trainval)})")
-    K_test = cache_mgr.load(X_test_scaled, X_trainval.shape, cache_params, desc="test")
+    print(f"🔹 Fold {fold_idx+1}: Kernel Test ({len(X_test)}x{len(X_trainval)})")
+    K_test = cache_mgr.load(X_test, X_trainval.shape, cache_params, desc="test")
     if K_test is None:
         K_test = compute_kernel_matrix(
-            X_test_scaled, Y=X_trainval, weights=weights, symmetric=False,
+            X_test, Y=X_trainval, weights=weights, symmetric=False,
             progress=True, desc="Test", **backend_params
         )
         if args.cache_kernels:
-             cache_mgr.save(K_test, X_test_scaled, X_trainval.shape, cache_params, desc="test")
+             cache_mgr.save(K_test, X_test, X_trainval.shape, cache_params, desc="test")
 
     if args.kernel_centering:
-        K_trainval_unc = K_trainval.copy()
-        K_trainval = _center_kernel_train(K_trainval)
-        K_test = _center_kernel_test(K_test, K_trainval_unc)
+        centerer_final = KernelCenterer()
+        K_trainval = centerer_final.fit_transform(K_trainval)
+        K_test = centerer_final.transform(K_test)
 
     print(f"🚀 Retraining final SVM with best C: {best_C}...")
     final_svm = EnhancedSVM(
@@ -347,13 +344,13 @@ def run_train(args):
         print(f"⚠️ Subset Train: {len(train_dataset)}")
 
     n_components = args.pca_components or config.get("svm", {}).get("pca_components", 16)
-    X_train_raw, y_train, pca = extract_features(train_dataset, use_pca=True, n_components=n_components)
-    X_test_raw, y_test, _ = extract_features(test_dataset, use_pca=True, n_components=n_components, pca_model=pca)
+    X_train_raw, y_train = extract_features(train_dataset)
+    X_test_raw, y_test = extract_features(test_dataset)
     
     X_full = np.vstack([X_train_raw, X_test_raw])
     y_full = np.concatenate([y_train, y_test])
     
-    n_qubits = X_full.shape[1]
+    n_qubits = args.pca_components or config.get("svm", {}).get("pca_components", X_full.shape[1])
     n_layers = config.get("pennylane", {}).get("layers", 2)
     rng = np.random.default_rng(SEED)
     weights = rng.normal(0, 0.1, (n_layers, n_qubits)).astype(np.float32)
@@ -413,6 +410,9 @@ if __name__ == "__main__":
     p.add_argument("--cache-kernels", action="store_true", help="Enable disk caching for kernels")
     p.add_argument("--cache-dir", type=str, default="./kernel_cache")
     
+    # --- AJOUT : Paramètre override pour Optuna ---
+    p.add_argument("--svm-c", type=float, default=None, help="Force SVM C parameter (bypasses Optuna search)")
+
     # cuda_states optimization parameters
     p.add_argument("--state-tile", type=int, default=-1,
                    help="State tile size (-1 for auto VRAM-aware)")

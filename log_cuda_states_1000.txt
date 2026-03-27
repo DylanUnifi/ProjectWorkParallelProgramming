@@ -1,0 +1,210 @@
+📂 Loading fashion_mnist...
+⚠️ Subset Train: 1000
+🚀 Starting 3-Fold CV on None via cuda_states
+⚙️  Params: tile=-1, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (666x666)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_79efc1b87539b2ea58c6b4f1d68e36ee.npy
+🔹 Fold 1: Kernel Val (334x666)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_16fb3bf8e646b6020b4854a9d4792348.npy
+🔍 Optimizing C (Optuna) - SKIPPED FOR MANUAL OVERRIDE
+
+⚠️ OVERRIDE : Utilisation manuelle de C=0.45 (Zone optimale identifiée)
+🔹 Fold 1: Kernel TrainVal (1000x1000)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_f4d9424b82d2a44144d0d88deb81bb96.npy
+🔹 Fold 1: Kernel Test (2000x1000)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_854dc1fcdf326800cb62f041c150b30d.npy
+🚀 Retraining final SVM with best C: 0.45...
+✅ Result Fold 1: F1=0.6667 AUC=0.5000
+
+🔹 Fold 2: Kernel Train (667x667)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_ae104714b3fb9634961d9c4a56a234c5.npy
+🔹 Fold 2: Kernel Val (333x667)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_b4f1098f10809eb08fe1701e6b6b86ab.npy
+🔍 Optimizing C (Optuna) - SKIPPED FOR MANUAL OVERRIDE
+
+⚠️ OVERRIDE : Utilisation manuelle de C=0.45 (Zone optimale identifiée)
+🔹 Fold 2: Kernel TrainVal (1000x1000)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_943abcecf675507ef833b22b73ee8f87.npy
+🔹 Fold 2: Kernel Test (2000x1000)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_c1893edb06f0af05d749c0c1d17531f7.npy
+🚀 Retraining final SVM with best C: 0.45...
+✅ Result Fold 2: F1=0.6667 AUC=0.5000
+
+🔹 Fold 3: Kernel Train (667x667)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_1bf576d0457e542e6a48e3757e0611a5.npy
+🔹 Fold 3: Kernel Val (333x667)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_a554e7adc43923389e2638f5281c32f3.npy
+🔍 Optimizing C (Optuna) - SKIPPED FOR MANUAL OVERRIDE
+
+⚠️ OVERRIDE : Utilisation manuelle de C=0.45 (Zone optimale identifiée)
+🔹 Fold 3: Kernel TrainVal (1000x1000)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_fd3a8220533669eea7e4c2663c9d4d73.npy
+🔹 Fold 3: Kernel Test (2000x1000)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_1732491f20740e7e2ffc6d85bb3265fe.npy
+🚀 Retraining final SVM with best C: 0.45...
+✅ Result Fold 3: F1=0.6667 AUC=0.5000
+
+🏆 Final Average: F1=0.6667, AUC=0.5000
+📂 Loading fashion_mnist...
+⚠️ Subset Train: 1000
+🚀 Starting 3-Fold CV on None via cuda_states
+⚙️  Params: tile=-1, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (666x666)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_79efc1b87539b2ea58c6b4f1d68e36ee.npy
+🔹 Fold 1: Kernel Val (334x666)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_16fb3bf8e646b6020b4854a9d4792348.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.1243907772970997
+🔹 Fold 1: Kernel TrainVal (1000x1000)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_f4d9424b82d2a44144d0d88deb81bb96.npy
+🔹 Fold 1: Kernel Test (2000x1000)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_854dc1fcdf326800cb62f041c150b30d.npy
+🚀 Retraining final SVM with best C: 0.1243907772970997...
+✅ Result Fold 1: F1=0.6667 AUC=0.5000
+
+🔹 Fold 2: Kernel Train (667x667)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_ae104714b3fb9634961d9c4a56a234c5.npy
+🔹 Fold 2: Kernel Val (333x667)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_b4f1098f10809eb08fe1701e6b6b86ab.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 5.077828284188872
+🔹 Fold 2: Kernel TrainVal (1000x1000)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_943abcecf675507ef833b22b73ee8f87.npy
+🔹 Fold 2: Kernel Test (2000x1000)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_c1893edb06f0af05d749c0c1d17531f7.npy
+🚀 Retraining final SVM with best C: 5.077828284188872...
+✅ Result Fold 2: F1=0.6667 AUC=0.5000
+
+🔹 Fold 3: Kernel Train (667x667)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_1bf576d0457e542e6a48e3757e0611a5.npy
+🔹 Fold 3: Kernel Val (333x667)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_a554e7adc43923389e2638f5281c32f3.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.5589174335886063
+🔹 Fold 3: Kernel TrainVal (1000x1000)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_fd3a8220533669eea7e4c2663c9d4d73.npy
+🔹 Fold 3: Kernel Test (2000x1000)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_1732491f20740e7e2ffc6d85bb3265fe.npy
+🚀 Retraining final SVM with best C: 0.5589174335886063...
+✅ Result Fold 3: F1=0.6667 AUC=0.5000
+
+🏆 Final Average: F1=0.6667, AUC=0.5000
+📂 Loading fashion_mnist...
+⚠️ Subset Train: 1000
+🚀 Starting 3-Fold CV on None via cuda_states
+⚙️  Params: tile=-1, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (666x666)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.7GB, kernel=0.0GB, total=0.7GB
+⚡ Bulk precomputing 666 + 666 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_79efc1b87539b2ea58c6b4f1d68e36ee.npy
+🔹 Fold 1: Kernel Val (334x666)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.4GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 334 + 666 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_16fb3bf8e646b6020b4854a9d4792348.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 1.014341963762281
+🔹 Fold 1: Kernel TrainVal (1000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=1.0GB, kernel=0.0GB, total=1.1GB
+⚡ Bulk precomputing 1000 + 1000 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_f4d9424b82d2a44144d0d88deb81bb96.npy
+🔹 Fold 1: Kernel Test (2000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 1000 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_854dc1fcdf326800cb62f041c150b30d.npy
+🚀 Retraining final SVM with best C: 1.014341963762281...
+✅ Result Fold 1: F1=0.6667 AUC=0.4979
+
+🔹 Fold 2: Kernel Train (667x667)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.7GB, kernel=0.0GB, total=0.7GB
+⚡ Bulk precomputing 667 + 667 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_ae104714b3fb9634961d9c4a56a234c5.npy
+🔹 Fold 2: Kernel Val (333x667)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 333 + 667 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_b4f1098f10809eb08fe1701e6b6b86ab.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.14895905329264816
+🔹 Fold 2: Kernel TrainVal (1000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=1.0GB, kernel=0.0GB, total=1.1GB
+⚡ Bulk precomputing 1000 + 1000 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_943abcecf675507ef833b22b73ee8f87.npy
+🔹 Fold 2: Kernel Test (2000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 1000 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_c1893edb06f0af05d749c0c1d17531f7.npy
+🚀 Retraining final SVM with best C: 0.14895905329264816...
+✅ Result Fold 2: F1=0.6667 AUC=0.5000
+
+🔹 Fold 3: Kernel Train (667x667)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.7GB, kernel=0.0GB, total=0.7GB
+⚡ Bulk precomputing 667 + 667 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_1bf576d0457e542e6a48e3757e0611a5.npy
+🔹 Fold 3: Kernel Val (333x667)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 333 + 667 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_a554e7adc43923389e2638f5281c32f3.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.18650983652935693
+🔹 Fold 3: Kernel TrainVal (1000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=1.0GB, kernel=0.0GB, total=1.1GB
+⚡ Bulk precomputing 1000 + 1000 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_fd3a8220533669eea7e4c2663c9d4d73.npy
+🔹 Fold 3: Kernel Test (2000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 1000 states...
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_1732491f20740e7e2ffc6d85bb3265fe.npy
+🚀 Retraining final SVM with best C: 0.18650983652935693...
+✅ Result Fold 3: F1=0.6667 AUC=0.5000
+
+🏆 Final Average: F1=0.6667, AUC=0.4993

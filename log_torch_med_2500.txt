@@ -1,0 +1,90 @@
+ 📂 Loading fashion_mnist...
+⚠️ Subset Train: 2500
+🚀 Starting 3-Fold CV on None via torch
+⚙️  Params: tile=None, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (1666x1666)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_7842668ade4239fe3290e94433d11abe.npy
+🔹 Fold 1: Kernel Val (834x1666)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_bc676e2d724b46ce35a2a8775588f5ee.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 9.921733160597945
+🔹 Fold 1: Kernel TrainVal (2500x2500)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_743e49f900cd0c9ecb76dfc73db12143.npy
+🔹 Fold 1: Kernel Test (2000x2500)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_955f37d02c8de5c47d4d9eaa81921167.npy
+🚀 Retraining final SVM with best C: 9.921733160597945...
+✅ Result Fold 1: F1=0.9774 AUC=0.9963
+
+🔹 Fold 2: Kernel Train (1667x1667)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_6d7b384d647afa4dfb120f656e90e9ac.npy
+🔹 Fold 2: Kernel Val (833x1667)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_2afae399c63b861d527b961ef161a6a3.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 0.8409460213603659
+🔹 Fold 2: Kernel TrainVal (2500x2500)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_11242521e9406969af607141cae33440.npy
+🔹 Fold 2: Kernel Test (2000x2500)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_cdfb0d6fa5ac040f384148ce23f5b035.npy
+🚀 Retraining final SVM with best C: 0.8409460213603659...
+✅ Result Fold 2: F1=0.9485 AUC=0.9941
+
+🔹 Fold 3: Kernel Train (1667x1667)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_b5687a874018663b08be1edb165d337a.npy
+🔹 Fold 3: Kernel Val (833x1667)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_bada9eed4501c45f66c4a45868b486f8.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 8.144410186284224
+🔹 Fold 3: Kernel TrainVal (2500x2500)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_5f0964ebc2222182fb22e22a1352dd44.npy
+🔹 Fold 3: Kernel Test (2000x2500)
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_c0ff39ed6a08cf63479c18574498b017.npy
+🚀 Retraining final SVM with best C: 8.144410186284224...
+✅ Result Fold 3: F1=0.9758 AUC=0.9962
+
+🏆 Final Average: F1=0.9672, AUC=0.9955
+ 📂 Loading fashion_mnist...
+⚠️ Subset Train: 2500
+🚀 Starting 3-Fold CV on None via torch
+⚙️  Params: tile=None, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (1666x1666)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_7842668ade4239fe3290e94433d11abe.npy
+🔹 Fold 1: Kernel Val (834x1666)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_bc676e2d724b46ce35a2a8775588f5ee.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 9.156267249872382
+🔹 Fold 1: Kernel TrainVal (2500x2500)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_743e49f900cd0c9ecb76dfc73db12143.npy
+🔹 Fold 1: Kernel Test (2000x2500)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_955f37d02c8de5c47d4d9eaa81921167.npy
+🚀 Retraining final SVM with best C: 9.156267249872382...
+✅ Result Fold 1: F1=0.9763 AUC=0.9962
+
+🔹 Fold 2: Kernel Train (1667x1667)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_6d7b384d647afa4dfb120f656e90e9ac.npy
+🔹 Fold 2: Kernel Val (833x1667)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_2afae399c63b861d527b961ef161a6a3.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 9.96639784220502
+🔹 Fold 2: Kernel TrainVal (2500x2500)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_11242521e9406969af607141cae33440.npy
+🔹 Fold 2: Kernel Test (2000x2500)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_cdfb0d6fa5ac040f384148ce23f5b035.npy
+🚀 Retraining final SVM with best C: 9.96639784220502...
+✅ Result Fold 2: F1=0.9784 AUC=0.9964
+
+🔹 Fold 3: Kernel Train (1667x1667)
+⚡ Cache hit pour train: ./kernel_cache/kernel_train_b5687a874018663b08be1edb165d337a.npy
+🔹 Fold 3: Kernel Val (833x1667)
+⚡ Cache hit pour val: ./kernel_cache/kernel_val_bada9eed4501c45f66c4a45868b486f8.npy
+🔍 Optimizing C (Optuna)...
+✅ Optuna a trouvé le meilleur C: 9.052431881411673
+🔹 Fold 3: Kernel TrainVal (2500x2500)
+⚡ Cache hit pour trainval: ./kernel_cache/kernel_trainval_5f0964ebc2222182fb22e22a1352dd44.npy
+🔹 Fold 3: Kernel Test (2000x2500)
+⚡ Cache hit pour test: ./kernel_cache/kernel_test_c0ff39ed6a08cf63479c18574498b017.npy
+🚀 Retraining final SVM with best C: 9.052431881411673...
+✅ Result Fold 3: F1=0.9763 AUC=0.9963
+
+🏆 Final Average: F1=0.9770, AUC=0.9963

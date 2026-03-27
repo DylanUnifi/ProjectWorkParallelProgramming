@@ -1,4 +1,3 @@
-# tools/benchmark_pl_kernel.py
 import argparse
 import itertools
 import os
@@ -8,14 +7,12 @@ import csv
 import numpy as np
 from pathlib import Path
 
-# Ajout du root au path pour les imports
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.pipeline_backends import compute_kernel_matrix
 
-# Tentative d'import torch pour le monitoring mémoire
 try:
     import torch
     HAS_TORCH = True
@@ -26,7 +23,7 @@ def pairs_count(n: int, symmetric: bool) -> int:
     return n * (n + 1) // 2 if symmetric else n * n
 
 def get_peak_memory_gb():
-    """Retourne le pic mémoire GPU en GB si Torch est dispo."""
+    """Return peak GPU memory in GB when Torch is available."""
     if HAS_TORCH and torch.cuda.is_available():
         return torch.cuda.max_memory_allocated() / (1024 ** 3)
     return 0.0
@@ -43,11 +40,9 @@ def run_once(
     rng = np.random.default_rng(seed)
     np_dtype = np.float32 if dtype == "float32" else np.float64
     
-    # Génération données
     angles = rng.uniform(low=-np.pi, high=np.pi, size=(n_samples, n_qubits)).astype(np_dtype)
     weights = rng.normal(loc=0.0, scale=0.1, size=(layers, n_qubits)).astype(np_dtype)
 
-    # Paramètres communs
     kwargs = dict(
         weights=weights,
         device_name=device_name,
@@ -59,13 +54,10 @@ def run_once(
         gram_backend=gram_backend,
         angle_scale=angle_scale,
         embed_mode=embed_mode,
-        state_tile=state_tile  # Important pour cuda_states
+        state_tile=state_tile
     )
 
-    # --- Warmup ---
-    # On fait un petit warmup pour compiler les kernels JIT/CuPy sans fausser le temps
     try:
-        # Petit sous-ensemble pour le warmup pour aller vite
         warmup_n = min(n_samples, 256)
         _ = compute_kernel_matrix(angles[:warmup_n], **{**kwargs, "symmetric": symmetric})
         if HAS_TORCH and "gpu" in device_name:
@@ -73,12 +65,10 @@ def run_once(
     except Exception as e:
         print(f"⚠️ Warmup failed: {e}")
 
-    # --- Benchmark ---
     reset_peak_memory()
     times = []
     
     for _ in range(repeats):
-        # Force le nettoyage mémoire avant chaque run
         if HAS_TORCH and "gpu" in device_name:
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
@@ -88,11 +78,10 @@ def run_once(
         _ = compute_kernel_matrix(angles, **kwargs)
         
         if HAS_TORCH and "gpu" in device_name:
-            torch.cuda.synchronize() # Attendre la fin réelle du GPU
+            torch.cuda.synchronize()
             
         times.append(time.perf_counter() - t0)
 
-    # Stats
     t_mean = float(np.mean(times))
     t_std  = float(np.std(times))
     n_pairs = pairs_count(n_samples, symmetric)
@@ -119,39 +108,33 @@ def run_once(
 def main():
     parser = argparse.ArgumentParser(description="Benchmark PennyLane fidelity-kernel.")
     
-    # Grid search params
     parser.add_argument("--samples", type=int, default=1024)
     parser.add_argument("--qubits", type=int, nargs="+", default=[8, 10])
     parser.add_argument("--tile-size", type=int, nargs="+", default=[128])
     parser.add_argument("--workers", type=int, nargs="+", default=[1, 24])
     parser.add_argument("--device", type=str, nargs="+", default=["lightning.qubit", "lightning.gpu"])
     
-    # Backend params
     parser.add_argument("--gram-backend", choices=["auto", "numpy", "cupy", "torch", "cuda_states"], default="auto")
     parser.add_argument("--dtype", choices=["float32","float64"], default="float32")
     parser.add_argument("--return-dtype", choices=["float32", "float64"], default=None)
-    parser.add_argument("--state-tile", type=int, default=4096, help="Taille du batch d'états (GPU)")
+    parser.add_argument("--state-tile", type=int, default=4096, help="GPU state batch size")
     
-    # Kernel details
     parser.add_argument("--symmetric", action="store_true")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--layers", type=int, default=2)
     parser.add_argument("--angle-scale", type=float, default=1.0)
     parser.add_argument("--embed-mode", type=str, default="ryrz")
     parser.add_argument("--seed", type=int, default=42)
-    
+
     args = parser.parse_args()
 
-    # Configuration CPU
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
 
-    # Construction de la grille
-    # On filtre : pas de workers > 1 pour le GPU
     grid = []
     for dev, nq, tile, wrk in itertools.product(args.device, args.qubits, args.tile_size, args.workers):
         if "gpu" in dev.lower() and wrk > 1:
-            continue # GPU est toujours worker=1 (streaming)
+            continue
         grid.append((dev, nq, tile, wrk))
 
     print(f"\n{'='*100}")
@@ -188,11 +171,9 @@ def main():
             print(f"{r['device']:<16} {r['n_qubits']:>3} {r['tile_size']:>5} {r['workers']:>3} {r['gram_backend']:>12} {r['max_vram_gb']:>9.2f} {r['time_s']:>8.3f} {r['Mpairs_per_s']:>9.2f}")
             
         except Exception as e:
-            # Afficher l'erreur sans crasher tout le bench
             err_msg = str(e).split('\n')[0]
             print(f"{dev:<16} {nq:>3} {tile:>5} {wrk:>3} ERROR: {err_msg}")
 
-    # === Export CSV ===
     if results:
         fieldnames = [
             "device", "n_samples", "n_qubits", "tile_size", "state_tile", "workers",
@@ -205,7 +186,7 @@ def main():
             w = csv.DictWriter(f, fieldnames=fieldnames)
             w.writeheader()
             w.writerows(results)
-        print(f"\n✅ Résultats sauvegardés dans : {filename}")
+        print(f"\nSaved results to: {filename}")
 
 if __name__ == "__main__":
     try:

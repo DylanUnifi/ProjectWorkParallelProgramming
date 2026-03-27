@@ -2,20 +2,19 @@
 
 datasets=("fashion" "cifar10" "svhn")
 difficulties=("easy" "med" "hard")
-sizes=("500" "1000" "2500" "5000" "all") # Ajout du "all" !
+sizes=("500" "1000" "2500" "5000" "all")
 
 gpu_id=0
 max_gpus=8
 
-echo "🔥 Démarrage du cluster Quantique sur $max_gpus GPUs..."
+echo "Starting quantum GPU batch on $max_gpus GPUs..."
 
 for ds in "${datasets[@]}"; do
   for diff in "${difficulties[@]}"; do
     for size in "${sizes[@]}"; do
       
-      echo "➔ Lancement $ds | $diff | $size sur le GPU n°$gpu_id"
+      echo "Launching $ds | $diff | $size on GPU $gpu_id"
       
-      # Si la taille est "all", on n'envoie pas l'argument --train-subset
       if [ "$size" == "all" ]; then
         SUBSET_ARG=""
       else
@@ -34,7 +33,7 @@ for ds in "${datasets[@]}"; do
       gpu_id=$(( (gpu_id + 1) % max_gpus ))
       
       if [ $gpu_id -eq 0 ]; then
-        echo "⏳ Les 8 GPUs sont occupés. Attente de la fin de la vague..."
+        echo "All GPUs are busy. Waiting for the current wave to finish..."
         wait
       fi
       
@@ -43,4 +42,4 @@ for ds in "${datasets[@]}"; do
 done
 
 wait
-echo "✅ TOUTES LES TÂCHES QUANTIQUES SONT TERMINÉES !"
+echo "All quantum jobs completed."

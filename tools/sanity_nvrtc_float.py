@@ -7,7 +7,7 @@ extern "C" __global__ void axpy_f(const float* x, const float* y, float* z, int 
 }
 '''
 
-# NE PAS passer -arch ici (CuPy le gère)
+# Do not pass -arch here; CuPy handles it.
 mod = cp.RawModule(code=code, options=('-std=c++14',))
 ker = mod.get_function('axpy_f')
 
@@ -19,4 +19,4 @@ z=cp.empty_like(x)
 ker(((n+255)//256,), (256,), (x, y, z, n))
 cp.cuda.runtime.deviceSynchronize()
 assert cp.allclose(z, 2.0)
-print("OK: NVRTC (float) opérationnel")
+print("OK: NVRTC (float) operational")

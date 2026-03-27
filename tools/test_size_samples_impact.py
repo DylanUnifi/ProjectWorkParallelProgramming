@@ -5,30 +5,24 @@ import sys
 from scripts.pipeline_backends import compute_kernel_matrix
 
 def benchmark_config(backend, n_samples, n_qubits, return_kernel=False, **kwargs):
-    """Benchmark une config spécifique."""
+    """Benchmark a specific configuration."""
     rng = np.random.default_rng(42)
     angles = rng.uniform(-np.pi, np.pi, (n_samples, n_qubits)).astype(np.float32)
     weights = rng.normal(0, 0.1, (2, n_qubits)).astype(np.float32)
     
-    # --- WARMUP OPTIMISÉ (FIXE) ---
-    # On ne chauffe que sur 100 échantillons, quelle que soit la taille N demandée.
-    # Cela suffit pour charger les kernels CUDA sans saturer la VRAM.
     try:
         warmup_size = min(100, n_samples)
         _ = compute_kernel_matrix(angles[:warmup_size], weights=weights, **kwargs)
     except Exception:
-        pass # Si le warmup échoue, on continue quand même
+        pass
     
-    # Nettoyage forcé avant le vrai test
     gc.collect()
     try:
         import cupy
         cupy.get_default_memory_pool().free_all_blocks()
     except:
         pass
-    # -----------------------------
     
-    # Timed run
     t0 = time.perf_counter()
     K = compute_kernel_matrix(angles, weights=weights, **kwargs)
     elapsed = time.perf_counter() - t0
@@ -44,9 +38,9 @@ def benchmark_config(backend, n_samples, n_qubits, return_kernel=False, **kwargs
 
 def test_numpy_n_cores():
     n = 24
-    """Test impact sample_size sur n cores."""
+    """Test sample size impact on n CPU cores."""
     print("\n" + "="*80)
-    print(f"TEST 1: NUMPY avec {n} CORES - Impact du sample_size")
+    print(f"TEST 1: NUMPY with {n} CORES - sample size impact")
     print("="*80 + "\n")
     
     n_samples = [50000, 60000, 70000, 80000, 90000]
@@ -71,8 +65,6 @@ def test_numpy_n_cores():
                 gram_backend="numpy",
             )
             
-            # Efficiency = throughput / theoretical_peak
-            # Avec 96 cores, peak théorique ~25-30 Mpairs/s
             efficiency = res["throughput"] / 30.0 * 100
             
             print(f"{n_sample:<12} {res['time']:<12.2f} {res['throughput']:<12.3f} {efficiency:<12.1f}%")
@@ -80,14 +72,13 @@ def test_numpy_n_cores():
                 best_throughput = res["throughput"]
                 best_size = n_sample
 
-            # NETTOYAGE MÉMOIRE
             del res
             gc.collect()
 
         except Exception as e:
             print(f"{n_sample:<12} ERROR: {e}")
             break
-    print(f"\n✅ OPTIMAL: sample_size={best_size} → {best_throughput:.3f} Mpairs/s")
+    print(f"\nBest sample_size={best_size} -> {best_throughput:.3f} Mpairs/s")
 
 def test_cuda_states_massive_vram():
     print("\n" + "="*80)
@@ -95,7 +86,6 @@ def test_cuda_states_massive_vram():
     print("="*80 + "\n")
     
     configs = [
-        # (N, nq, state_tile, autotune, precompute_all_states, vram_fraction)
         (50000, 16, -1, True, True, 0.85),
         (60000, 16, -1, True, True, 0.85),
         (70000, 16, -1, True, True, 0.85),
@@ -122,10 +112,9 @@ def test_cuda_states_massive_vram():
                 progress=False,
             )
             
-            # Estime VRAM usage
             dim = 2 ** nq
-            vram_states = n * dim * 8 * 2 / 1024**3  # 2 copies, complex64
-            vram_kernel = n * n * 4 / 1024**3  # float32
+            vram_states = n * dim * 8 * 2 / 1024**3
+            vram_kernel = n * n * 4 / 1024**3
             vram_total = vram_states + vram_kernel
             
             print(f"{n:<8} {nq:<4} {state_tile:<12} {autotune:<8} {res['time']:<12.2f} "
@@ -136,9 +125,9 @@ def test_cuda_states_massive_vram():
         
 
 def test_tensorcore_blackwell():
-    """Test Tensor Cores sur Blackwell."""
+    """Test Tensor Core modes on Blackwell."""
     print("\n" + "="*80)
-    print("TEST 3: TENSORCORE sur Blackwell - FP16 vs BF16")
+    print("TEST 3: TensorCore on Blackwell - FP16 vs BF16")
     print("="*80 + "\n")
     
     n_samples_list = [10000]
@@ -146,7 +135,6 @@ def test_tensorcore_blackwell():
 
     for n in n_samples_list:
     
-        # Baseline FP32
         print("Running FP32 baseline...")
         res_fp32 = benchmark_config(
             "torch",
@@ -160,7 +148,6 @@ def test_tensorcore_blackwell():
             return_kernel=True
         )
         
-        # FP16
         print("Running FP16 Tensor Cores...")
         try:
             res_fp16 = benchmark_config(
@@ -180,7 +167,6 @@ def test_tensorcore_blackwell():
             print(f"FP16 failed: {e}")
             res_fp16 = None
         
-        # BF16
         print("Running BF16 Tensor Cores...")
         try:
             res_bf16 = benchmark_config(
@@ -220,7 +206,6 @@ if __name__ == "__main__":
     import sys
     sys.path.insert(0, str(__file__).replace("tools/test_tile_impact_monster.py", ""))
     
-    # Run all tests
     test_numpy_n_cores()
     test_cuda_states_massive_vram()
     test_tensorcore_blackwell()

@@ -14,7 +14,7 @@ extern "C" __global__ void axpy_half(const __half* x, const __half* y, __half* z
 
 cuda_inc = os.path.join(os.environ.get("CUDA_PATH", "/usr/local/cuda"), "include")
 
-# NE PAS passer -arch ; on ajoute juste l'include path
+# Do not pass -arch; only add the include path.
 mod = cp.RawModule(code=code, options=('-std=c++14', f'-I{cuda_inc}'))
 ker = mod.get_function('axpy_half')
 
@@ -25,4 +25,4 @@ z=cp.empty_like(x)
 ker(((n+255)//256,), (256,), (x, y, z, n))
 cp.cuda.runtime.deviceSynchronize()
 assert cp.allclose(z, 2, atol=1e-3)
-print("OK: NVRTC + cuda_fp16.h opérationnels")
+print("OK: NVRTC + cuda_fp16.h operational")

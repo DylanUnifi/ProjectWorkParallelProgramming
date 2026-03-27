@@ -1,15 +1,3 @@
-# train_svm_qkernel.py - OPTIMIZED, CACHED & FIXED
-# 
-# Enhanced with full cuda_states optimization support:
-# - Auto VRAM-aware state tiling
-# - Kernel autotuning for optimal tile sizes
-# - Bulk state precomputation
-# - Dynamic batch sizing based on memory pressure
-# - CUDA stream pool for parallelism
-# - CUDA graph optimization
-# - Tile size learning from run history
-# - Memory profiling capabilities
-#
 import os
 import argparse
 import random
@@ -30,12 +18,10 @@ import yaml
 import wandb
 import optuna
 
-# Imports locaux
 from data_loader.utils import load_dataset_by_name
 from models.svm_extension import EnhancedSVM
 from scripts.pipeline_backends import compute_kernel_matrix
 
-# Gestion du déterminisme
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEED = 42
 random.seed(SEED)
@@ -45,17 +31,14 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
 
-# ═══════════════════════════════════════════════════════════
-# 1. Gestionnaire de Cache pour les Kernels
-# ═══════════════════════════════════════════════════════════
 class KernelCacheManager:
-    """Gère la sauvegarde et le chargement des matrices de kernel coûteuses."""
+    """Manage caching for expensive kernel matrices."""
     def __init__(self, cache_dir="./cache_kernels"):
         self.cache_dir = cache_dir
         os.makedirs(self.cache_dir, exist_ok=True)
 
     def _compute_hash(self, X, Y_shape, params):
-        """Crée un hash unique basé sur les données et les paramètres."""
+        """Build a stable hash from data statistics and parameters."""
         data_summary = f"{X.shape}_{X.mean():.4f}_{X.std():.4f}_{Y_shape}"
         param_str = json.dumps(params, sort_keys=True)
         content = f"{data_summary}_{param_str}"
@@ -65,7 +48,7 @@ class KernelCacheManager:
         h = self._compute_hash(X, Y_shape, params)
         path = os.path.join(self.cache_dir, f"kernel_{desc}_{h}.npy")
         if os.path.exists(path):
-            print(f"⚡ Cache hit pour {desc}: {path}")
+            print(f"Cache hit for {desc}: {path}")
             return np.load(path)
         return None
 
@@ -73,20 +56,17 @@ class KernelCacheManager:
         h = self._compute_hash(X, Y_shape, params)
         path = os.path.join(self.cache_dir, f"kernel_{desc}_{h}.npy")
         np.save(path, K)
-        print(f"💾 Kernel sauvegardé: {path}")
+        print(f"Saved kernel: {path}")
 
-# ═══════════════════════════════════════════════════════════
-# 2. Utilitaires Kernel (Centrage, Scaling)
-# ═══════════════════════════════════════════════════════════
 def _center_kernel_train(K):
-    """Centre le kernel d'entraînement (Kernel PCA implicite)."""
+    """Center the training kernel matrix."""
     K = np.asarray(K, dtype=np.float64, order="C")
     n = K.shape[0]
     H = np.eye(n) - np.ones((n, n)) / n
     return H @ K @ H
 
 def _center_kernel_test(K_test, K_train_uncentered):
-    """Centre le kernel de test selon les statistiques du train."""
+    """Center the test kernel matrix using training statistics."""
     Kt = np.asarray(K_test, dtype=np.float64, order="C")
     Ku = np.asarray(K_train_uncentered, dtype=np.float64, order="C")
     n = Ku.shape[0]
@@ -98,7 +78,7 @@ def _center_kernel_test(K_test, K_train_uncentered):
     return K_centered
 
 def preprocess_features(X_train, X_test, scaler_type="minmax", feature_range=(0, np.pi)):
-    """Normalise les features pour l'embedding quantique."""
+    """Scale features for quantum embedding."""
     if scaler_type == "minmax":
         scaler = MinMaxScaler(feature_range=feature_range)
     elif scaler_type == "standard":
@@ -110,11 +90,8 @@ def preprocess_features(X_train, X_test, scaler_type="minmax", feature_range=(0,
     X_test_scaled = scaler.transform(X_test)
     return X_train_scaled, X_test_scaled
 
-# ═══════════════════════════════════════════════════════════
-# 3. Pipeline d'Extraction
-# ═══════════════════════════════════════════════════════════
 def extract_features(dataset):
-    """Extrait les features (pixels aplatis) + PCA optionnelle."""
+    """Extract flattened features from a dataset."""
     loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=2)
     
     all_features, all_labels = [], []
@@ -130,19 +107,14 @@ def extract_features(dataset):
     
     return X, y
 
-# ═══════════════════════════════════════════════════════════
-# 4. Entraînement d'un Fold
-# ═══════════════════════════════════════════════════════════
 def train_fold(
     fold_idx, train_idx, val_idx, test_idx,
     X_full, y_full, weights, config, args, cache_mgr
 ):
-    # Séparation des données
     X_train, y_train = X_full[train_idx], y_full[train_idx]
     X_val, y_val = X_full[val_idx], y_full[val_idx]
     X_test, y_test = X_full[test_idx], y_full[test_idx]
     
-    # --- CORRECTION 1 : Application locale de la PCA (Anti Data-Leakage) ---
     n_components = args.pca_components or config.get("svm", {}).get("pca_components", 16)
     if n_components:
         pca = PCA(n_components=n_components, random_state=SEED)
@@ -150,14 +122,12 @@ def train_fold(
         X_val = pca.transform(X_val)
         X_test = pca.transform(X_test)
         
-    # --- CORRECTION 2 : Scaling propre (Sans double-normalisation plus tard) ---
     scale_range = (0, np.pi) if args.embed_mode == "angle" else (0, 1)
     scaler = MinMaxScaler(feature_range=scale_range)
     X_train = scaler.fit_transform(X_train)
     X_val = scaler.transform(X_val)
     X_test = scaler.transform(X_test)
     
-    # --- Configuration Backend ---
     pl_cfg = config.get("pennylane", {})
     
     backend_params = {
@@ -170,7 +140,6 @@ def train_fold(
         "angle_scale": args.angle_scale,
         "embed_mode": args.embed_mode,
         "normalize": args.normalize_kernel,
-        # cuda_states optimization parameters
         "state_tile": args.state_tile,
         "vram_fraction": args.vram_fraction,
         "autotune": args.autotune,
@@ -183,7 +152,6 @@ def train_fold(
         "verbose_profile": args.verbose_profile,
     }
     
-    # Add torch-specific optimizations if using torch backend
     if args.gram_backend == "torch":
         backend_params.update({
             "use_pinned_memory": args.torch_pinned_memory,
@@ -194,7 +162,6 @@ def train_fold(
     
     cache_params = {**backend_params, "weights_hash": hashlib.md5(weights.tobytes()).hexdigest()[:8]}
 
-    # ── Calcul / Chargement Kernel Train ──
     print(f"\n🔹 Fold {fold_idx+1}: Kernel Train ({len(X_train)}x{len(X_train)})")
     K_train = cache_mgr.load(X_train, X_train.shape, cache_params, desc="train")
     if K_train is None:
@@ -206,7 +173,6 @@ def train_fold(
         if args.cache_kernels:
             cache_mgr.save(K_train, X_train, X_train.shape, cache_params, desc="train")
 
-    # ── Calcul / Chargement Kernel Val ──
     print(f"🔹 Fold {fold_idx+1}: Kernel Val ({len(X_val)}x{len(X_train)})")
     K_val = cache_mgr.load(X_val, X_train.shape, cache_params, desc="val")
     if K_val is None:
@@ -218,13 +184,11 @@ def train_fold(
         if args.cache_kernels:
             cache_mgr.save(K_val, X_val, X_train.shape, cache_params, desc="val")
 
-    # --- CORRECTION 4 : Utilisation de scikit-learn pour le centrage (Optimisé C++) ---
     if args.kernel_centering:
         centerer = KernelCenterer()
         K_train = centerer.fit_transform(K_train)
         K_val = centerer.transform(K_val)
 
-        # ── Optimisation SVM (C) avec Optuna ──
     print(f"🔍 Optimizing C (Optuna)...")
     def objective(trial):
         C = trial.suggest_float('C', 0.1, 10.0, log=True)
@@ -236,12 +200,10 @@ def train_fold(
     study = optuna.create_study(direction="minimize")
     study.optimize(objective, n_trials=config.get("svm", {}).get("n_trials", 10))
     best_C = study.best_params["C"]
-    print(f"✅ Optuna a trouvé le meilleur C: {best_C}")
+    print(f"Best C found by Optuna: {best_C}")
     
-    # Maintenant on peut logger car best_C existe
     wandb.log({
         f"fold_{fold_idx}/best_C": best_C,
-        # Log cuda_states optimization settings
         f"fold_{fold_idx}/config/state_tile": args.state_tile,
         f"fold_{fold_idx}/config/vram_fraction": args.vram_fraction,
         f"fold_{fold_idx}/config/autotune": args.autotune,
@@ -252,7 +214,6 @@ def train_fold(
         f"fold_{fold_idx}/config/learn_tiles": args.learn_tiles,
     })
 
-    # ── Entraînement Final sur (Train + Val) pour Test ──
     X_trainval = np.vstack([X_train, X_val])
     y_trainval = np.concatenate([y_train, y_val])
     
@@ -295,12 +256,10 @@ def train_fold(
     y_pred = final_svm.predict(K_test)
     y_proba = final_svm.predict_proba(K_test)[:, 1]
 
-    # Metrics
     f1 = f1_score(y_test, y_pred, average="binary")
     acc = accuracy_score(y_test, y_pred)
     auc = roc_auc_score(y_test, y_proba)
     
-    # Log WandB
     wandb.log({
         f"fold_{fold_idx}/test_f1": f1,
         f"fold_{fold_idx}/test_acc": acc,
@@ -316,9 +275,6 @@ def train_fold(
     return {"f1": f1, "auc": auc}
 
 
-# ═══════════════════════════════════════════════════════════
-# 5. Boucle Principale
-# ═══════════════════════════════════════════════════════════
 def run_train(args):
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
@@ -341,7 +297,7 @@ def run_train(args):
     
     if args.train_subset:
         train_dataset = Subset(train_dataset, range(min(len(train_dataset), args.train_subset)))
-        print(f"⚠️ Subset Train: {len(train_dataset)}")
+        print(f"Using train subset: {len(train_dataset)}")
 
     n_components = args.pca_components or config.get("svm", {}).get("pca_components", 16)
     X_train_raw, y_train = extract_features(train_dataset)
@@ -386,9 +342,6 @@ def run_train(args):
     wandb.finish()
 
 
-# ═══════════════════════════════════════════════════════════
-# CLI
-# ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--config", type=str, required=True)
@@ -409,11 +362,8 @@ if __name__ == "__main__":
     p.add_argument("--pca-components", type=int, default=None)
     p.add_argument("--cache-kernels", action="store_true", help="Enable disk caching for kernels")
     p.add_argument("--cache-dir", type=str, default="./kernel_cache")
-    
-    # --- AJOUT : Paramètre override pour Optuna ---
     p.add_argument("--svm-c", type=float, default=None, help="Force SVM C parameter (bypasses Optuna search)")
 
-    # cuda_states optimization parameters
     p.add_argument("--state-tile", type=int, default=-1,
                    help="State tile size (-1 for auto VRAM-aware)")
     p.add_argument("--vram-fraction", type=float, default=0.95,
@@ -440,7 +390,6 @@ if __name__ == "__main__":
     p.add_argument("--verbose-profile", action="store_true", default=False,
                    help="Show detailed profiling output")
     
-    # Torch backend options
     p.add_argument("--torch-tile-size", type=int, default=512,
                    help="Tile size for torch backend")
     p.add_argument("--torch-pinned-memory", action="store_true", default=False,

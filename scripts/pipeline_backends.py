@@ -30,7 +30,7 @@ def _tile_ranges(n: int, tile: int):
 
 def _normalize_diag_inplace(K: np.ndarray):
     if K.shape[0] != K.shape[1]: return
-    # Clip pour éviter les racines de nombres négatifs minuscules
+    # Clip to avoid sqrt on tiny negative round-off values.
     d = np.sqrt(np.clip(np.diag(K), 1e-12, None))
     K /= d[:, None] * d[None, :]
     np.fill_diagonal(K, 1.0)
@@ -1246,14 +1246,14 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
     autocast_dtype = None
     if tensorcore_precision == "bf16" and th.cuda.is_bf16_supported():
         autocast_dtype = th.bfloat16
-        # Active les matmul optimisés sur Ampere+
+        # Enable optimized matmul kernels on Ampere+.
         th.set_float32_matmul_precision('high') 
     elif tensorcore_precision == "fp16":
         autocast_dtype = th.float16
     elif tensorcore_precision == "tf32":
-        th.set_float32_matmul_precision('medium') # Force TF32 sur Ampere+
+        th.set_float32_matmul_precision('medium')  # Prefer TF32 on Ampere+.
     
-    # Active AMP si une précision réduite est demandée
+    # Enable AMP when reduced precision is requested.
     enable_amp = (autocast_dtype is not None)
     
     # OPTIMIZATION 3: torch.compile (PyTorch 2.0+)
@@ -1849,7 +1849,7 @@ def compute_kernel_matrix(
         
         # --- PROTECTION ANTI-CRASH (NEW) ---
         if not np.all(np.isfinite(K)):
-            print("⚠️ Matrice corrompue (NaN/Inf) détectée dans le backend cuda_states. Réparation...")
+            print("Warning: corrupted matrix (NaN/Inf) detected in the cuda_states backend. Repairing...")
             K = np.nan_to_num(K, nan=0.0, posinf=1.0, neginf=0.0)
         # -----------------------------------
 

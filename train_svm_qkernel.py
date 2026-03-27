@@ -126,6 +126,161 @@ def _compute_binary_metrics(y_true, y_pred, y_score):
     metrics["pr_auc"] = average_precision_score(y_true, y_score)
     return metrics
 
+
+def _safe_float(value):
+    """Convert scalar-like values to finite floats for stable logging."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return value if np.isfinite(value) else float("nan")
+
+
+def _prefix_metrics(prefix, metrics):
+    """Prefix a metrics dictionary for structured W&B logging."""
+    return {f"{prefix}/{key}": value for key, value in metrics.items()}
+
+
+def _kernel_similarity_metrics(K, row_labels=None, col_labels=None, exclude_diagonal=False):
+    """Measure same-class and different-class similarities in a kernel block."""
+    if row_labels is None or col_labels is None:
+        return {}
+
+    row_labels = np.asarray(row_labels)
+    col_labels = np.asarray(col_labels)
+    if row_labels.size != K.shape[0] or col_labels.size != K.shape[1]:
+        return {}
+
+    same_mask = row_labels[:, None] == col_labels[None, :]
+    if (
+        exclude_diagonal
+        and K.shape[0] == K.shape[1]
+        and row_labels.shape == col_labels.shape
+        and np.array_equal(row_labels, col_labels)
+    ):
+        np.fill_diagonal(same_mask, False)
+
+    diff_mask = ~same_mask
+    same_vals = K[same_mask]
+    diff_vals = K[diff_mask]
+
+    metrics = {
+        "same_class_mean": _safe_float(np.mean(same_vals)) if same_vals.size else float("nan"),
+        "same_class_std": _safe_float(np.std(same_vals)) if same_vals.size else float("nan"),
+        "diff_class_mean": _safe_float(np.mean(diff_vals)) if diff_vals.size else float("nan"),
+        "diff_class_std": _safe_float(np.std(diff_vals)) if diff_vals.size else float("nan"),
+    }
+
+    if same_vals.size and diff_vals.size:
+        gap = metrics["same_class_mean"] - metrics["diff_class_mean"]
+        pooled_std = metrics["same_class_std"] + metrics["diff_class_std"] + 1e-12
+        metrics["class_gap"] = _safe_float(gap)
+        metrics["class_gap_z"] = _safe_float(gap / pooled_std)
+    else:
+        metrics["class_gap"] = float("nan")
+        metrics["class_gap_z"] = float("nan")
+
+    return metrics
+
+
+def _kernel_diagnostics(K, row_labels=None, col_labels=None, exclude_diagonal=False):
+    """Summarize kernel geometry and numerical health."""
+    K = np.asarray(K, dtype=np.float64)
+    if K.size == 0:
+        return {}
+
+    finite_mask = np.isfinite(K)
+    K_clean = np.nan_to_num(K, nan=0.0, posinf=1.0, neginf=0.0)
+    row_means = K_clean.mean(axis=1)
+    col_means = K_clean.mean(axis=0)
+
+    metrics = {
+        "rows": float(K.shape[0]),
+        "cols": float(K.shape[1]),
+        "finite_fraction": _safe_float(finite_mask.mean()),
+        "min": _safe_float(np.min(K_clean)),
+        "max": _safe_float(np.max(K_clean)),
+        "mean": _safe_float(np.mean(K_clean)),
+        "std": _safe_float(np.std(K_clean)),
+        "row_mean_std": _safe_float(np.std(row_means)),
+        "col_mean_std": _safe_float(np.std(col_means)),
+        "fro_norm": _safe_float(np.linalg.norm(K_clean, ord="fro")),
+    }
+
+    if K.shape[0] == K.shape[1]:
+        diag = np.diag(K_clean)
+        metrics.update({
+            "diag_mean": _safe_float(np.mean(diag)),
+            "diag_std": _safe_float(np.std(diag)),
+            "diag_min": _safe_float(np.min(diag)),
+            "diag_max": _safe_float(np.max(diag)),
+            "symmetry_max_abs": _safe_float(np.max(np.abs(K_clean - K_clean.T))),
+            "symmetry_mean_abs": _safe_float(np.mean(np.abs(K_clean - K_clean.T))),
+        })
+
+        if K.shape[0] > 1:
+            off_diag = K_clean[~np.eye(K.shape[0], dtype=bool)]
+            metrics.update({
+                "off_diag_mean": _safe_float(np.mean(off_diag)),
+                "off_diag_std": _safe_float(np.std(off_diag)),
+                "off_diag_min": _safe_float(np.min(off_diag)),
+                "off_diag_max": _safe_float(np.max(off_diag)),
+            })
+
+        if K.shape[0] <= 1024:
+            eigvals = np.linalg.eigvalsh(0.5 * (K_clean + K_clean.T))
+            positive = eigvals[eigvals > 1e-10]
+            negative = eigvals[eigvals < -1e-10]
+            metrics.update({
+                "eig_min": _safe_float(np.min(eigvals)),
+                "eig_max": _safe_float(np.max(eigvals)),
+                "negative_eig_count": float(negative.size),
+                "negative_eig_fraction": _safe_float(negative.size / eigvals.size),
+                "negative_eig_mass": _safe_float(np.abs(negative).sum()) if negative.size else 0.0,
+                "condition_number": _safe_float(np.max(eigvals) / np.min(positive)) if positive.size else float("nan"),
+            })
+
+    metrics.update(
+        _kernel_similarity_metrics(
+            K_clean,
+            row_labels=row_labels,
+            col_labels=col_labels,
+            exclude_diagonal=exclude_diagonal,
+        )
+    )
+    return metrics
+
+
+def _svm_fit_diagnostics(svm, train_size):
+    """Expose solver status and support-vector usage from scikit-learn SVC."""
+    model = svm.model
+    fit_status = getattr(model, "fit_status_", np.nan)
+    n_iter = getattr(model, "n_iter_", None)
+    n_support = getattr(model, "n_support_", None)
+
+    metrics = {
+        "fit_status": _safe_float(fit_status),
+        "converged": 1.0 if fit_status == 0 else 0.0,
+    }
+
+    if n_iter is not None:
+        n_iter = np.asarray(n_iter, dtype=np.float64).ravel()
+        if n_iter.size:
+            metrics.update({
+                "n_iter_max": _safe_float(np.max(n_iter)),
+                "n_iter_mean": _safe_float(np.mean(n_iter)),
+                "n_iter_sum": _safe_float(np.sum(n_iter)),
+            })
+
+    if n_support is not None:
+        n_support = np.asarray(n_support, dtype=np.float64).ravel()
+        metrics.update({
+            "support_total": _safe_float(np.sum(n_support)),
+            "support_fraction": _safe_float(np.sum(n_support) / max(1, train_size)),
+        })
+
+    return metrics
+
 def train_fold(
     fold_idx, train_idx, val_idx, test_idx,
     X_full, y_full, weights, config, args, cache_mgr
@@ -148,6 +303,10 @@ def train_fold(
     X_test = scaler.transform(X_test)
     
     pl_cfg = config.get("pennylane", {})
+    svm_cfg = config.get("svm", {})
+    svm_max_iter = svm_cfg.get("max_iter", args.svm_max_iter)
+    svm_tol = svm_cfg.get("tol", args.svm_tol)
+    svm_cache_size = svm_cfg.get("cache_size", args.svm_cache_size)
     
     backend_params = {
         "device_name": args.pl_device or pl_cfg.get("device", "lightning.qubit"),
@@ -208,6 +367,34 @@ def train_fold(
         K_train = centerer.fit_transform(K_train)
         K_val = centerer.transform(K_val)
 
+    train_kernel_stats = _kernel_diagnostics(
+        K_train,
+        row_labels=y_train,
+        col_labels=y_train,
+        exclude_diagonal=True,
+    )
+    val_kernel_stats = _kernel_diagnostics(
+        K_val,
+        row_labels=y_val,
+        col_labels=y_train,
+        exclude_diagonal=False,
+    )
+
+    if train_kernel_stats:
+        print(
+            "   Train kernel:"
+            f" gap={train_kernel_stats.get('class_gap', float('nan')):.4f}"
+            f" eig_min={train_kernel_stats.get('eig_min', float('nan')):.4e}"
+            f" neg_frac={train_kernel_stats.get('negative_eig_fraction', float('nan')):.4f}"
+        )
+    if val_kernel_stats:
+        print(
+            "   Val kernel:"
+            f" gap={val_kernel_stats.get('class_gap', float('nan')):.4f}"
+            f" mean={val_kernel_stats.get('mean', float('nan')):.4f}"
+            f" std={val_kernel_stats.get('std', float('nan')):.4f}"
+        )
+
     optuna_best_value = float("nan")
     if args.svm_c is not None:
         best_C = float(args.svm_c)
@@ -217,7 +404,15 @@ def train_fold(
 
         def objective(trial):
             C = trial.suggest_float('C', 0.1, 10.0, log=True)
-            svm = EnhancedSVM(C=C, kernel="precomputed", probability=True, class_weight="balanced", max_iter=50000, tol=1e-4)
+            svm = EnhancedSVM(
+                C=C,
+                kernel="precomputed",
+                probability=True,
+                class_weight="balanced",
+                max_iter=svm_max_iter,
+                tol=svm_tol,
+                cache_size=svm_cache_size,
+            )
             svm.fit(K_train, y_train)
             y_pred = svm.predict(K_val)
             return 1.0 - f1_score(y_val, y_pred, average="binary")
@@ -233,13 +428,22 @@ def train_fold(
         kernel="precomputed",
         probability=True,
         class_weight="balanced",
-        max_iter=50000,
-        tol=1e-4
+        max_iter=svm_max_iter,
+        tol=svm_tol,
+        cache_size=svm_cache_size,
     )
     selected_val_svm.fit(K_train, y_train)
+    val_svm_stats = _svm_fit_diagnostics(selected_val_svm, len(y_train))
     val_pred = selected_val_svm.predict(K_val)
     val_proba = selected_val_svm.predict_proba(K_val)[:, 1]
     val_metrics = _compute_binary_metrics(y_val, val_pred, val_proba)
+
+    print(
+        "   Val SVM:"
+        f" converged={int(val_svm_stats.get('converged', 0.0))}"
+        f" n_iter_max={val_svm_stats.get('n_iter_max', float('nan')):.0f}"
+        f" support_frac={val_svm_stats.get('support_fraction', float('nan')):.4f}"
+    )
     
     wandb.log({
         f"fold_{fold_idx}/best_C": best_C,
@@ -259,6 +463,12 @@ def train_fold(
         f"fold_{fold_idx}/config/use_cuda_graphs": args.use_cuda_graphs,
         f"fold_{fold_idx}/config/precompute_all_states": args.precompute_all_states,
         f"fold_{fold_idx}/config/learn_tiles": args.learn_tiles,
+        f"fold_{fold_idx}/config/svm_max_iter": svm_max_iter,
+        f"fold_{fold_idx}/config/svm_tol": svm_tol,
+        f"fold_{fold_idx}/config/svm_cache_size": svm_cache_size,
+        **_prefix_metrics(f"fold_{fold_idx}/kernel_train", train_kernel_stats),
+        **_prefix_metrics(f"fold_{fold_idx}/kernel_val", val_kernel_stats),
+        **_prefix_metrics(f"fold_{fold_idx}/svm_val_fit", val_svm_stats),
     })
 
     X_trainval = np.vstack([X_train, X_val])
@@ -289,20 +499,57 @@ def train_fold(
         K_trainval = centerer_final.fit_transform(K_trainval)
         K_test = centerer_final.transform(K_test)
 
+    trainval_kernel_stats = _kernel_diagnostics(
+        K_trainval,
+        row_labels=y_trainval,
+        col_labels=y_trainval,
+        exclude_diagonal=True,
+    )
+    test_kernel_stats = _kernel_diagnostics(
+        K_test,
+        row_labels=y_test,
+        col_labels=y_trainval,
+        exclude_diagonal=False,
+    )
+
+    if trainval_kernel_stats:
+        print(
+            "   TrainVal kernel:"
+            f" gap={trainval_kernel_stats.get('class_gap', float('nan')):.4f}"
+            f" eig_min={trainval_kernel_stats.get('eig_min', float('nan')):.4e}"
+            f" neg_frac={trainval_kernel_stats.get('negative_eig_fraction', float('nan')):.4f}"
+        )
+    if test_kernel_stats:
+        print(
+            "   Test kernel:"
+            f" gap={test_kernel_stats.get('class_gap', float('nan')):.4f}"
+            f" mean={test_kernel_stats.get('mean', float('nan')):.4f}"
+            f" std={test_kernel_stats.get('std', float('nan')):.4f}"
+        )
+
     print(f"🚀 Retraining final SVM with best C: {best_C}...")
     final_svm = EnhancedSVM(
         C=best_C, 
         kernel="precomputed", 
         probability=True, 
         class_weight="balanced",
-        max_iter=50000,
-        tol=1e-4
+        max_iter=svm_max_iter,
+        tol=svm_tol,
+        cache_size=svm_cache_size,
     )
     final_svm.fit(K_trainval, y_trainval)
+    final_svm_stats = _svm_fit_diagnostics(final_svm, len(y_trainval))
     
     y_pred = final_svm.predict(K_test)
     y_proba = final_svm.predict_proba(K_test)[:, 1]
     test_metrics = _compute_binary_metrics(y_test, y_pred, y_proba)
+
+    print(
+        "   Final SVM:"
+        f" converged={int(final_svm_stats.get('converged', 0.0))}"
+        f" n_iter_max={final_svm_stats.get('n_iter_max', float('nan')):.0f}"
+        f" support_frac={final_svm_stats.get('support_fraction', float('nan')):.4f}"
+    )
     
     wandb.log({
         f"fold_{fold_idx}/test_f1": test_metrics["f1"],
@@ -316,7 +563,10 @@ def train_fold(
             probs=None,
             y_true=y_test, preds=y_pred,
             class_names=["Class 0", "Class 1"]
-        )
+        ),
+        **_prefix_metrics(f"fold_{fold_idx}/kernel_trainval", trainval_kernel_stats),
+        **_prefix_metrics(f"fold_{fold_idx}/kernel_test", test_kernel_stats),
+        **_prefix_metrics(f"fold_{fold_idx}/svm_test_fit", final_svm_stats),
     })
     
     print(f"✅ Result Fold {fold_idx+1}: F1={test_metrics['f1']:.4f} AUC={test_metrics['auc']:.4f}")
@@ -335,6 +585,19 @@ def train_fold(
         "test_balanced_acc": test_metrics["balanced_acc"],
         "test_auc": test_metrics["auc"],
         "test_pr_auc": test_metrics["pr_auc"],
+        "train_kernel_gap": train_kernel_stats.get("class_gap", float("nan")),
+        "train_kernel_negative_eig_fraction": train_kernel_stats.get("negative_eig_fraction", float("nan")),
+        "train_kernel_condition_number": train_kernel_stats.get("condition_number", float("nan")),
+        "val_kernel_gap": val_kernel_stats.get("class_gap", float("nan")),
+        "trainval_kernel_gap": trainval_kernel_stats.get("class_gap", float("nan")),
+        "trainval_kernel_negative_eig_fraction": trainval_kernel_stats.get("negative_eig_fraction", float("nan")),
+        "test_kernel_gap": test_kernel_stats.get("class_gap", float("nan")),
+        "val_svm_converged": val_svm_stats.get("converged", float("nan")),
+        "val_svm_n_iter_max": val_svm_stats.get("n_iter_max", float("nan")),
+        "val_svm_support_fraction": val_svm_stats.get("support_fraction", float("nan")),
+        "test_svm_converged": final_svm_stats.get("converged", float("nan")),
+        "test_svm_n_iter_max": final_svm_stats.get("n_iter_max", float("nan")),
+        "test_svm_support_fraction": final_svm_stats.get("support_fraction", float("nan")),
     }
 
 
@@ -434,6 +697,9 @@ if __name__ == "__main__":
     p.add_argument("--cache-kernels", action="store_true", help="Enable disk caching for kernels")
     p.add_argument("--cache-dir", type=str, default="./kernel_cache")
     p.add_argument("--svm-c", type=float, default=None, help="Force SVM C parameter (bypasses Optuna search)")
+    p.add_argument("--svm-max-iter", type=int, default=50000, help="Maximum SVM solver iterations")
+    p.add_argument("--svm-tol", type=float, default=1e-4, help="Tolerance for SVM convergence")
+    p.add_argument("--svm-cache-size", type=float, default=1000.0, help="SVM kernel cache size in MB")
 
     p.add_argument("--state-tile", type=int, default=-1,
                    help="State tile size (-1 for auto VRAM-aware)")

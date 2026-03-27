@@ -35,6 +35,115 @@ def _normalize_diag_inplace(K: np.ndarray):
     K /= d[:, None] * d[None, :]
     np.fill_diagonal(K, 1.0)
 
+
+def _normalize_cross_inplace(K: np.ndarray, diag_left: np.ndarray, diag_right: np.ndarray):
+    if K.size == 0:
+        return
+    dtype = K.dtype if np.issubdtype(K.dtype, np.floating) else np.float64
+    d_left = np.sqrt(np.clip(np.asarray(diag_left, dtype=dtype), 1e-12, None))
+    d_right = np.sqrt(np.clip(np.asarray(diag_right, dtype=dtype), 1e-12, None))
+    K /= d_left[:, None] * d_right[None, :]
+
+
+def _compute_self_kernel_diag(
+        X: Any, *, weights: np.ndarray,
+        device_name: str, tile_size: int, symmetric: bool,
+        n_workers: int, dtype: str, return_dtype: str,
+        gram_backend: str, angle_scale: float, re_embed_between_layers: bool,
+        embed_mode: str, jitter: float, state_tile: int,
+        tile_m: Any, tile_n: Any, tile_k: Any, autotune: bool,
+        precompute_all_states: bool, vram_fraction: float,
+        dynamic_batch: bool, num_streams: int, learn_tiles: bool,
+        profile_memory: bool, use_cuda_graphs: bool, verbose_profile: bool,
+        use_pinned_memory: bool, use_cuda_streams: bool,
+        use_amp: bool, use_compile: bool, tensorcore_precision: str
+) -> np.ndarray:
+    f_dt = np.float32 if dtype == "float32" else np.float64
+    r_dt = np.float32 if return_dtype == "float32" else np.float64
+    x_np = _ensure_numpy(X, f_dt)
+    nq = int(x_np.shape[1])
+    w_np = _ensure_numpy(weights, f_dt)
+
+    if gram_backend == "cuda_states" and nq >= 14 and dtype == "float32":
+        f_dt = np.float64
+        x_np = x_np.astype(f_dt, copy=False)
+        w_np = _ensure_numpy(weights, f_dt)
+
+    block_size = int(state_tile) if int(state_tile) > 0 else int(tile_size)
+    block_size = max(1, block_size)
+
+    def _finalize_diag(norm_sq):
+        norm_sq = np.asarray(norm_sq, dtype=np.float64)
+        return (norm_sq * norm_sq).astype(r_dt, copy=False)
+
+    def _diag_from_gpu_states(normalize_states: bool):
+        import cupy as cp
+
+        diag = np.empty(x_np.shape[0], dtype=r_dt)
+        for i0, i1 in _tile_ranges(x_np.shape[0], block_size):
+            s_th = _build_states_block_torch_cuda(
+                x_np[i0:i1], w_np, device_name, angle_scale, re_embed_between_layers, embed_mode,
+                progress=False, desc="SelfDiag"
+            )
+            s_cp = _torch_cuda_to_cupy(s_th)
+            if normalize_states:
+                s_cp = _normalize_state_tile_cp(s_cp)
+            norm_sq = cp.sum(cp.abs(s_cp) ** 2, axis=1)
+            diag[i0:i1] = _finalize_diag(cp.asnumpy(norm_sq))
+            del s_cp, s_th
+        cp.get_default_memory_pool().free_all_blocks()
+        return diag
+
+    def _diag_from_cpu_states():
+        chunk_size = max(1, int(tile_size))
+        chunks = [list(range(s, min(s + chunk_size, x_np.shape[0]))) for s in range(0, x_np.shape[0], chunk_size)]
+        initargs = (
+            w_np,
+            device_name,
+            nq,
+            "float32" if f_dt == np.float32 else "float64",
+            angle_scale,
+            re_embed_between_layers,
+            embed_mode,
+        )
+
+        if n_workers is None or n_workers <= 1:
+            _pl_worker_init(*initargs)
+            states_blocks = (_pl_states_for_rows(rows, x_np) for rows in chunks)
+        else:
+            import multiprocessing as mp
+            from functools import partial
+
+            ctx = mp.get_context("spawn")
+            pool = ctx.Pool(processes=n_workers, initializer=_pl_worker_init, initargs=initargs)
+            states_blocks = pool.imap(partial(_pl_states_for_rows, mat=x_np), chunks)
+
+        diag_blocks = []
+        try:
+            for states in states_blocks:
+                norm_sq = np.sum(np.abs(states) ** 2, axis=1)
+                diag_blocks.append(_finalize_diag(norm_sq))
+        finally:
+            if n_workers is not None and n_workers > 1:
+                pool.close()
+                pool.join()
+
+        if not diag_blocks:
+            return np.empty((0,), dtype=r_dt)
+        return np.concatenate(diag_blocks, axis=0)
+
+    if gram_backend == "cuda_states":
+        return _diag_from_gpu_states(normalize_states=(nq >= 12))
+
+    if gram_backend in ["torch", "auto"] and "gpu" in str(device_name):
+        try:
+            return _diag_from_gpu_states(normalize_states=False)
+        except Exception:
+            if gram_backend == "torch":
+                raise
+
+    return _diag_from_cpu_states()
+
 # =====================================================================
 # VRAM & Memory Management
 # =====================================================================
@@ -623,8 +732,18 @@ def _compute_optimal_state_tile(vram_fraction: float = 0.85, nq: int = 6,
         # Round down to nearest power of 2 for efficiency
         tile_size = 2 ** int(np.log2(max_states))
         
+        # Cap auto-sized tiles for large state vectors to avoid impractically large
+        # PennyLane batches even when raw VRAM would allow them.
+        qubit_cap = 32768
+        if nq >= 16:
+            qubit_cap = 1024
+        elif nq >= 14:
+            qubit_cap = 2048
+        elif nq >= 12:
+            qubit_cap = 4096
+
         # Ensure minimum and maximum bounds
-        tile_size = max(256, min(tile_size, 32768))
+        tile_size = max(256, min(tile_size, qubit_cap))
         
         return tile_size
     except Exception as e:
@@ -661,7 +780,8 @@ def _compute_max_precompute_size(vram_fraction: float = 0.85, nq: int = 6,
     except Exception:
         return 8192
 
-def _can_precompute_all(n_samples: int, n_qubits: int, dtype, vram_fraction: float = 0.85) -> bool:
+def _can_precompute_all(n_samples_a: int, n_samples_b: int, n_qubits: int, dtype,
+                        vram_fraction: float = 0.85, overhead_gb: float = 2.0) -> bool:
     """
     Check if bulk precomputation will fit in VRAM.
     
@@ -682,15 +802,24 @@ def _can_precompute_all(n_samples: int, n_qubits: int, dtype, vram_fraction: flo
         
         dim = 1 << n_qubits
         bytes_per_complex = 16 if dtype == np.float64 else 8
-        
-        # Memory for states (A and B if needed)
-        states_mem = n_samples * dim * bytes_per_complex * 2  # Factor of 2 for safety
-        
-        # Memory for kernel output
-        kernel_mem = n_samples * n_samples * (8 if dtype == np.float64 else 4)
-        
-        total_needed = states_mem + kernel_mem
-        usable_vram = total_vram * vram_fraction
+
+        b_samples = 0 if n_samples_b is None else n_samples_b
+        state_count = n_samples_a + b_samples
+
+        # Memory for state caches. When Y is None, B reuses A and contributes 0 samples.
+        states_mem = state_count * dim * bytes_per_complex
+
+        # Output kernel matrix is always materialized as float64.
+        kernel_cols = n_samples_a if b_samples == 0 else b_samples
+        kernel_mem = n_samples_a * kernel_cols * 8
+
+        # Leave room for temporary work buffers and current framework allocations.
+        workspace_mem = max(states_mem, kernel_mem)
+        usable_vram = min(available_vram, total_vram * vram_fraction) - int(overhead_gb * 1024**3)
+        if usable_vram <= 0:
+            return False
+
+        total_needed = states_mem + kernel_mem + workspace_mem
         
         return total_needed < usable_vram
     except:
@@ -917,6 +1046,14 @@ def _launch_output_stationary_kernel(kernel_fn, a_tile, b_tile, block_x, block_y
     kernel_fn(grid, block, args)
     return out_tile, a_contig, b_contig, grid, block, args
 
+
+def _normalize_state_tile_cp(s_tile):
+    import cupy as cp
+
+    norms = cp.linalg.norm(s_tile, axis=1, keepdims=True)
+    norms = cp.where(norms > 1e-12, norms, 1.0)
+    return s_tile / norms
+
 # =====================================================================
 # CUDA Kernel Autotuning
 # =====================================================================
@@ -1038,9 +1175,31 @@ def _autotune_kernel_tiles(nq: int, is_double: bool = False,
     return best_config
 
 # =====================================================================
-# State Generation (Torch) -> CuPy (FIXED & BATCHED)
+# State Generation (Torch) -> CuPy
 # =====================================================================
-def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode):
+def _build_states_sequential_torch(state_fn, x, progress=False, desc="States"):
+    import torch as th
+
+    n_rows = int(x.shape[0])
+    if n_rows == 0:
+        raise ValueError("Cannot build states for an empty batch")
+
+    first_state = state_fn(x[0])
+    states = th.empty((n_rows, first_state.shape[-1]), dtype=first_state.dtype, device=first_state.device)
+    states[0] = first_state
+
+    iterator = range(1, n_rows)
+    if progress and n_rows > 1:
+        iterator = tqdm(iterator, total=n_rows - 1, desc=desc, leave=False)
+
+    for idx in iterator:
+        states[idx] = state_fn(x[idx])
+
+    return states
+
+
+def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode,
+                                   progress=False, desc="States"):
     import torch as th
     import pennylane as qml
     
@@ -1073,13 +1232,14 @@ def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode):
             qml.templates.BasicEntanglerLayers(w, wires=range(nq))
         return qml.state()
 
-    # --- ATTEMPT NATIVE BATCHING (FASTEST, NO VMAP) ---
     try:
         states = _state(x)
         if states.ndim != 2 or states.shape[0] != x.shape[0]:
             raise ValueError("Batching not natively supported")
     except:
-        states = th.stack([_state(x[i]) for i in range(x.shape[0])])
+        if progress and x.shape[0] > 1:
+            print(f"⚠️ Native batching unavailable for {desc.lower()}, using sequential state construction.")
+        states = _build_states_sequential_torch(_state, x, progress=progress, desc=desc)
     
     states = states.to(device="cuda", dtype=t_cplx, non_blocking=False)
     
@@ -1096,7 +1256,8 @@ def _torch_cuda_to_cupy(t):
 # =====================================================================
 # Bulk State Precomputation & Async Dispatch
 # =====================================================================
-def _build_all_states_torch_cuda(x_all, w_np, dev_name, ascale, re_emb, mode, use_pinned=True):
+def _build_all_states_torch_cuda(x_all, w_np, dev_name, ascale, re_emb, mode,
+                                 use_pinned=True, progress=False, desc="States"):
     """
     Build ALL quantum states in one pass with pinned memory optimization.
     Minimizes torch→cupy handoffs by precomputing entire matrix at once.
@@ -1150,13 +1311,14 @@ def _build_all_states_torch_cuda(x_all, w_np, dev_name, ascale, re_emb, mode, us
             qml.templates.BasicEntanglerLayers(w, wires=range(nq))
         return qml.state()
 
-    # Attempt native batching for all states at once
     try:
         states = _state(x)
         if states.ndim != 2 or states.shape[0] != x.shape[0]:
             raise ValueError("Batching not natively supported")
     except:
-        states = th.stack([_state(x[i]) for i in range(x.shape[0])])
+        if progress and x.shape[0] > 1:
+            print(f"⚠️ Native batching unavailable for {desc.lower()}, using sequential state construction.")
+        states = _build_states_sequential_torch(_state, x, progress=progress, desc=desc)
     
     states = states.to(device="cuda", dtype=t_cplx, non_blocking=False).contiguous()
     th.cuda.synchronize()
@@ -1383,6 +1545,7 @@ def compute_kernel_matrix(
     f_dt = np.float32 if dtype=="float32" else np.float64
     r_dt = np.float32 if return_dtype=="float32" else np.float64
     is_double = (f_dt == np.float64)
+    raw_result = None
 
     if gram_backend == "cuda_states":
         import cupy as cp
@@ -1419,19 +1582,23 @@ def compute_kernel_matrix(
         # Reuse cached autotune results first when available.
         cache_key = f"nq{nq}_{'double' if is_double else 'float'}"
         cached_tiles = _AUTOTUNE_CACHE.get(cache_key) if autotune and tile_m == "auto" else None
+        kernel_tiles_locked = False
         if cached_tiles is not None:
             tm, tn, tk = cached_tiles
+            kernel_tiles_locked = True
             if progress:
                 print(f"🗂️ Loaded cached kernel tiles: M={tm}, N={tn}, K={tk}")
         # FIX: Add fallback tile sizes for high qubit counts to avoid shared memory errors
         elif nq >= 14:
             # Safe tiles for very high qubit counts
             tm, tn, tk = (16, 16, 16)
+            kernel_tiles_locked = True
             if progress:
                 print(f"⚠️ Using conservative tiles for {nq} qubits: M={tm}, N={tn}, K={tk}")
         elif nq >= 12:
             # Conservative tiles for high qubit counts
             tm, tn, tk = (32, 32, 32)
+            kernel_tiles_locked = True
             if progress:
                 print(f"⚠️ Using conservative tiles for {nq} qubits: M={tm}, N={tn}, K={tk}")
         elif autotune and tile_m == "auto":
@@ -1456,7 +1623,7 @@ def compute_kernel_matrix(
                 if state_tile > 0 and progress:
                     print(f"🧠 Learned state_tile={state_tile} (confidence: {prediction['confidence']:.2f})")
             
-            if prediction["confidence"] > 0.5 and tile_m == "auto":
+            if prediction["confidence"] > 0.5 and tile_m == "auto" and not kernel_tiles_locked:
                 tm, tn, tk = prediction["kernel_tiles"]
                 if progress:
                     print(f"🧠 Learned kernel tiles: M={tm}, N={tn}, K={tk}")
@@ -1518,7 +1685,9 @@ def compute_kernel_matrix(
         
         # Check if bulk precomputation is feasible
         if precompute_all_states:
-            can_precompute = _can_precompute_all(n, nq, f_dt, vram_fraction)
+            can_precompute = _can_precompute_all(
+                n, 0 if Y is None else m, nq, f_dt, vram_fraction
+            )
             if not can_precompute:
                 if progress:
                     print(f"⚠️ VRAM insufficient for bulk precompute ({n} samples × {nq} qubits). "
@@ -1541,8 +1710,10 @@ def compute_kernel_matrix(
             
             start_time = time.time()
             transfer_start = time.time()
-            s_a_cp = _build_all_states_torch_cuda(A, w, device_name, angle_scale, 
-                                                   re_embed_between_layers, embed_mode, use_pinned=True)
+            s_a_cp = _build_all_states_torch_cuda(
+                A, w, device_name, angle_scale, re_embed_between_layers, embed_mode,
+                use_pinned=True, progress=progress, desc="States A"
+            )
             transfer_time_a = (time.time() - transfer_start) * 1000  # Convert to ms
             
             if Y is None:
@@ -1550,8 +1721,10 @@ def compute_kernel_matrix(
                 transfer_time_b = 0
             else:
                 transfer_start = time.time()
-                s_b_cp = _build_all_states_torch_cuda(B, w, device_name, angle_scale,
-                                                       re_embed_between_layers, embed_mode, use_pinned=True)
+                s_b_cp = _build_all_states_torch_cuda(
+                    B, w, device_name, angle_scale, re_embed_between_layers, embed_mode,
+                    use_pinned=True, progress=progress, desc="States B"
+                )
                 transfer_time_b = (time.time() - transfer_start) * 1000  # Convert to ms
             
             if mem_profiler:
@@ -1565,7 +1738,7 @@ def compute_kernel_matrix(
             if stream_pool:
                 compute_stream = stream_pool
             else:
-                compute_stream = _get_compute_stream()
+                compute_stream = cp.cuda.Stream.null
             
             tile_count = 0
             
@@ -1580,32 +1753,13 @@ def compute_kernel_matrix(
             it = tqdm(total=len(i_ranges)*len(j_ranges), desc=desc, leave=False) if progress else None
             
             for i0, i1 in i_ranges:
-                s_a_tile = s_a_cp[i0:i1]
-                
-                # FIX: Add intermediate normalization for high qubit counts
-                # Note: Normalization adds computational cost (~5-10% overhead) but is essential
-                # for preventing numerical overflow when state vector dimension exceeds 2^12.
-                # Without this, accumulated rounding errors can cause NaN/Inf in kernel values.
-                if nq >= 12:
-                    norms_a = cp.linalg.norm(s_a_tile, axis=1, keepdims=True)
-                    norms_a = cp.where(norms_a > 1e-12, norms_a, 1.0)  # Avoid division by zero
-                    s_a_tile = s_a_tile / norms_a
-                
                 j_start = i0 if (symmetric and Y is None) else 0
                 
                 for j0, j1 in j_ranges:
                     if j0 < j_start: 
                         if it: it.update(1)
                         continue
-                    
-                    s_b_tile = s_b_cp[j0:j1]
-                    
-                    # FIX: Add intermediate normalization for high qubit counts
-                    if nq >= 12 and not (symmetric and Y is None and j0 == i0):
-                        norms_b = cp.linalg.norm(s_b_tile, axis=1, keepdims=True)
-                        norms_b = cp.where(norms_b > 1e-12, norms_b, 1.0)  # Avoid division by zero
-                        s_b_tile = s_b_tile / norms_b
-                    
+
                     bi, bj = int(i1-i0), int(j1-j0)
                     
                     kernel_name = "cgemm_abs2_os_full"
@@ -1625,40 +1779,54 @@ def compute_kernel_matrix(
                     # FIX: Round tile dimensions to nearest power of 2 for better graph reuse
                     graph_key = (_round_to_pow2(bi), _round_to_pow2(bj), tm, tn, tk, kernel_name, is_double)
                     kernel_start = time.time()
-                    out_tile = cp.empty((bi, bj), dtype=cp.float64)
-                    
-                    if graph_manager and graph_manager.has_graph(graph_key):
-                        # Graph replay is skipped here: tiles carry new data buffers on each iteration.
-                        with current_stream:
+                    with current_stream:
+                        s_a_tile = s_a_cp[i0:i1]
+                        if nq >= 12:
+                            s_a_tile = _normalize_state_tile_cp(s_a_tile)
+
+                        if symmetric and Y is None and j0 == i0:
+                            s_b_tile = s_a_tile
+                        else:
+                            s_b_tile = s_b_cp[j0:j1]
+                            if nq >= 12:
+                                s_b_tile = _normalize_state_tile_cp(s_b_tile)
+
+                        out_tile = cp.empty((bi, bj), dtype=cp.float64)
+
+                        if graph_manager and graph_manager.has_graph(graph_key):
+                            # Graph replay is skipped here: tiles carry new data buffers on each iteration.
                             out_tile, _, _, _, _, _ = _launch_output_stationary_kernel(
                                 k_fn, s_a_tile, s_b_tile, tn, tm, out_tile=out_tile
                             )
-                    else:
-                        # Execute kernel normally
-                        with current_stream:
+                        else:
+                            # Execute kernel normally
                             out_tile, s_a_contig, s_b_contig, grid, block, args = _launch_output_stationary_kernel(
                                 k_fn, s_a_tile, s_b_tile, tn, tm, out_tile=out_tile
                             )
-                        
-                        # Capture graph for future reuse
-                        if graph_manager and tile_count > 0:  # Skip first tile to avoid capture issues
-                            try:
-                                graph_manager.capture_graph(graph_key, current_stream, k_fn, grid, block, args)
-                            except Exception:
-                                pass  # Graph capture failed, continue without it
+
+                        # FIX: Add numerical stability check for high qubit counts
+                        # Replacement values: NaN→0 (no overlap), +Inf→1 (perfect overlap), -Inf→0 (invalid)
+                        if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
+                            if progress:
+                                print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
+                            out_tile = cp.nan_to_num(out_tile, nan=0.0, posinf=1.0, neginf=0.0)
+
+                        K_cp[i0:i1, j0:j1] = out_tile
+                        if symmetric and (Y is None) and j0 > i0:
+                            K_cp[j0:j1, i0:i1] = out_tile.T
+
+                    # Capture graph for future reuse
+                    if (
+                        graph_manager
+                        and not graph_manager.has_graph(graph_key)
+                        and tile_count > 0
+                    ):
+                        try:
+                            graph_manager.capture_graph(graph_key, current_stream, k_fn, grid, block, args)
+                        except Exception:
+                            pass  # Graph capture failed, continue without it
                     
                     kernel_time = time.time() - kernel_start
-                    
-                    # FIX: Add numerical stability check for high qubit counts
-                    # Replacement values: NaN→0 (no overlap), +Inf→1 (perfect overlap), -Inf→0 (invalid)
-                    if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
-                        if progress:
-                            print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
-                        out_tile = cp.nan_to_num(out_tile, nan=0.0, posinf=1.0, neginf=0.0)
-                    
-                    K_cp[i0:i1, j0:j1] = out_tile
-                    if symmetric and (Y is None) and j0 > i0:
-                        K_cp[j0:j1, i0:i1] = out_tile.T
                     
                     # Track kernel performance
                     if mem_profiler:
@@ -1707,7 +1875,10 @@ def compute_kernel_matrix(
             
             it_b = tqdm(j_ranges, desc="Cache B", leave=False) if (progress and Y is not None) else j_ranges
             for j0, j1 in it_b:
-                s_th = _build_states_block_torch_cuda(B[j0:j1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
+                s_th = _build_states_block_torch_cuda(
+                    B[j0:j1], w, device_name, angle_scale, re_embed_between_layers, embed_mode,
+                    progress=progress, desc="States B"
+                )
                 b_cache[(j0, j1)] = _torch_cuda_to_cupy(s_th)
             
             if mem_profiler:
@@ -1721,32 +1892,22 @@ def compute_kernel_matrix(
             if stream_pool:
                 compute_stream = stream_pool
             else:
-                compute_stream = _get_compute_stream()
+                compute_stream = cp.cuda.Stream.null
             
             tile_count = 0
             
             for i0, i1 in it_a:
-                s_a_th = _build_states_block_torch_cuda(A[i0:i1], w, device_name, angle_scale, re_embed_between_layers, embed_mode)
+                s_a_th = _build_states_block_torch_cuda(
+                    A[i0:i1], w, device_name, angle_scale, re_embed_between_layers, embed_mode,
+                    progress=progress, desc="States A"
+                )
                 s_a_cp = _torch_cuda_to_cupy(s_a_th)
-                
-                # FIX: Add intermediate normalization for high qubit counts
-                if nq >= 12:
-                    norms_a = cp.linalg.norm(s_a_cp, axis=1, keepdims=True)
-                    norms_a = cp.where(norms_a > 1e-12, norms_a, 1.0)  # Avoid division by zero
-                    s_a_cp = s_a_cp / norms_a
                 
                 relevant_j = [ (j0, j1) for (j0, j1) in j_ranges if (not symmetric or j1 > i0) ]
                 for j0, j1 in relevant_j:
                     s_b_cp = b_cache.get((j0, j1))
                     if s_b_cp is None: s_b_cp = b_cache[(j0, j1)] = s_a_cp
-                    
-                    # FIX: Add intermediate normalization for high qubit counts
-                    s_b_tile = s_b_cp
-                    if nq >= 12 and s_b_cp is not s_a_cp:
-                        norms_b = cp.linalg.norm(s_b_cp, axis=1, keepdims=True)
-                        norms_b = cp.where(norms_b > 1e-12, norms_b, 1.0)  # Avoid division by zero
-                        s_b_tile = s_b_cp / norms_b
-                    
+
                     bi, bj = int(i1-i0), int(j1-j0)
                     
                     kernel_name = "cgemm_abs2_os_full"
@@ -1766,22 +1927,33 @@ def compute_kernel_matrix(
                     
                     # Dispatch (graphs less useful in tiled approach due to varying sizes)
                     with current_stream:
+                        s_a_tile = s_a_cp
+                        if nq >= 12:
+                            s_a_tile = _normalize_state_tile_cp(s_a_tile)
+
+                        if s_b_cp is s_a_cp:
+                            s_b_tile = s_a_tile
+                        else:
+                            s_b_tile = s_b_cp
+                            if nq >= 12:
+                                s_b_tile = _normalize_state_tile_cp(s_b_tile)
+
                         out_tile, _, _, _, _, _ = _launch_output_stationary_kernel(
-                            k_fn, s_a_cp, s_b_tile, tn, tm
+                            k_fn, s_a_tile, s_b_tile, tn, tm
                         )
+
+                        # FIX: Add numerical stability check for high qubit counts
+                        # Replacement values: NaN→0 (no overlap), +Inf→1 (perfect overlap), -Inf→0 (invalid)
+                        if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
+                            if progress:
+                                print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
+                            out_tile = cp.nan_to_num(out_tile, nan=0.0, posinf=1.0, neginf=0.0)
+
+                        K_cp[i0:i1, j0:j1] = out_tile
+                        if symmetric and (Y is None) and j0 > i0:
+                            K_cp[j0:j1, i0:i1] = out_tile.T
                     
                     kernel_time = time.time() - kernel_start
-                    
-                    # FIX: Add numerical stability check for high qubit counts
-                    # Replacement values: NaN→0 (no overlap), +Inf→1 (perfect overlap), -Inf→0 (invalid)
-                    if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
-                        if progress:
-                            print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
-                        out_tile = cp.nan_to_num(out_tile, nan=0.0, posinf=1.0, neginf=0.0)
-                    
-                    K_cp[i0:i1, j0:j1] = out_tile
-                    if symmetric and (Y is None) and j0 > i0:
-                        K_cp[j0:j1, i0:i1] = out_tile.T
                     
                     if mem_profiler:
                         mem_profiler.track_kernel(kernel_time * 1000)
@@ -1859,16 +2031,12 @@ def compute_kernel_matrix(
             print("Warning: corrupted matrix (NaN/Inf) detected in the cuda_states backend. Repairing...")
             K = np.nan_to_num(K, nan=0.0, posinf=1.0, neginf=0.0)
         # -----------------------------------
+        raw_result = K
 
-        if normalize and Y is None: 
-            if jitter > 0: K += jitter * np.eye(n, dtype=K.dtype)
-            _normalize_diag_inplace(K)
-        return K
-
-    if gram_backend in ["torch", "auto"] and "gpu" in device_name:
+    if raw_result is None and gram_backend in ["torch", "auto"] and "gpu" in device_name:
         import torch as th
         try:
-            return _gram_torch_stream(
+            raw_result = _gram_torch_stream(
                 _ensure_numpy(X, f_dt), _ensure_numpy(Y, f_dt) if Y is not None else None,
                 weights_np=_ensure_numpy(weights, f_dt), device_name=device_name,
                 tile_size=tile_size, symmetric=symmetric, float_dt=f_dt, ret_dt=r_dt,
@@ -1878,9 +2046,59 @@ def compute_kernel_matrix(
             )
         except Exception as e:
             if gram_backend=="torch": raise e
-            
-    return _gram_pennylane_angles_mp(
-        X, Y, weights=weights, device_name=device_name, tile_size=tile_size,
-        symmetric=symmetric, n_workers=n_workers, dtype=str(f_dt), return_dtype=str(r_dt),
-        progress=progress, desc=desc, angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers, embed_mode=embed_mode
+
+    if raw_result is None:
+        raw_result = _gram_pennylane_angles_mp(
+            X, Y, weights=weights, device_name=device_name, tile_size=tile_size,
+            symmetric=symmetric, n_workers=n_workers, dtype=str(f_dt), return_dtype=str(r_dt),
+            progress=progress, desc=desc, angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers, embed_mode=embed_mode
+        )
+
+    K = np.asarray(raw_result, order="C")
+    if not normalize:
+        return K
+
+    if Y is None:
+        if jitter > 0:
+            K = np.array(K, copy=True, order="C")
+            K += jitter * np.eye(K.shape[0], dtype=K.dtype)
+        _normalize_diag_inplace(K)
+        return K
+
+    if progress:
+        print("ℹ️ Computing self-kernel diagonals for strict cross-kernel normalization.")
+
+    diag_x = _compute_self_kernel_diag(
+        X, weights=weights,
+        device_name=device_name, tile_size=tile_size, symmetric=True,
+        n_workers=n_workers, dtype=dtype, return_dtype=return_dtype,
+        gram_backend=gram_backend, angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers,
+        embed_mode=embed_mode, jitter=jitter, state_tile=state_tile,
+        tile_m=tile_m, tile_n=tile_n, tile_k=tile_k, autotune=autotune,
+        precompute_all_states=precompute_all_states, vram_fraction=vram_fraction,
+        dynamic_batch=dynamic_batch, num_streams=num_streams, learn_tiles=learn_tiles,
+        profile_memory=profile_memory, use_cuda_graphs=use_cuda_graphs, verbose_profile=verbose_profile,
+        use_pinned_memory=use_pinned_memory, use_cuda_streams=use_cuda_streams,
+        use_amp=use_amp, use_compile=use_compile, tensorcore_precision=tensorcore_precision,
     )
+
+    if Y is X:
+        diag_y = diag_x
+    else:
+        diag_y = _compute_self_kernel_diag(
+            Y, weights=weights,
+            device_name=device_name, tile_size=tile_size, symmetric=True,
+            n_workers=n_workers, dtype=dtype, return_dtype=return_dtype,
+            gram_backend=gram_backend, angle_scale=angle_scale, re_embed_between_layers=re_embed_between_layers,
+            embed_mode=embed_mode, jitter=jitter, state_tile=state_tile,
+            tile_m=tile_m, tile_n=tile_n, tile_k=tile_k, autotune=autotune,
+            precompute_all_states=precompute_all_states, vram_fraction=vram_fraction,
+            dynamic_batch=dynamic_batch, num_streams=num_streams, learn_tiles=learn_tiles,
+            profile_memory=profile_memory, use_cuda_graphs=use_cuda_graphs, verbose_profile=verbose_profile,
+            use_pinned_memory=use_pinned_memory, use_cuda_streams=use_cuda_streams,
+            use_amp=use_amp, use_compile=use_compile, tensorcore_precision=tensorcore_precision,
+        )
+
+    K = np.array(K, copy=True, order="C")
+    _normalize_cross_inplace(K, diag_x, diag_y)
+    return K

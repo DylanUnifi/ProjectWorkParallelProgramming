@@ -1,44 +1,205 @@
- 📂 Loading fashion_mnist...
-🚀 Starting 3-Fold CV on None via torch
+Traceback (most recent call last):
+  File "/app/ProjectWorkParallelProgramming/train_svm_qkernel.py", line 456, in <module>
+    run_train(args)
+  File "/app/ProjectWorkParallelProgramming/train_svm_qkernel.py", line 332, in run_train
+    wandb.init(project="pp_project", name=exp_name, config={**config, **vars(args)}, group="qsvm")
+  File "/usr/local/lib/python3.10/dist-packages/wandb/sdk/wandb_init.py", line 1595, in init
+    get_sentry().reraise(e)
+  File "/usr/local/lib/python3.10/dist-packages/wandb/analytics/sentry.py", line 190, in reraise
+    raise exc.with_traceback(tb)
+  File "/usr/local/lib/python3.10/dist-packages/wandb/sdk/wandb_init.py", line 1516, in init
+    wi.maybe_login(init_settings)
+  File "/usr/local/lib/python3.10/dist-packages/wandb/sdk/wandb_init.py", line 193, in maybe_login
+    wandb_login._login(
+  File "/usr/local/lib/python3.10/dist-packages/wandb/sdk/wandb_login.py", line 190, in _login
+    auth = _find_or_prompt_for_key(
+  File "/usr/local/lib/python3.10/dist-packages/wandb/sdk/wandb_login.py", line 266, in _find_or_prompt_for_key
+    auth = wbauth.authenticate_session(
+  File "/usr/local/lib/python3.10/dist-packages/wandb/sdk/lib/wbauth/authenticate.py", line 139, in authenticate_session
+    raise UsageError(
+wandb.errors.errors.UsageError: No API key configured. Use `wandb login` to log in.
+Command exited with non-zero status 1
+10.98user 1.11system 0:04.22elapsed 286%CPU (0avgtext+0avgdata 1157128maxresident)k
+88inputs+8outputs (1major+210621minor)pagefaults 0swaps
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /root/.netrc.
+wandb: Currently logged in as: dylan-fouepe (dylan-fouepe-university-of-florence) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run 0eayaf3n
+wandb: Tracking run with wandb version 0.25.1
+wandb: Run data is saved locally in /app/ProjectWorkParallelProgramming/wandb/run-20260327_121328-0eayaf3n
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run fashion_mnist_qsvm_torch_ryrz_scale0.1
+wandb: ⭐️ View project at https://wandb.ai/dylan-fouepe-university-of-florence/pp_project
+wandb: 🚀 View run at https://wandb.ai/dylan-fouepe-university-of-florence/pp_project/runs/0eayaf3n
+📂 Loading fashion_mnist...
+Extracting:   0%|          | 0/47 [00:00<?, ?it/s]Extracting:   6%|▋         | 3/47 [00:00<00:01, 22.53it/s]Extracting:  19%|█▉        | 9/47 [00:00<00:00, 40.95it/s]Extracting:  32%|███▏      | 15/47 [00:00<00:00, 46.76it/s]Extracting:  49%|████▉     | 23/47 [00:00<00:00, 52.93it/s]Extracting:  62%|██████▏   | 29/47 [00:00<00:00, 54.58it/s]Extracting:  74%|███████▍  | 35/47 [00:00<00:00, 55.69it/s]Extracting:  87%|████████▋ | 41/47 [00:00<00:00, 56.45it/s]                                                           Extracting:   0%|          | 0/8 [00:00<?, ?it/s]Extracting:  12%|█▎        | 1/8 [00:00<00:01,  6.99it/s]Extracting:  88%|████████▊ | 7/8 [00:00<00:00, 32.39it/s]                                                         🚀 Starting 3-Fold CV on None via torch
 ⚙️  Params: tile=None, angle_scale=0.1, embed=ryrz
 
 🔹 Fold 1: Kernel Train (8000x8000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_train_5cd193e8eb13c770357cc5d600b769cf.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_9ac65ade87a232d4a01def5ce86ca80a.npy
 🔹 Fold 1: Kernel Val (4000x8000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_val_b9dcefb189618d90969a213fd2704b95.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_b7d9a26b2a163f34ee201943a799e953.npy
 🔍 Optimizing C (Optuna)...
-✅ Optuna a trouvé le meilleur C: 9.824907183796284
+[I 2026-03-27 12:15:22,123] A new study created in memory with name: no-name-c54bae9e-c14e-4a95-852a-f631099451d4
+[I 2026-03-27 12:15:24,491] Trial 0 finished with value: 0.19999999999999996 and parameters: {'C': 9.718350589868836}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:26,957] Trial 1 finished with value: 0.20732394366197182 and parameters: {'C': 3.2033387366914226}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:29,082] Trial 2 finished with value: 0.2069937958262832 and parameters: {'C': 5.489686828447859}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:32,885] Trial 3 finished with value: 1.0 and parameters: {'C': 0.12345310649992251}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:34,990] Trial 4 finished with value: 0.19999999999999996 and parameters: {'C': 9.758302978537799}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:38,799] Trial 5 finished with value: 0.2185163887291547 and parameters: {'C': 0.4439450478131238}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:41,852] Trial 6 finished with value: 0.2117447769621683 and parameters: {'C': 1.3869587202605624}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:44,686] Trial 7 finished with value: 0.2111643642514801 and parameters: {'C': 1.6944031265572586}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:47,364] Trial 8 finished with value: 0.2099182868413637 and parameters: {'C': 2.2889386036582917}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:51,200] Trial 9 finished with value: 0.9948953547728433 and parameters: {'C': 0.18282163717697122}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:54,797] Trial 10 finished with value: 0.21436716077537055 and parameters: {'C': 0.656709518345906}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:56,836] Trial 11 finished with value: 0.20146108457431866 and parameters: {'C': 7.871679682583852}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:15:58,889] Trial 12 finished with value: 0.19999999999999996 and parameters: {'C': 9.838495496151182}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:01,145] Trial 13 finished with value: 0.20665351000845789 and parameters: {'C': 4.16533410856209}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:03,199] Trial 14 finished with value: 0.19999999999999996 and parameters: {'C': 9.710015265443827}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:05,460] Trial 15 finished with value: 0.20653705269089884 and parameters: {'C': 4.259370514195989}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:08,744] Trial 16 finished with value: 0.21270561542824729 and parameters: {'C': 0.8951389355805497}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:12,503] Trial 17 finished with value: 0.3075916230366492 and parameters: {'C': 0.29440088058365615}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:14,599] Trial 18 finished with value: 0.20688681907987583 and parameters: {'C': 5.172732731949206}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:17,116] Trial 19 finished with value: 0.2094727939103468 and parameters: {'C': 2.2808686757458965}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:19,198] Trial 20 finished with value: 0.20428289659058885 and parameters: {'C': 6.556730970011695}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:21,246] Trial 21 finished with value: 0.2010120888389092 and parameters: {'C': 8.95578984252434}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:23,604] Trial 22 finished with value: 0.20732394366197182 and parameters: {'C': 3.238443827007883}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:25,628] Trial 23 finished with value: 0.19999999999999996 and parameters: {'C': 9.743029677571059}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:27,713] Trial 24 finished with value: 0.20540997464074384 and parameters: {'C': 6.36123530275882}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:29,788] Trial 25 finished with value: 0.20428289659058885 and parameters: {'C': 6.599080873079151}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:32,153] Trial 26 finished with value: 0.2065462753950339 and parameters: {'C': 3.5134378631040772}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:34,695] Trial 27 finished with value: 0.2095774647887324 and parameters: {'C': 2.3359266252105724}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:36,769] Trial 28 finished with value: 0.19999999999999996 and parameters: {'C': 9.96007589356059}. Best is trial 0 with value: 0.19999999999999996.
+[I 2026-03-27 12:16:38,868] Trial 29 finished with value: 0.20688681907987583 and parameters: {'C': 4.891036908038022}. Best is trial 0 with value: 0.19999999999999996.
+✅ Optuna a trouvé le meilleur C: 9.718350589868836
 🔹 Fold 1: Kernel TrainVal (12000x12000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_01f7c5daace34316a43a511d6e30ca37.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_3c44f622d66d82e83abc57155f72be00.npy
 🔹 Fold 1: Kernel Test (2000x12000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_test_d222bda2b3e857e079adbb0b12af4981.npy
-🚀 Retraining final SVM with best C: 9.824907183796284...
-✅ Result Fold 1: F1=0.9834 AUC=0.9971
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_54edb8bfca16f755dd95e9c9a3b277f4.npy
+🚀 Retraining final SVM with best C: 9.718350589868836...
+✅ Result Fold 1: F1=0.7908 AUC=0.8947
 
 🔹 Fold 2: Kernel Train (8000x8000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_train_4b60213bd8e6fc9292a156af64894357.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_6aba57cef9b807ac9356bcd3b7df948b.npy
 🔹 Fold 2: Kernel Val (4000x8000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_val_0b4475d5638c1b8a99aeeb5e0ea02938.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_97a4015c6d5f9f88cd2db71ee1ef635b.npy
 🔍 Optimizing C (Optuna)...
-✅ Optuna a trouvé le meilleur C: 9.562582178981762
+[I 2026-03-27 12:21:24,593] A new study created in memory with name: no-name-ed56c985-b444-4b86-afce-49417f595b03
+[I 2026-03-27 12:21:28,319] Trial 0 finished with value: 0.3214403700033036 and parameters: {'C': 0.10889254565082354}. Best is trial 0 with value: 0.3214403700033036.
+[I 2026-03-27 12:21:30,700] Trial 1 finished with value: 0.19934994582881904 and parameters: {'C': 3.428989640501316}. Best is trial 1 with value: 0.19934994582881904.
+[I 2026-03-27 12:21:32,934] Trial 2 finished with value: 0.19826886664863408 and parameters: {'C': 5.349353679986268}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:36,684] Trial 3 finished with value: 0.3214403700033036 and parameters: {'C': 0.11617536700655835}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:39,091] Trial 4 finished with value: 0.20043336944745394 and parameters: {'C': 3.1221791748279633}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:42,803] Trial 5 finished with value: 0.32087948421226653 and parameters: {'C': 0.17325767929829494}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:46,524] Trial 6 finished with value: 0.31794786651170515 and parameters: {'C': 0.1776374211048218}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:48,892] Trial 7 finished with value: 0.1989174560216509 and parameters: {'C': 3.61914974225686}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:52,592] Trial 8 finished with value: 0.3214403700033036 and parameters: {'C': 0.11217482295782653}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:55,071] Trial 9 finished with value: 0.20075860200487672 and parameters: {'C': 2.0944091676394136}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:57,077] Trial 10 finished with value: 0.19859686994063686 and parameters: {'C': 8.436876086219703}. Best is trial 2 with value: 0.19826886664863408.
+[I 2026-03-27 12:21:59,086] Trial 11 finished with value: 0.19741448963102615 and parameters: {'C': 9.763685164762746}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:01,118] Trial 12 finished with value: 0.19741448963102615 and parameters: {'C': 9.759992035634358}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:04,385] Trial 13 finished with value: 0.20633187772925765 and parameters: {'C': 0.8000144323965387}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:06,424] Trial 14 finished with value: 0.19859686994063686 and parameters: {'C': 8.480829131263862}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:09,548] Trial 15 finished with value: 0.20434782608695656 and parameters: {'C': 1.1412857711275222}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:13,185] Trial 16 finished with value: 0.20816101461262748 and parameters: {'C': 0.4989660989111707}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:15,195] Trial 17 finished with value: 0.19741448963102615 and parameters: {'C': 9.325354294570475}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:17,891] Trial 18 finished with value: 0.20184231915470063 and parameters: {'C': 1.5498418604025381}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:20,125] Trial 19 finished with value: 0.19794483504597082 and parameters: {'C': 5.374731724655614}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:23,667] Trial 20 finished with value: 0.20845921450151061 and parameters: {'C': 0.58444952257619}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:25,694] Trial 21 finished with value: 0.1981666217309248 and parameters: {'C': 8.754900986870448}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:27,902] Trial 22 finished with value: 0.1984856679286101 and parameters: {'C': 5.113485490026279}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:30,196] Trial 23 finished with value: 0.19741448963102615 and parameters: {'C': 9.278108962189089}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:32,735] Trial 24 finished with value: 0.199135368819238 and parameters: {'C': 5.840352067016761}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:35,274] Trial 25 finished with value: 0.20195174844131203 and parameters: {'C': 2.323912529881234}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:37,533] Trial 26 finished with value: 0.1992430386590971 and parameters: {'C': 6.728626201628964}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:40,009] Trial 27 finished with value: 0.19924201407688147 and parameters: {'C': 4.636821576560962}. Best is trial 11 with value: 0.19741448963102615.
+[I 2026-03-27 12:22:42,169] Trial 28 finished with value: 0.19709208400646205 and parameters: {'C': 9.791070778882904}. Best is trial 28 with value: 0.19709208400646205.
+[I 2026-03-27 12:22:44,640] Trial 29 finished with value: 0.20162601626016263 and parameters: {'C': 2.580198429495837}. Best is trial 28 with value: 0.19709208400646205.
+✅ Optuna a trouvé le meilleur C: 9.791070778882904
 🔹 Fold 2: Kernel TrainVal (12000x12000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_7b2db15a718b95cd5e8ead2dc1b7a587.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_08ed22a3db697f1fe1cfa51994148ba2.npy
 🔹 Fold 2: Kernel Test (2000x12000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_test_0aeda7015209c20fd93aaeef0f47dfa9.npy
-🚀 Retraining final SVM with best C: 9.562582178981762...
-✅ Result Fold 2: F1=0.9814 AUC=0.9971
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_745a911a92dd2e35ceaab3ed151f4992.npy
+🚀 Retraining final SVM with best C: 9.791070778882904...
+✅ Result Fold 2: F1=0.7899 AUC=0.8946
 
 🔹 Fold 3: Kernel Train (8000x8000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_train_0e715c415397e22df916ec42197838ad.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_train_c990a0b783c54df6c0ef8ab8481b5850.npy
 🔹 Fold 3: Kernel Val (4000x8000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_val_e7b53adae433f2213923ef5a11baac2e.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_val_e6b244eaf3a560bc45c840c79f842033.npy
 🔍 Optimizing C (Optuna)...
-✅ Optuna a trouvé le meilleur C: 9.810698857575662
+[I 2026-03-27 12:27:28,222] A new study created in memory with name: no-name-7eb04e75-1eba-4678-a1be-05f5bd7a13d4
+[I 2026-03-27 12:27:30,235] Trial 0 finished with value: 0.21103986618344017 and parameters: {'C': 8.571272125071046}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:32,809] Trial 1 finished with value: 0.2183972911963883 and parameters: {'C': 1.548440820186461}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:36,553] Trial 2 finished with value: 0.2810721498072334 and parameters: {'C': 0.19646752792495925}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:40,263] Trial 3 finished with value: 0.26243828332700336 and parameters: {'C': 0.20204140829365166}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:42,271] Trial 4 finished with value: 0.21103986618344017 and parameters: {'C': 9.134283918143186}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:45,964] Trial 5 finished with value: 1.0 and parameters: {'C': 0.14092710273470996}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:49,618] Trial 6 finished with value: 0.2797640987836344 and parameters: {'C': 0.19712744007809824}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:51,631] Trial 7 finished with value: 0.21585160202360876 and parameters: {'C': 5.402740025530555}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:54,691] Trial 8 finished with value: 0.2191122420130054 and parameters: {'C': 1.086930801433297}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:27:56,971] Trial 9 finished with value: 0.21768515911010988 and parameters: {'C': 3.330330090407194}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:28:00,391] Trial 10 finished with value: 0.22389758179231867 and parameters: {'C': 0.6499995354081183}. Best is trial 0 with value: 0.21103986618344017.
+[I 2026-03-27 12:28:02,476] Trial 11 finished with value: 0.21002785515320332 and parameters: {'C': 9.690467087405839}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:04,513] Trial 12 finished with value: 0.21036500417943715 and parameters: {'C': 9.658174066725149}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:06,876] Trial 13 finished with value: 0.2173423423423423 and parameters: {'C': 3.105609570454227}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:09,203] Trial 14 finished with value: 0.2173423423423423 and parameters: {'C': 3.021625628215893}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:12,891] Trial 15 finished with value: 0.22684255807284204 and parameters: {'C': 0.4389088653397866}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:14,927] Trial 16 finished with value: 0.21573033707865163 and parameters: {'C': 5.628503968768657}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:17,461] Trial 17 finished with value: 0.21815107102593012 and parameters: {'C': 1.838209264265648}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:19,536] Trial 18 finished with value: 0.21585160202360876 and parameters: {'C': 5.412778555937315}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:21,534] Trial 19 finished with value: 0.21036500417943715 and parameters: {'C': 9.624616827329307}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:23,954] Trial 20 finished with value: 0.21837137221752612 and parameters: {'C': 2.1822808128381928}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:25,961] Trial 21 finished with value: 0.21103986618344017 and parameters: {'C': 9.037907458204282}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:27,995] Trial 22 finished with value: 0.21607193031750493 and parameters: {'C': 5.62097410549833}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:30,021] Trial 23 finished with value: 0.21536735838474486 and parameters: {'C': 6.680418798974554}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:32,177] Trial 24 finished with value: 0.21834552616769842 and parameters: {'C': 4.140156807232017}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:34,148] Trial 25 finished with value: 0.21002785515320332 and parameters: {'C': 9.72107365227974}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:36,285] Trial 26 finished with value: 0.21834552616769842 and parameters: {'C': 4.1506392445859195}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:38,316] Trial 27 finished with value: 0.21444568868980962 and parameters: {'C': 7.133316755082156}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:41,966] Trial 28 finished with value: 0.22710307206431235 and parameters: {'C': 0.4113092903723327}. Best is trial 11 with value: 0.21002785515320332.
+[I 2026-03-27 12:28:43,929] Trial 29 finished with value: 0.21035058430717868 and parameters: {'C': 9.94106015776482}. Best is trial 11 with value: 0.21002785515320332.
+✅ Optuna a trouvé le meilleur C: 9.690467087405839
 🔹 Fold 3: Kernel TrainVal (12000x12000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_f51a4612c30a7cd56f8e6bb9bd30bb87.npy
+💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_0d46a51180bb78ce24e5f54e8f8f4591.npy
 🔹 Fold 3: Kernel Test (2000x12000)
-💾 Kernel sauvegardé: ./kernel_cache/kernel_test_167156186a6f0ff5298e63743603de8e.npy
-🚀 Retraining final SVM with best C: 9.810698857575662...
-✅ Result Fold 3: F1=0.9840 AUC=0.9970
+💾 Kernel sauvegardé: ./kernel_cache/kernel_test_5ec95822eacfee4fe331f4a022c978eb.npy
+🚀 Retraining final SVM with best C: 9.690467087405839...
+✅ Result Fold 3: F1=0.7906 AUC=0.8940
 
-🏆 Final Average: F1=0.9829, AUC=0.9971
+🏆 Final Average: F1=0.7904, AUC=0.8944
+wandb: updating run metadata; uploading artifact run-0eayaf3n-fold_2confusion_matrix_table-97fjmg
+wandb: uploading artifact run-0eayaf3n-fold_2confusion_matrix_table-97fjmg
+wandb: uploading media/table/fold_2/confusion_matrix_table_5_2d8daadd9b184eac26cd.table.json; uploading output.log; uploading wandb-summary.json; uploading config.yaml
+wandb: 
+wandb: Run history:
+wandb:                     avg/auc ▁
+wandb:                      avg/f1 ▁
+wandb:               fold_0/best_C ▁
+wandb:   fold_0/config/num_streams ▁
+wandb:    fold_0/config/state_tile ▁
+wandb: fold_0/config/vram_fraction ▁
+wandb:             fold_0/test_acc ▁
+wandb:             fold_0/test_auc ▁
+wandb:              fold_0/test_f1 ▁
+wandb:               fold_1/best_C ▁
+wandb:                         +13 ...
+wandb: 
+wandb: Run summary:
+wandb:                             avg/auc 0.89442
+wandb:                              avg/f1 0.79043
+wandb:                       fold_0/best_C 9.71835
+wandb:              fold_0/config/autotune True
+wandb:         fold_0/config/dynamic_batch False
+wandb:           fold_0/config/learn_tiles True
+wandb:           fold_0/config/num_streams 2
+wandb: fold_0/config/precompute_all_states True
+wandb:            fold_0/config/state_tile -1
+wandb:       fold_0/config/use_cuda_graphs False
+wandb:                                 +28 ...
+wandb: 
+wandb: 🚀 View run fashion_mnist_qsvm_torch_ryrz_scale0.1 at: https://wandb.ai/dylan-fouepe-university-of-florence/pp_project/runs/0eayaf3n
+wandb: ⭐️ View project at: https://wandb.ai/dylan-fouepe-university-of-florence/pp_project
+wandb: Synced 5 W&B file(s), 3 media file(s), 6 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260327_121328-0eayaf3n/logs
+10236.28user 115.09system 18:00.49elapsed 958%CPU (0avgtext+0avgdata 29789112maxresident)k
+24inputs+12378096outputs (0major+6782418minor)pagefaults 0swaps

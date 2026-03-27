@@ -208,3 +208,445 @@
 ✅ Result Fold 3: F1=0.6667 AUC=0.5000
 
 🏆 Final Average: F1=0.6667, AUC=0.4993
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /root/.netrc.
+wandb: Currently logged in as: dylan-fouepe (dylan-fouepe-university-of-florence) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: setting up run wej85d41
+wandb: Tracking run with wandb version 0.25.1
+wandb: Run data is saved locally in /app/ProjectWorkParallelProgramming/wandb/run-20260327_124919-wej85d41
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run fashion_mnist_qsvm_cuda_states_ryrz_scale0.1
+wandb: ⭐️ View project at https://wandb.ai/dylan-fouepe-university-of-florence/pp_project
+wandb: 🚀 View run at https://wandb.ai/dylan-fouepe-university-of-florence/pp_project/runs/wej85d41
+📂 Loading fashion_mnist...
+⚠️ Subset Train: 1000
+Extracting:   0%|          | 0/4 [00:00<?, ?it/s]Extracting:  25%|██▌       | 1/4 [00:00<00:00,  4.52it/s]                                                         Extracting:   0%|          | 0/8 [00:00<?, ?it/s]Extracting:  12%|█▎        | 1/8 [00:00<00:00,  8.96it/s]Extracting:  88%|████████▊ | 7/8 [00:00<00:00, 34.89it/s]                                                         🚀 Starting 3-Fold CV on None via cuda_states
+⚙️  Params: tile=-1, angle_scale=0.1, embed=ryrz
+
+🔹 Fold 1: Kernel Train (666x666)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.7GB, kernel=0.0GB, total=0.7GB
+⚡ Bulk precomputing 666 + 666 states...
+Fold 1 train:   0%|          | 0/1 [00:00<?, ?it/s]Fold 1 train: 100%|██████████| 1/1 [00:00<00:00,  2.81it/s]                                                           💾 Kernel sauvegardé: ./kernel_cache/kernel_train_79efc1b87539b2ea58c6b4f1d68e36ee.npy
+🔹 Fold 1: Kernel Val (334x666)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.4GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 334 + 666 states...
+Fold 1 val:   0%|          | 0/1 [00:00<?, ?it/s]Fold 1 val: 100%|██████████| 1/1 [00:00<00:00,  2.24it/s]                                                         💾 Kernel sauvegardé: ./kernel_cache/kernel_val_16fb3bf8e646b6020b4854a9d4792348.npy
+🔍 Optimizing C (Optuna)...
+[I 2026-03-27 12:49:55,706] A new study created in memory with name: no-name-d8fac566-b136-456b-afc7-5ff74c266cf4
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:55,757] Trial 0 finished with value: 0.26996197718631176 and parameters: {'C': 4.551201588563319}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:55,806] Trial 1 finished with value: 0.26996197718631176 and parameters: {'C': 8.398247366445148}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:55,860] Trial 2 finished with value: 0.26996197718631176 and parameters: {'C': 4.914852903002078}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:55,908] Trial 3 finished with value: 0.26996197718631176 and parameters: {'C': 4.479620790151016}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:55,957] Trial 4 finished with value: 0.26996197718631176 and parameters: {'C': 2.641009667279823}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,005] Trial 5 finished with value: 0.26996197718631176 and parameters: {'C': 0.24830691501181573}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,054] Trial 6 finished with value: 0.26996197718631176 and parameters: {'C': 0.1145375318879375}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,102] Trial 7 finished with value: 0.26996197718631176 and parameters: {'C': 4.137982194635296}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,151] Trial 8 finished with value: 0.26996197718631176 and parameters: {'C': 8.15184318493668}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,204] Trial 9 finished with value: 0.26996197718631176 and parameters: {'C': 0.7052505823262399}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,255] Trial 10 finished with value: 0.26996197718631176 and parameters: {'C': 1.3167672942912498}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,305] Trial 11 finished with value: 0.26996197718631176 and parameters: {'C': 8.038658654901132}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,354] Trial 12 finished with value: 0.26996197718631176 and parameters: {'C': 1.50129344011851}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,404] Trial 13 finished with value: 0.26996197718631176 and parameters: {'C': 0.6025106191684098}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,453] Trial 14 finished with value: 0.26996197718631176 and parameters: {'C': 2.548660338369488}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,502] Trial 15 finished with value: 0.26996197718631176 and parameters: {'C': 8.672677420262513}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,555] Trial 16 finished with value: 0.26996197718631176 and parameters: {'C': 2.033102292158091}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,604] Trial 17 finished with value: 0.26996197718631176 and parameters: {'C': 5.100399733280915}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,654] Trial 18 finished with value: 0.26996197718631176 and parameters: {'C': 0.325823432180984}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,703] Trial 19 finished with value: 0.26996197718631176 and parameters: {'C': 3.206083870466673}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,753] Trial 20 finished with value: 0.26996197718631176 and parameters: {'C': 6.322771661074019}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,802] Trial 21 finished with value: 0.26996197718631176 and parameters: {'C': 9.726105540088113}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,851] Trial 22 finished with value: 0.26996197718631176 and parameters: {'C': 4.223757443301787}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,900] Trial 23 finished with value: 0.26996197718631176 and parameters: {'C': 5.87179274022678}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:56,950] Trial 24 finished with value: 0.26996197718631176 and parameters: {'C': 1.6396040578997504}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:57,001] Trial 25 finished with value: 0.26996197718631176 and parameters: {'C': 3.2437222750022765}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:57,050] Trial 26 finished with value: 0.26996197718631176 and parameters: {'C': 6.307988802836243}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:57,100] Trial 27 finished with value: 0.26996197718631176 and parameters: {'C': 0.8138192996328024}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:57,150] Trial 28 finished with value: 0.26996197718631176 and parameters: {'C': 1.0771295967481156}. Best is trial 0 with value: 0.26996197718631176.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:49:57,199] Trial 29 finished with value: 0.26996197718631176 and parameters: {'C': 3.7017614215442975}. Best is trial 0 with value: 0.26996197718631176.
+✅ Optuna a trouvé le meilleur C: 4.551201588563319
+🔹 Fold 1: Kernel TrainVal (1000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=1.0GB, kernel=0.0GB, total=1.1GB
+⚡ Bulk precomputing 1000 + 1000 states...
+TrainVal:   0%|          | 0/1 [00:00<?, ?it/s]TrainVal: 100%|██████████| 1/1 [00:00<00:00,  2.54it/s]                                                       💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_f4d9424b82d2a44144d0d88deb81bb96.npy
+🔹 Fold 1: Kernel Test (2000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 1000 states...
+Test:   0%|          | 0/1 [00:00<?, ?it/s]Test: 100%|██████████| 1/1 [00:02<00:00,  2.98s/it]                                                   💾 Kernel sauvegardé: ./kernel_cache/kernel_test_854dc1fcdf326800cb62f041c150b30d.npy
+🚀 Retraining final SVM with best C: 4.551201588563319...
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+✅ Result Fold 1: F1=0.6667 AUC=0.5000
+
+🔹 Fold 2: Kernel Train (667x667)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.7GB, kernel=0.0GB, total=0.7GB
+⚡ Bulk precomputing 667 + 667 states...
+Fold 2 train:   0%|          | 0/1 [00:00<?, ?it/s]Fold 2 train: 100%|██████████| 1/1 [00:00<00:00,  4.42it/s]                                                           💾 Kernel sauvegardé: ./kernel_cache/kernel_train_ae104714b3fb9634961d9c4a56a234c5.npy
+🔹 Fold 2: Kernel Val (333x667)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 333 + 667 states...
+Fold 2 val:   0%|          | 0/1 [00:00<?, ?it/s]Fold 2 val: 100%|██████████| 1/1 [00:00<00:00,  2.69it/s]                                                         💾 Kernel sauvegardé: ./kernel_cache/kernel_val_b4f1098f10809eb08fe1701e6b6b86ab.npy
+🔍 Optimizing C (Optuna)...
+[I 2026-03-27 12:52:05,891] A new study created in memory with name: no-name-64ce19c0-a104-49ff-816e-a3b647a2e781
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:06,423] Trial 0 finished with value: 1.0 and parameters: {'C': 6.791594881065242}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:07,039] Trial 1 finished with value: 0.3058823529411765 and parameters: {'C': 6.128203272872288}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:07,645] Trial 2 finished with value: 1.0 and parameters: {'C': 4.427771607648497}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:08,169] Trial 3 finished with value: 0.3058823529411765 and parameters: {'C': 2.1360360480593044}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:08,872] Trial 4 finished with value: 1.0 and parameters: {'C': 6.008090111590624}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:09,360] Trial 5 finished with value: 1.0 and parameters: {'C': 0.2825042461259591}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:09,971] Trial 6 finished with value: 1.0 and parameters: {'C': 0.13677852912423522}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:10,705] Trial 7 finished with value: 0.3058823529411765 and parameters: {'C': 0.8742753103894352}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:11,342] Trial 8 finished with value: 0.3058823529411765 and parameters: {'C': 1.7089776687743037}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:11,895] Trial 9 finished with value: 0.3058823529411765 and parameters: {'C': 4.180902643556277}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:12,316] Trial 10 finished with value: 1.0 and parameters: {'C': 0.683977978368097}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:12,719] Trial 11 finished with value: 0.3058823529411765 and parameters: {'C': 2.0599836852146725}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:13,115] Trial 12 finished with value: 0.3058823529411765 and parameters: {'C': 2.0533254600503477}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:13,515] Trial 13 finished with value: 0.3058823529411765 and parameters: {'C': 9.833397431568791}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:13,924] Trial 14 finished with value: 1.0 and parameters: {'C': 2.333842230859493}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:14,330] Trial 15 finished with value: 0.3058823529411765 and parameters: {'C': 2.93390293251654}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:14,732] Trial 16 finished with value: 0.3058823529411765 and parameters: {'C': 0.601788597899303}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:15,131] Trial 17 finished with value: 0.3058823529411765 and parameters: {'C': 9.935085231474169}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:15,538] Trial 18 finished with value: 1.0 and parameters: {'C': 1.216112756896339}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:15,942] Trial 19 finished with value: 0.3058823529411765 and parameters: {'C': 4.247489841343207}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:16,337] Trial 20 finished with value: 1.0 and parameters: {'C': 0.3695593948043026}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:16,734] Trial 21 finished with value: 0.3058823529411765 and parameters: {'C': 1.0370567271609625}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:17,131] Trial 22 finished with value: 1.0 and parameters: {'C': 0.5899943711858765}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:17,538] Trial 23 finished with value: 1.0 and parameters: {'C': 1.420159040108333}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:17,940] Trial 24 finished with value: 0.3058823529411765 and parameters: {'C': 3.101724028152584}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:18,333] Trial 25 finished with value: 0.3058823529411765 and parameters: {'C': 0.4194434058492141}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:18,733] Trial 26 finished with value: 0.3058823529411765 and parameters: {'C': 0.8272955005489003}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:19,128] Trial 27 finished with value: 1.0 and parameters: {'C': 0.194941981527943}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:19,532] Trial 28 finished with value: 0.3058823529411765 and parameters: {'C': 5.949273247726867}. Best is trial 1 with value: 0.3058823529411765.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:52:19,936] Trial 29 finished with value: 0.3058823529411765 and parameters: {'C': 3.0389833850496943}. Best is trial 1 with value: 0.3058823529411765.
+✅ Optuna a trouvé le meilleur C: 6.128203272872288
+🔹 Fold 2: Kernel TrainVal (1000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=1.0GB, kernel=0.0GB, total=1.1GB
+⚡ Bulk precomputing 1000 + 1000 states...
+TrainVal:   0%|          | 0/1 [00:00<?, ?it/s]TrainVal: 100%|██████████| 1/1 [00:00<00:00,  2.38it/s]                                                       💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_943abcecf675507ef833b22b73ee8f87.npy
+🔹 Fold 2: Kernel Test (2000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 1000 states...
+Test:   0%|          | 0/1 [00:00<?, ?it/s]Test: 100%|██████████| 1/1 [00:02<00:00,  2.94s/it]                                                   💾 Kernel sauvegardé: ./kernel_cache/kernel_test_c1893edb06f0af05d749c0c1d17531f7.npy
+🚀 Retraining final SVM with best C: 6.128203272872288...
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+✅ Result Fold 2: F1=0.6667 AUC=0.5000
+
+🔹 Fold 3: Kernel Train (667x667)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.7GB, kernel=0.0GB, total=0.7GB
+⚡ Bulk precomputing 667 + 667 states...
+Fold 3 train:   0%|          | 0/1 [00:00<?, ?it/s]Fold 3 train: 100%|██████████| 1/1 [00:00<00:00,  4.67it/s]                                                           💾 Kernel sauvegardé: ./kernel_cache/kernel_train_1bf576d0457e542e6a48e3757e0611a5.npy
+🔹 Fold 3: Kernel Val (333x667)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=0.3GB, kernel=0.0GB, total=0.4GB
+⚡ Bulk precomputing 333 + 667 states...
+Fold 3 val:   0%|          | 0/1 [00:00<?, ?it/s]Fold 3 val: 100%|██████████| 1/1 [00:00<00:00,  2.34it/s]                                                         💾 Kernel sauvegardé: ./kernel_cache/kernel_val_a554e7adc43923389e2638f5281c32f3.npy
+🔍 Optimizing C (Optuna)...
+[I 2026-03-27 12:53:54,606] A new study created in memory with name: no-name-c19fdbf9-2c70-4aa3-957c-33e5ddc6818a
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:55,013] Trial 0 finished with value: 1.0 and parameters: {'C': 0.21384613682955744}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:55,395] Trial 1 finished with value: 1.0 and parameters: {'C': 5.17953188792728}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:55,772] Trial 2 finished with value: 1.0 and parameters: {'C': 2.5073135121852808}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:56,169] Trial 3 finished with value: 1.0 and parameters: {'C': 0.7787913070710107}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:56,572] Trial 4 finished with value: 1.0 and parameters: {'C': 0.1955481086188924}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:56,974] Trial 5 finished with value: 1.0 and parameters: {'C': 0.24171408412732734}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:57,382] Trial 6 finished with value: 1.0 and parameters: {'C': 0.10916608834523274}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:57,772] Trial 7 finished with value: 1.0 and parameters: {'C': 0.6300246146065476}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:58,212] Trial 8 finished with value: 1.0 and parameters: {'C': 0.7534205198977745}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:58,728] Trial 9 finished with value: 1.0 and parameters: {'C': 0.6127769998723378}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:59,270] Trial 10 finished with value: 1.0 and parameters: {'C': 1.945194728576833}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:53:59,700] Trial 11 finished with value: 1.0 and parameters: {'C': 7.891263609613215}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:00,116] Trial 12 finished with value: 1.0 and parameters: {'C': 9.23878841414475}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:00,603] Trial 13 finished with value: 1.0 and parameters: {'C': 3.897122303770924}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:01,132] Trial 14 finished with value: 1.0 and parameters: {'C': 0.2918546242625865}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:01,609] Trial 15 finished with value: 1.0 and parameters: {'C': 1.5343485987924146}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:01,995] Trial 16 finished with value: 1.0 and parameters: {'C': 4.254668284287242}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:02,451] Trial 17 finished with value: 1.0 and parameters: {'C': 0.34311394439330783}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:03,012] Trial 18 finished with value: 1.0 and parameters: {'C': 0.11907556626150186}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:03,623] Trial 19 finished with value: 1.0 and parameters: {'C': 0.4280145668811761}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:04,060] Trial 20 finished with value: 1.0 and parameters: {'C': 1.2432670549645513}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:04,456] Trial 21 finished with value: 1.0 and parameters: {'C': 2.6680547582192027}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:04,946] Trial 22 finished with value: 1.0 and parameters: {'C': 5.330523226680521}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:05,435] Trial 23 finished with value: 1.0 and parameters: {'C': 2.789953717238775}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:05,904] Trial 24 finished with value: 1.0 and parameters: {'C': 6.433383916930468}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:06,299] Trial 25 finished with value: 1.0 and parameters: {'C': 2.6309097340617327}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:06,753] Trial 26 finished with value: 1.0 and parameters: {'C': 1.803654487619253}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:07,257] Trial 27 finished with value: 1.0 and parameters: {'C': 3.685215884681873}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:07,775] Trial 28 finished with value: 1.0 and parameters: {'C': 1.0988003210535573}. Best is trial 0 with value: 1.0.
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+[I 2026-03-27 12:54:08,190] Trial 29 finished with value: 1.0 and parameters: {'C': 0.1529499078049143}. Best is trial 0 with value: 1.0.
+✅ Optuna a trouvé le meilleur C: 0.21384613682955744
+🔹 Fold 3: Kernel TrainVal (1000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=1.0GB, kernel=0.0GB, total=1.1GB
+⚡ Bulk precomputing 1000 + 1000 states...
+TrainVal:   0%|          | 0/1 [00:00<?, ?it/s]TrainVal: 100%|██████████| 1/1 [00:00<00:00,  2.22it/s]                                                       💾 Kernel sauvegardé: ./kernel_cache/kernel_trainval_fd3a8220533669eea7e4c2663c9d4d73.npy
+🔹 Fold 3: Kernel Test (2000x1000)
+📊 Auto-sized state_tile=32768 (using 95% VRAM)
+⚠️ Using conservative tiles for 16 qubits: M=16, N=16, K=16
+🧠 Learned kernel tiles: M=32, N=16, K=64
+🌊 Stream pool initialized with 2 streams
+📊 Estimated VRAM: states=2.1GB, kernel=0.0GB, total=2.1GB
+⚡ Bulk precomputing 2000 + 1000 states...
+Test:   0%|          | 0/1 [00:00<?, ?it/s]Test: 100%|██████████| 1/1 [00:02<00:00,  2.99s/it]                                                   💾 Kernel sauvegardé: ./kernel_cache/kernel_test_1732491f20740e7e2ffc6d85bb3265fe.npy
+🚀 Retraining final SVM with best C: 0.21384613682955744...
+/usr/local/lib/python3.10/dist-packages/sklearn/svm/_base.py:305: ConvergenceWarning: Solver terminated early (max_iter=50000).  Consider pre-processing your data with StandardScaler or MinMaxScaler.
+  warnings.warn(
+✅ Result Fold 3: F1=0.6667 AUC=0.5000
+
+🏆 Final Average: F1=0.6667, AUC=0.5000
+wandb: updating run metadata; uploading artifact run-wej85d41-fold_2confusion_matrix_table-LwhyXQ
+wandb: uploading artifact run-wej85d41-fold_2confusion_matrix_table-LwhyXQ
+wandb: uploading config.yaml; uploading media/table/fold_2/confusion_matrix_table_5_179c889c6c5ffcd7215b.table.json; uploading output.log; uploading wandb-summary.json
+wandb: uploading history steps 5-6, summary, console lines 381-381
+wandb: 
+wandb: Run history:
+wandb:                     avg/auc ▁
+wandb:                      avg/f1 ▁
+wandb:               fold_0/best_C ▁
+wandb:   fold_0/config/num_streams ▁
+wandb:    fold_0/config/state_tile ▁
+wandb: fold_0/config/vram_fraction ▁
+wandb:             fold_0/test_acc ▁
+wandb:             fold_0/test_auc ▁
+wandb:              fold_0/test_f1 ▁
+wandb:               fold_1/best_C ▁
+wandb:                         +13 ...
+wandb: 
+wandb: Run summary:
+wandb:                             avg/auc 0.5
+wandb:                              avg/f1 0.66667
+wandb:                       fold_0/best_C 4.5512
+wandb:              fold_0/config/autotune True
+wandb:         fold_0/config/dynamic_batch False
+wandb:           fold_0/config/learn_tiles True
+wandb:           fold_0/config/num_streams 2
+wandb: fold_0/config/precompute_all_states True
+wandb:            fold_0/config/state_tile -1
+wandb:       fold_0/config/use_cuda_graphs False
+wandb:                                 +28 ...
+wandb: 
+wandb: 🚀 View run fashion_mnist_qsvm_cuda_states_ryrz_scale0.1 at: https://wandb.ai/dylan-fouepe-university-of-florence/pp_project/runs/wej85d41
+wandb: ⭐️ View project at: https://wandb.ai/dylan-fouepe-university-of-florence/pp_project
+wandb: Synced 5 W&B file(s), 3 media file(s), 6 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260327_124919-wej85d41/logs
+5207.57user 20.35system 5:51.05elapsed 1489%CPU (0avgtext+0avgdata 5408660maxresident)k
+568inputs+91456outputs (0major+13744750minor)pagefaults 0swaps

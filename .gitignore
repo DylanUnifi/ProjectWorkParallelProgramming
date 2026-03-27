@@ -61,3 +61,6 @@ local_libs/
 tmp/
 
 kernel_cache/
+
+.log_*
+log_*.txt

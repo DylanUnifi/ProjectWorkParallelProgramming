@@ -1,0 +1,5 @@
+dataset:
+  name: "cifar10"
+  binary_classes: [1, 6]  # Automobile vs Frog
+  grayscale: true         # Simplifie l'image RGB avant la PCA
+  root: "./data"

@@ -1,5 +1,6 @@
 # pipeline_backends.py — Optimized, Synchronized, Vmap-Free & Numerically Safe
 from typing import Optional, Any, Callable, Dict, Tuple, List
+import math
 import os
 import sys
 import json
@@ -808,15 +809,17 @@ void cgemm_abs2_os_full(const double2* __restrict__ A,
 
     double sum_real = 0.0;
     double sum_imag = 0.0;
+    const int row_a = i * lda;
+    const int row_b = j * ldb;
 
     for (int k = 0; k < K_dim; ++k) {
-        double2 a_val = A[i * lda + k];
-        double2 b_val = B[j * ldb + k];
+        const double2 a_val = A[row_a + k];
+        const double2 b_val = B[row_b + k];
         
-        double a_r = a_val.x;
-        double a_i = a_val.y;
-        double b_r = b_val.x;
-        double b_i = b_val.y;
+        const double a_r = a_val.x;
+        const double a_i = a_val.y;
+        const double b_r = b_val.x;
+        const double b_i = b_val.y;
 
         sum_real += (a_r * b_r + a_i * b_i);
         sum_imag += (a_i * b_r - a_r * b_i);
@@ -842,15 +845,17 @@ void cgemm_abs2_os_lower(const double2* __restrict__ A,
 
     double sum_real = 0.0;
     double sum_imag = 0.0;
+    const int row_a = i * lda;
+    const int row_b = j * ldb;
 
     for (int k = 0; k < K_dim; ++k) {
-        double2 a_val = A[i * lda + k];
-        double2 b_val = B[j * ldb + k];
+        const double2 a_val = A[row_a + k];
+        const double2 b_val = B[row_b + k];
         
-        double a_r = a_val.x;
-        double a_i = a_val.y;
-        double b_r = b_val.x;
-        double b_i = b_val.y;
+        const double a_r = a_val.x;
+        const double a_i = a_val.y;
+        const double b_r = b_val.x;
+        const double b_i = b_val.y;
 
         sum_real += (a_r * b_r + a_i * b_i);
         sum_imag += (a_i * b_r - a_r * b_i);
@@ -864,18 +869,53 @@ def _round_to_pow2(x):
     """Round to nearest power of 2 for better graph reuse."""
     return 2 ** int(np.ceil(np.log2(max(1, x))))
 
-_RAWMOD_CACHE = {}
+_RAWKERNEL_NAME_ALIASES = {
+    "cgemm_abs2_tiled_full": "cgemm_abs2_os_full",
+    "cgemm_abs2_tiled_lower": "cgemm_abs2_os_lower",
+}
+
+_RAWKERNEL_CACHE = {}
 def _get_kernel(tm, tn, tk, name, double):
     import cupy as cp
-    key = (tm, tn, tk, name, double)
-    if key in _RAWMOD_CACHE: return _RAWMOD_CACHE[key]
+    kernel_name = _RAWKERNEL_NAME_ALIASES.get(name, name)
+    key = (kernel_name,)
+    if key in _RAWKERNEL_CACHE:
+        return _RAWKERNEL_CACHE[key]
     
-    opts = ("--std=c++14", "--use_fast_math")
+    opts = ("--std=c++14",)
     
-    mod = cp.RawModule(code=CUDA_TEMPLATE, options=opts, name_expressions=(name,))
-    fn = mod.get_function(name)
-    _RAWMOD_CACHE[key] = fn
+    fn = cp.RawKernel(CUDA_TEMPLATE, kernel_name, options=opts)
+    _RAWKERNEL_CACHE[key] = fn
     return fn
+
+def _launch_output_stationary_kernel(kernel_fn, a_tile, b_tile, block_x, block_y, out_tile=None):
+    import cupy as cp
+
+    a_contig = cp.ascontiguousarray(a_tile, dtype=cp.complex128)
+    b_contig = cp.ascontiguousarray(b_tile, dtype=cp.complex128)
+
+    if a_contig.ndim != 2 or b_contig.ndim != 2:
+        raise ValueError("Output-stationary Gram kernel expects 2D input tiles.")
+    if a_contig.shape[1] != b_contig.shape[1]:
+        raise ValueError("Input tiles must share the same state dimension.")
+
+    bi = int(a_contig.shape[0])
+    bj = int(b_contig.shape[0])
+    k_dim = int(a_contig.shape[1])
+    block_x = max(1, int(block_x))
+    block_y = max(1, int(block_y))
+
+    if block_x * block_y > 1024:
+        raise ValueError(f"Invalid CUDA block shape ({block_x}, {block_y}): exceeds 1024 threads.")
+
+    if out_tile is None:
+        out_tile = cp.empty((bi, bj), dtype=cp.float64)
+
+    grid = (math.ceil(bj / block_x), math.ceil(bi / block_y), 1)
+    block = (block_x, block_y, 1)
+    args = (a_contig, b_contig, out_tile, bi, bj, k_dim, k_dim, k_dim, bj)
+    kernel_fn(grid, block, args)
+    return out_tile, a_contig, b_contig, grid, block, args
 
 # =====================================================================
 # CUDA Kernel Autotuning
@@ -926,8 +966,8 @@ def _autotune_kernel_tiles(nq: int, is_double: bool = False,
         return _AUTOTUNE_CACHE[cache_key]
     
     dim = 1 << nq
-    dtype_complex = cp.complex128 if is_double else cp.complex64
-    dtype_real = cp.float64 if is_double else cp.float32
+    dtype_complex = cp.complex128
+    dtype_real = cp.float64
     
     # Generate test data
     rng = cp.random.default_rng(42)
@@ -962,20 +1002,17 @@ def _autotune_kernel_tiles(nq: int, is_double: bool = False,
                 
                 try:
                     kernel = _get_kernel(tm, tn, tk, "cgemm_abs2_tiled_full", is_double)
-                    
-                    grid = ((test_size + tn - 1) // tn, (test_size + tm - 1) // tm, 1)
-                    block = (tn, tm, 1)
-                    
+
                     # Warmup
                     for _ in range(warmup):
-                        kernel(grid, block, (SA, SB, K_out, test_size, test_size, dim, dim, dim, test_size))
+                        _launch_output_stationary_kernel(kernel, SA, SB, tn, tm, out_tile=K_out)
                     cp.cuda.runtime.deviceSynchronize()
                     
                     # Benchmark
                     times = []
                     for _ in range(trials):
                         start = time.perf_counter()
-                        kernel(grid, block, (SA, SB, K_out, test_size, test_size, dim, dim, dim, test_size))
+                        _launch_output_stationary_kernel(kernel, SA, SB, tn, tm, out_tile=K_out)
                         cp.cuda.runtime.deviceSynchronize()
                         times.append(time.perf_counter() - start)
                     
@@ -1456,7 +1493,7 @@ def compute_kernel_matrix(
             if progress:
                 print(f"📊 Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
         
-        K_cp = cp.empty((n, m), dtype=cp.float64 if is_double else cp.float32)
+        K_cp = cp.empty((n, m), dtype=cp.float64)
         
         if mem_profiler:
             mem_profiler.track_allocation("kernel_output", K_cp.nbytes)
@@ -1465,7 +1502,7 @@ def compute_kernel_matrix(
         if progress:
             dim = 1 << nq
             states_gb = n * dim * (16 if is_double else 8) / 1e9
-            kernel_gb = n * m * (8 if is_double else 4) / 1e9
+            kernel_gb = n * m * 8 / 1e9
             print(f"📊 Estimated VRAM: states={states_gb:.1f}GB, kernel={kernel_gb:.1f}GB, "
                   f"total={states_gb + kernel_gb:.1f}GB")
         
@@ -1564,19 +1601,12 @@ def compute_kernel_matrix(
                     
                     bi, bj = int(i1-i0), int(j1-j0)
                     
-                    use_lower = (symmetric and (Y is None) and j0==i0)
-                    kernel_name = "cgemm_abs2_os_lower" if use_lower else "cgemm_abs2_os_full"
+                    kernel_name = "cgemm_abs2_os_full"
                     
                     try:
                         k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
                     except Exception as e:
                         raise
-                    
-                    import math
-                    grid = (math.ceil(bj / tn), math.ceil(bi / tm), 1)
-                    block = (tn, tm, 1)
-                    
-                    out_tile = cp.empty((bi, bj), dtype=cp.float64)
                     
                     # Select stream
                     if stream_pool:
@@ -1588,23 +1618,25 @@ def compute_kernel_matrix(
                     # FIX: Round tile dimensions to nearest power of 2 for better graph reuse
                     graph_key = (_round_to_pow2(bi), _round_to_pow2(bj), tm, tn, tk, kernel_name, is_double)
                     kernel_start = time.time()
+                    out_tile = cp.empty((bi, bj), dtype=cp.float64)
                     
                     if graph_manager and graph_manager.has_graph(graph_key):
-                        # Replay existing graph
+                        # Graph replay is skipped here: tiles carry new data buffers on each iteration.
                         with current_stream:
-                            graph_manager.replay_graph(graph_key, current_stream)
+                            out_tile, _, _, _, _, _ = _launch_output_stationary_kernel(
+                                k_fn, s_a_tile, s_b_tile, tn, tm, out_tile=out_tile
+                            )
                     else:
                         # Execute kernel normally
                         with current_stream:
-                            s_a_contig = cp.ascontiguousarray(s_a_tile, dtype=cp.complex128)
-                            s_b_contig = cp.ascontiguousarray(s_b_tile, dtype=cp.complex128)
-                            k_fn(grid, block, (s_a_contig, s_b_contig, out_tile, bi, bj, dim, dim, dim, bj))
+                            out_tile, s_a_contig, s_b_contig, grid, block, args = _launch_output_stationary_kernel(
+                                k_fn, s_a_tile, s_b_tile, tn, tm, out_tile=out_tile
+                            )
                         
                         # Capture graph for future reuse
                         if graph_manager and tile_count > 0:  # Skip first tile to avoid capture issues
                             try:
-                                graph_manager.capture_graph(graph_key, current_stream, k_fn, grid, block,
-                                                           (s_a_contig, s_b_contig, out_tile, bi, bj, dim, dim, dim, bj))
+                                graph_manager.capture_graph(graph_key, current_stream, k_fn, grid, block, args)
                             except Exception:
                                 pass  # Graph capture failed, continue without it
                     
@@ -1710,19 +1742,12 @@ def compute_kernel_matrix(
                     
                     bi, bj = int(i1-i0), int(j1-j0)
                     
-                    use_lower = (symmetric and (Y is None) and j0==i0)
-                    kernel_name = "cgemm_abs2_os_lower" if use_lower else "cgemm_abs2_os_full"
+                    kernel_name = "cgemm_abs2_os_full"
                     
                     try:
                         k_fn = _get_kernel(tm, tn, tk, kernel_name, is_double)
                     except Exception as e:
                         raise
-                    
-                    import math
-                    grid = (math.ceil(bj / tn), math.ceil(bi / tm), 1)
-                    block = (tn, tm, 1)
-                    
-                    out_tile = cp.empty((bi, bj), dtype=cp.float64)
                     
                     # Select stream
                     if stream_pool:
@@ -1734,9 +1759,9 @@ def compute_kernel_matrix(
                     
                     # Dispatch (graphs less useful in tiled approach due to varying sizes)
                     with current_stream:
-                        s_a_contig = cp.ascontiguousarray(s_a_cp, dtype=cp.complex128)
-                        s_b_contig = cp.ascontiguousarray(s_b_tile, dtype=cp.complex128)
-                        k_fn(grid, block, (s_a_contig, s_b_contig, out_tile, bi, bj, dim, dim, dim, bj))
+                        out_tile, _, _, _, _, _ = _launch_output_stationary_kernel(
+                            k_fn, s_a_cp, s_b_tile, tn, tm
+                        )
                     
                     kernel_time = time.time() - kernel_start
                     

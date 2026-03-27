@@ -1,0 +1,5 @@
+dataset:
+  name: "svhn"
+  binary_classes: [3, 5]  # Digit 3 vs Digit 5
+  grayscale: true
+  root: "./data"

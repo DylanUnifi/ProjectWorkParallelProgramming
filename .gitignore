@@ -64,3 +64,6 @@ kernel_cache/
 
 .log_*
 log_*.txt
+
+.summary_*
+summary_*.txt

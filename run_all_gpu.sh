@@ -6,7 +6,7 @@ sizes=("500" "1000" "2500" "5000" "all")
 backends=("torch" "cuda_states") # 👈 La magie opère ici !
 
 gpu_id=0
-max_gpus=8
+max_gpus=5
 
 echo "🔥 Démarrage du cluster Quantique sur $max_gpus GPUs (Torch & CUDA States)..."
 
@@ -35,9 +35,9 @@ for ds in "${datasets[@]}"; do
         
         gpu_id=$(( (gpu_id + 1) % max_gpus ))
         
-        # Pause tous les 8 lancements
+        # Pause tous les 5 lancements
         if [ $gpu_id -eq 0 ]; then
-          echo "⏳ Les 8 GPUs sont occupés. Attente de la fin de la vague..."
+          echo "⏳ Les 5 GPUs sont occupés. Attente de la fin de la vague..."
           wait
         fi
         

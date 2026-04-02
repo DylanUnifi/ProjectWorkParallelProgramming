@@ -3,3 +3,6 @@ dataset:
   binary_classes: [3, 5]  # Cat vs Dog
   grayscale: true
   root: "./data"
+
+pennylane:
+  layers: 6

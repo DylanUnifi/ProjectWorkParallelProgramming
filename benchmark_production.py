@@ -29,7 +29,7 @@ CLI Arguments:
 - --sample-scaling: Test scaling with sample count
 
 Configuration:
-- --n-samples: Number of samples (default: 20000)
+- --n-samples: Number of samples (default: 10000)
 - --n-qubits: Number of qubits (default: 16)
 - --output-dir: Output directory (default: benchmark_results)
 - --warmup-runs: Number of warmup runs (default: 1)
@@ -44,6 +44,9 @@ import sys
 import os
 import time
 import argparse
+import multiprocessing as mp
+import traceback
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -64,10 +67,14 @@ except ImportError:
 
 # Try to import torch for GPU memory monitoring
 try:
+    torch = None
     import torch
     HAS_TORCH = torch.cuda.is_available()
+    TORCH_GPU_COUNT = torch.cuda.device_count() if HAS_TORCH else 0
 except ImportError:
+    torch = None
     HAS_TORCH = False
+    TORCH_GPU_COUNT = 0
 
 # ═══════════════════════════════════════════════════════════
 # CONFIGURATION
@@ -75,9 +82,38 @@ except ImportError:
 
 # Test configurations
 QUBITS_RANGE = [8, 12, 16]
-SAMPLE_SIZES = [10000, 20000, 30000]
-N_SAMPLES_DEFAULT = 10000
+SAMPLE_SIZES = [2048, 4096, 8192]
+N_SAMPLES_DEFAULT = 8192
 N_QUBITS_DEFAULT = 16
+DEFAULT_PARALLEL_GPUS = 5
+COMPARISON_VALIDATION_SAMPLES = 8192
+WARMUP_RUNS_DEFAULT = 1
+BENCHMARK_RUNS_DEFAULT = 1
+CURRENT_DATASET_PROFILE = "custom"
+
+DATASET_PROFILES = {
+    "fashion": {
+        "qubits_range": [6, 8, 12],
+        "sample_sizes": [1024, 2048, 4096],
+        "n_samples_default": 4096,
+        "n_qubits_default": 12,
+        "comparison_validation_samples": 1024,
+    },
+    "cifar10": {
+        "qubits_range": [8, 12, 16],
+        "sample_sizes": [2048, 4096, 8192],
+        "n_samples_default": 8192,
+        "n_qubits_default": 16,
+        "comparison_validation_samples": 2048,
+    },
+    "svhn": {
+        "qubits_range": [8, 12, 16],
+        "sample_sizes": [2048, 4096, 8192],
+        "n_samples_default": 8192,
+        "n_qubits_default": 16,
+        "comparison_validation_samples": 2048,
+    },
+}
 
 # Backend configurations with VALID parameters only
 BACKEND_CONFIGS = {
@@ -89,28 +125,28 @@ BACKEND_CONFIGS = {
         "tile_size": 5000,
         # cuda_states optimization parameters
         "state_tile": -1,
-        "vram_fraction": 0.95,
+        "vram_fraction": 0.50,
         "autotune": True,
         "precompute_all_states": True,
-        "dynamic_batch": True,
-        "num_streams": 2,
+        "dynamic_batch": False,
+        "num_streams": 1,
         "learn_tiles": True,
-        "use_cuda_graphs": True,
-        "profile_memory": True,
-        "verbose_profile": True,
+        "use_cuda_graphs": False,
+        "profile_memory": False,
+        "verbose_profile": False,
     },
-    #"torch": {
-    #    "device_name": "lightning.gpu",
-    #    "gram_backend": "torch",
-    #    "dtype": "float64",
-    #    "symmetric": True,
-    #    "tile_size": 512,
+    "torch": {
+        "device_name": "lightning.gpu",
+        "gram_backend": "torch",
+        "dtype": "float64",
+        "symmetric": True,
+        "tile_size": 2048,
         # Torch-specific optimizations
-    #    "use_pinned_memory": True,
-    #    "use_cuda_streams": True,
-    #    "use_amp": False,
-    #    "use_compile": False,
-    #},
+        "use_pinned_memory": False,
+        "use_cuda_streams": False,
+        "use_amp": False,
+        "use_compile": False,
+    },
     "numpy": {
         "device_name": "default.qubit",
         "gram_backend": "numpy",
@@ -125,7 +161,39 @@ BACKEND_CONFIGS = {
 OUTPUT_DIR = ROOT / "benchmark_results"
 OUTPUT_CSV = OUTPUT_DIR / "production_benchmark.csv"
 OUTPUT_PLOTS = OUTPUT_DIR / "production_benchmark.png"
+OUTPUT_PLOTS_SVG = OUTPUT_DIR / "production_benchmark.svg"
 OUTPUT_JSON = OUTPUT_DIR / "production_benchmark_summary.json"
+OUTPUT_BEST_CSV = OUTPUT_DIR / "production_best_configs.csv"
+
+BACKEND_COLORS = {
+    "cuda_states": "#2ca02c",
+    "torch": "#ff7f0e",
+    "numpy": "#1f77b4",
+}
+
+def apply_dataset_profile(profile_name: str):
+    """Apply dataset profile to benchmark globals."""
+    global QUBITS_RANGE, SAMPLE_SIZES, N_SAMPLES_DEFAULT, N_QUBITS_DEFAULT, COMPARISON_VALIDATION_SAMPLES
+    profile = DATASET_PROFILES.get(profile_name)
+    if not profile:
+        return
+
+    QUBITS_RANGE = list(profile["qubits_range"])
+    SAMPLE_SIZES = list(profile["sample_sizes"])
+    N_SAMPLES_DEFAULT = int(profile["n_samples_default"])
+    N_QUBITS_DEFAULT = int(profile["n_qubits_default"])
+    COMPARISON_VALIDATION_SAMPLES = int(profile["comparison_validation_samples"])
+
+
+def configure_output_paths(output_dir_name: str):
+    """Configure output artifact paths from CLI selection."""
+    global OUTPUT_DIR, OUTPUT_CSV, OUTPUT_PLOTS, OUTPUT_PLOTS_SVG, OUTPUT_JSON, OUTPUT_BEST_CSV
+    OUTPUT_DIR = ROOT / output_dir_name
+    OUTPUT_CSV = OUTPUT_DIR / "production_benchmark.csv"
+    OUTPUT_PLOTS = OUTPUT_DIR / "production_benchmark.png"
+    OUTPUT_PLOTS_SVG = OUTPUT_DIR / "production_benchmark.svg"
+    OUTPUT_JSON = OUTPUT_DIR / "production_benchmark_summary.json"
+    OUTPUT_BEST_CSV = OUTPUT_DIR / "production_best_configs.csv"
 
 # ═══════════════════════════════════════════════════════════
 # UTILITY FUNCTIONS
@@ -146,7 +214,7 @@ def format_time(seconds: float) -> str:
 
 def get_gpu_memory_info() -> Tuple[float, float]:
     """Get current and peak GPU memory usage in GB."""
-    if HAS_TORCH:
+    if HAS_TORCH and torch is not None:
         current = torch.cuda.memory_allocated() / (1024**3)
         peak = torch.cuda.max_memory_allocated() / (1024**3)
         return current, peak
@@ -154,7 +222,7 @@ def get_gpu_memory_info() -> Tuple[float, float]:
 
 def reset_gpu_memory():
     """Reset GPU memory stats and clear cache."""
-    if HAS_TORCH:
+    if HAS_TORCH and torch is not None:
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
@@ -163,6 +231,113 @@ def calculate_state_vector_size(n_qubits: int, dtype: str = "float64") -> float:
     dim = 2 ** n_qubits
     bytes_per_element = 16 if dtype == "float64" else 8
     return dim * bytes_per_element / (1024**3)
+
+def configure_gpu_device(gpu_id: Optional[int]):
+    """Pin the current process to a GPU device when available."""
+    if gpu_id is None or gpu_id < 0:
+        return
+
+    if HAS_TORCH and torch is not None:
+        try:
+            torch.cuda.set_device(gpu_id)
+        except Exception:
+            pass
+
+    try:
+        import cupy as cp
+        cp.cuda.Device(gpu_id).use()
+    except Exception:
+        pass
+
+def _is_gpu_backend(backend_name: str) -> bool:
+    return backend_name in {"cuda_states", "torch"}
+
+def _assign_gpu_id(job_index: int, backend_name: str, parallel_gpus: int) -> int:
+    if parallel_gpus <= 0 or not _is_gpu_backend(backend_name):
+        return -1
+    return job_index % parallel_gpus
+
+def _resolve_backends(backends: Optional[List[str]] = None) -> List[str]:
+    """Resolve and validate backend list against available configurations."""
+    if backends is None:
+        return list(BACKEND_CONFIGS.keys())
+    return [b for b in backends if b in BACKEND_CONFIGS]
+
+def _backend_runtime_config(backend_name: str, config: Dict) -> Dict:
+    """Prepare backend-specific config compatible with pipeline_backends behavior."""
+    cfg = config.copy()
+
+    if backend_name == "cuda_states":
+        cfg["gram_backend"] = "cuda_states"
+        cfg["device_name"] = "lightning.gpu"
+        return cfg
+
+    if backend_name == "torch":
+        cfg["gram_backend"] = "torch"
+        cfg["device_name"] = "lightning.gpu"
+        # Keep torch path conservative by default; optimization tests override these explicitly.
+        cfg.setdefault("use_pinned_memory", False)
+        cfg.setdefault("use_cuda_streams", False)
+        cfg.setdefault("use_amp", False)
+        cfg.setdefault("use_compile", False)
+        return cfg
+
+    # numpy / CPU fallback path
+    cfg["gram_backend"] = "numpy"
+    cfg["device_name"] = "default.qubit"
+    cfg.pop("state_tile", None)
+    cfg.pop("vram_fraction", None)
+    cfg.pop("dynamic_batch", None)
+    cfg.pop("num_streams", None)
+    cfg.pop("learn_tiles", None)
+    cfg.pop("use_cuda_graphs", None)
+    cfg.pop("profile_memory", None)
+    cfg.pop("verbose_profile", None)
+    cfg.pop("use_pinned_memory", None)
+    cfg.pop("use_cuda_streams", None)
+    cfg.pop("use_amp", None)
+    cfg.pop("use_compile", None)
+    return cfg
+
+def _benchmark_job_worker(job: Dict) -> Optional[Dict]:
+    """Worker entry point for parallel benchmark execution."""
+    return benchmark_single_config(
+        n_qubits=job["n_qubits"],
+        n_samples=job["n_samples"],
+        backend_name=job["backend_name"],
+        config=job["config"],
+        warmup=job.get("warmup", False),
+        warmup_runs=job.get("warmup_runs", 1),
+        repeats=job.get("repeats", 1),
+        gpu_id=job.get("gpu_id", -1),
+    )
+
+def run_jobs_parallel(jobs: List[Dict], parallel_gpus: int, max_workers: Optional[int] = None) -> List[Optional[Dict]]:
+    """Execute benchmark jobs in parallel across available GPUs."""
+    if not jobs:
+        return []
+
+    gpu_jobs = [j for j in jobs if _is_gpu_backend(j["backend_name"]) and parallel_gpus > 0]
+    cpu_jobs = [j for j in jobs if not _is_gpu_backend(j["backend_name"]) or parallel_gpus <= 0]
+
+    results: List[Optional[Dict]] = []
+
+    if gpu_jobs:
+        workers = max_workers if max_workers is not None else min(len(gpu_jobs), parallel_gpus)
+        workers = max(1, workers)
+        gpu_results: List[Optional[Dict]] = [None] * len(gpu_jobs)
+        with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("spawn")) as ex:
+            future_to_idx = {ex.submit(_benchmark_job_worker, job): idx for idx, job in enumerate(gpu_jobs)}
+            for fut in as_completed(future_to_idx):
+                idx = future_to_idx[fut]
+                gpu_results[idx] = fut.result()
+        results.extend(gpu_results)
+
+    # Keep CPU jobs sequential to avoid oversubscribing CPU worker pools used by compute_kernel_matrix.
+    for job in cpu_jobs:
+        results.append(_benchmark_job_worker(job))
+
+    return results
 
 # ═══════════════════════════════════════════════════════════
 # BENCHMARK FUNCTIONS
@@ -173,8 +348,11 @@ def benchmark_single_config(
     n_samples: int,
     backend_name: str,
     config: Dict,
-    warmup: bool = True,
-    repeats: int = 3,
+    warmup: bool = False,
+    warmup_runs: int = 1,
+    repeats: int = 1,
+    gpu_id: int = -1,
+    return_kernel: bool = False,
 ) -> Optional[Dict]:
     """Run benchmark for a single configuration."""
     
@@ -184,32 +362,40 @@ def benchmark_single_config(
     weights = rng.normal(0, 0.1, (2, n_qubits)).astype(np_dtype)
     
     run_config = config.copy()
+    torch_fallback_tried = False
+
+    configure_gpu_device(gpu_id)
     
     # Adjust state_tile for high qubit counts
     if "state_tile" in run_config and n_qubits >= 14:
         run_config["state_tile"] = min(run_config["state_tile"], 2048)
     
     reset_gpu_memory()
+    kernel_snapshot = None
     
     try:
         # Warmup run
         if warmup:
-            _ = compute_kernel_matrix(angles[:min(256, n_samples)], weights=weights, **run_config)
-            if HAS_TORCH:
-                torch.cuda.synchronize()
+            for _ in range(max(1, warmup_runs)):
+                _ = compute_kernel_matrix(angles[:min(256, n_samples)], weights=weights, **run_config)
+                if HAS_TORCH and torch is not None:
+                    torch.cuda.synchronize()
         
         reset_gpu_memory()
         
         # Timed runs
         times = []
         for _ in range(repeats):
-            if HAS_TORCH:
+            if HAS_TORCH and torch is not None:
                 torch.cuda.synchronize()
             
             t0 = time.perf_counter()
             K = compute_kernel_matrix(angles, weights=weights, **run_config)
+
+            if return_kernel:
+                kernel_snapshot = np.asarray(K, dtype=np.float64)
             
-            if HAS_TORCH:
+            if HAS_TORCH and torch is not None:
                 torch.cuda.synchronize()
             
             times.append(time.perf_counter() - t0)
@@ -227,22 +413,107 @@ def benchmark_single_config(
             "n_qubits": n_qubits,
             "backend": backend_name,
             "n_samples": n_samples,
+            "gpu_id": gpu_id,
             "time_s": mean_time,
             "time_std_s": std_time,
             "throughput_mpairs_s": throughput,
             "peak_vram_gb": peak_vram,
             "state_vector_size_gb": calculate_state_vector_size(n_qubits, config.get("dtype", "float64")),
+            "kernel_matrix": kernel_snapshot if return_kernel else None,
         }
         
     except Exception as e:
-        print(f"  ❌ ERROR: {str(e)[:60]}")
+        if backend_name == "torch" and not torch_fallback_tried:
+            safe_config = config.copy()
+            safe_config.update({
+                "use_pinned_memory": False,
+                "use_cuda_streams": False,
+                "use_amp": False,
+                "use_compile": False,
+            })
+            torch_fallback_tried = True
+            print("  ⚠️ Torch backend failed with the current config; retrying with conservative flags.")
+            try:
+                reset_gpu_memory()
+                run_config = safe_config
+                if warmup:
+                    for _ in range(max(1, warmup_runs)):
+                        _ = compute_kernel_matrix(angles[:min(256, n_samples)], weights=weights, **run_config)
+                        if HAS_TORCH and torch is not None:
+                            torch.cuda.synchronize()
+
+                reset_gpu_memory()
+
+                times = []
+                for _ in range(repeats):
+                    if HAS_TORCH and torch is not None:
+                        torch.cuda.synchronize()
+
+                    t0 = time.perf_counter()
+                    K = compute_kernel_matrix(angles, weights=weights, **run_config)
+
+                    if return_kernel:
+                        kernel_snapshot = np.asarray(K, dtype=np.float64)
+
+                    if HAS_TORCH and torch is not None:
+                        torch.cuda.synchronize()
+
+                    times.append(time.perf_counter() - t0)
+                    del K
+
+                _, peak_vram = get_gpu_memory_info()
+                mean_time = np.mean(times)
+                std_time = np.std(times)
+                n_pairs = n_samples * (n_samples + 1) // 2
+                throughput = n_pairs / mean_time / 1e6
+
+                return {
+                    "n_qubits": n_qubits,
+                    "backend": backend_name,
+                    "n_samples": n_samples,
+                    "gpu_id": gpu_id,
+                    "time_s": mean_time,
+                    "time_std_s": std_time,
+                    "throughput_mpairs_s": throughput,
+                    "peak_vram_gb": peak_vram,
+                    "state_vector_size_gb": calculate_state_vector_size(n_qubits, config.get("dtype", "float64")),
+                    "torch_fallback": True,
+                    "kernel_matrix": kernel_snapshot if return_kernel else None,
+                }
+            except Exception as fallback_error:
+                print(f"  ❌ ERROR: {fallback_error}")
+                traceback.print_exc()
+                return None
+
+        print(f"  ❌ ERROR: {e}")
+        traceback.print_exc()
         return None
 
-def test_qubit_impact(backends: List[str] = None) -> pd.DataFrame:
+def _kernel_fidelity_metrics(reference: np.ndarray, candidate: np.ndarray) -> Dict[str, float]:
+    """Compute numerical fidelity metrics between two kernel matrices."""
+    ref = np.asarray(reference, dtype=np.float64)
+    cand = np.asarray(candidate, dtype=np.float64)
+    if ref.shape != cand.shape or ref.size == 0:
+        return {}
+
+    diff = cand - ref
+    denom = np.linalg.norm(ref, ord='fro')
+    rel_fro = np.linalg.norm(diff, ord='fro') / (denom + 1e-12)
+
+    diag_ref = np.diag(ref)
+    diag_cand = np.diag(cand)
+
+    return {
+        "kernel_mae": float(np.mean(np.abs(diff))),
+        "kernel_max_abs_err": float(np.max(np.abs(diff))),
+        "kernel_rel_fro_err": float(rel_fro),
+        "kernel_diag_mae": float(np.mean(np.abs(diag_cand - diag_ref))),
+    }
+
+def test_qubit_impact(backends: Optional[List[str]] = None, parallel_gpus: int = 1, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Test impact of qubit count on performance."""
     
-    if backends is None:
-        backends = list(BACKEND_CONFIGS.keys())
+    backends = _resolve_backends(backends)
     
     print("\n" + "="*80)
     print("TEST 1: Impact of Number of Qubits on Performance")
@@ -250,38 +521,44 @@ def test_qubit_impact(backends: List[str] = None) -> pd.DataFrame:
     
     results = []
     
+    jobs = []
     for backend_name in backends:
         if backend_name not in BACKEND_CONFIGS:
             continue
-            
-        config = BACKEND_CONFIGS[backend_name]
-        qubit_limit = 16 
-        applicable_qubits = [q for q in QUBITS_RANGE if q <= qubit_limit]
-        
+        config = _backend_runtime_config(backend_name, BACKEND_CONFIGS[backend_name])
+        for n_qubits in [q for q in QUBITS_RANGE if q <= 16]:
+            jobs.append({
+                "n_qubits": n_qubits,
+                "n_samples": N_SAMPLES_DEFAULT,
+                "backend_name": backend_name,
+                "config": config,
+                "gpu_id": _assign_gpu_id(len(jobs), backend_name, parallel_gpus),
+                "warmup": warmup_runs > 0,
+                "warmup_runs": warmup_runs,
+                "repeats": benchmark_runs,
+            })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    results = [r for r in raw if r]
+
+    for backend_name in backends:
+        subset = sorted([r for r in results if r["backend"] == backend_name], key=lambda x: x["n_qubits"])
+        if not subset:
+            continue
         print(f"\n🔧 Backend: {backend_name.upper()}")
-        print(f"{'Qubits':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-        print("-"*60)
-        
-        for n_qubits in applicable_qubits:
-            result = benchmark_single_config(
-                n_qubits=n_qubits,
-                n_samples=N_SAMPLES_DEFAULT,
-                backend_name=backend_name,
-                config=config,
-            )
-            
-            if result:
-                results.append(result)
-                print(f"{n_qubits:<8} {result['time_s']:<12.3f} {result['throughput_mpairs_s']:<12.3f} "
-                      f"{result['peak_vram_gb']:<12.2f}")
+        print(f"{'Qubits':<8} {'GPU':<6} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
+        print("-"*70)
+        for result in subset:
+            gpu_label = result['gpu_id'] if result['gpu_id'] >= 0 else "CPU"
+            print(f"{result['n_qubits']:<8} {str(gpu_label):<6} {result['time_s']:<12.3f} {result['throughput_mpairs_s']:<12.3f} "
+                  f"{result['peak_vram_gb']:<12.2f}")
     
     return pd.DataFrame(results)
 
-def test_sample_scaling(backends: List[str] = None) -> pd.DataFrame:
+def test_sample_scaling(backends: Optional[List[str]] = None, parallel_gpus: int = 1, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Test how performance scales with sample count."""
     
-    if backends is None:
-        backends = list(BACKEND_CONFIGS.keys())
+    backends = _resolve_backends(backends)
     
     print("\n" + "="*80)
     print("TEST 2: Sample Count Scaling (O(N²) verification)")
@@ -292,29 +569,33 @@ def test_sample_scaling(backends: List[str] = None) -> pd.DataFrame:
     print(f"\n{'Backend':<15} {'N':<8} {'Time (s)':<12} {'Mpairs/s':<12}")
     print("-"*60)
     
+    jobs = []
     for backend_name in backends:
         if backend_name not in BACKEND_CONFIGS:
             continue
-            
-        config = BACKEND_CONFIGS[backend_name]
-        sample_limits = SAMPLE_SIZES
-        
-        for n_samples in sample_limits:
-            result = benchmark_single_config(
-                n_qubits=N_QUBITS_DEFAULT,
-                n_samples=n_samples,
-                backend_name=backend_name,
-                config=config,
-            )
-            
-            if result:
-                results.append(result)
-                print(f"{backend_name:<15} {n_samples:<8} {result['time_s']:<12.3f} "
-                      f"{result['throughput_mpairs_s']:<12.3f}")
+        config = _backend_runtime_config(backend_name, BACKEND_CONFIGS[backend_name])
+        for n_samples in SAMPLE_SIZES:
+            jobs.append({
+                "n_qubits": N_QUBITS_DEFAULT,
+                "n_samples": n_samples,
+                "backend_name": backend_name,
+                "config": config,
+                "gpu_id": _assign_gpu_id(len(jobs), backend_name, parallel_gpus),
+                "warmup": warmup_runs > 0,
+                "warmup_runs": warmup_runs,
+                "repeats": benchmark_runs,
+            })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    results = [r for r in raw if r]
+
+    for result in sorted(results, key=lambda x: (x['backend'], x['n_samples'])):
+        print(f"{result['backend']:<15} {result['n_samples']:<8} {result['time_s']:<12.3f} "
+              f"{result['throughput_mpairs_s']:<12.3f}")
     
     return pd.DataFrame(results)
 
-def test_tile_optimization() -> pd.DataFrame:
+def test_tile_optimization(parallel_gpus: int = 1, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Test tile size optimization for cuda_states."""
     
     print("\n" + "="*80)
@@ -328,21 +609,28 @@ def test_tile_optimization() -> pd.DataFrame:
     print(f"\n{'state_tile':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*60)
     
+    jobs = []
     for state_tile in state_tiles:
         config = BACKEND_CONFIGS["cuda_states"].copy()
         config["state_tile"] = state_tile
-        
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name="cuda_states",
-            config=config,
-        )
-        
+        jobs.append({
+            "n_qubits": N_QUBITS_DEFAULT,
+            "n_samples": n_samples,
+            "backend_name": "cuda_states",
+            "config": config,
+            "gpu_id": _assign_gpu_id(len(jobs), "cuda_states", parallel_gpus),
+            "state_tile": state_tile,
+            "warmup": warmup_runs > 0,
+            "warmup_runs": warmup_runs,
+            "repeats": benchmark_runs,
+        })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    for job, result in zip(jobs, raw):
         if result:
-            result["state_tile"] = state_tile
+            result["state_tile"] = job["state_tile"]
             results.append(result)
-            print(f"{state_tile:<12} {result['time_s']:<12.3f} "
+            print(f"{job['state_tile']:<12} {result['time_s']:<12.3f} "
                   f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
     
     if results:
@@ -351,7 +639,7 @@ def test_tile_optimization() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
-def benchmark_vram_fraction_impact() -> pd.DataFrame:
+def benchmark_vram_fraction_impact(parallel_gpus: int = 1, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Test impact of VRAM fraction parameter for cuda_states."""
     
     print("\n" + "="*80)
@@ -365,22 +653,32 @@ def benchmark_vram_fraction_impact() -> pd.DataFrame:
     print(f"\n{'VRAM Frac':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*60)
     
+    jobs = []
     for vram_frac in vram_fractions:
         config = BACKEND_CONFIGS["cuda_states"].copy()
         config["vram_fraction"] = vram_frac
         config["state_tile"] = -1  # Auto-size based on VRAM fraction
-        
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name="cuda_states",
-            config=config,
-        )
-        
+        config["dynamic_batch"] = False
+        config["num_streams"] = 1
+        config["use_cuda_graphs"] = False
+        jobs.append({
+            "n_qubits": N_QUBITS_DEFAULT,
+            "n_samples": n_samples,
+            "backend_name": "cuda_states",
+            "config": config,
+            "gpu_id": _assign_gpu_id(len(jobs), "cuda_states", parallel_gpus),
+            "vram_fraction": vram_frac,
+            "warmup": warmup_runs > 0,
+            "warmup_runs": warmup_runs,
+            "repeats": benchmark_runs,
+        })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    for job, result in zip(jobs, raw):
         if result:
-            result["vram_fraction"] = vram_frac
+            result["vram_fraction"] = job["vram_fraction"]
             results.append(result)
-            print(f"{vram_frac:<12.2f} {result['time_s']:<12.3f} "
+            print(f"{job['vram_fraction']:<12.2f} {result['time_s']:<12.3f} "
                   f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
     
     if results:
@@ -389,7 +687,7 @@ def benchmark_vram_fraction_impact() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
-def benchmark_stream_pool_impact() -> pd.DataFrame:
+def benchmark_stream_pool_impact(parallel_gpus: int = 1, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Test impact of num_streams parameter for cuda_states."""
     
     print("\n" + "="*80)
@@ -398,26 +696,33 @@ def benchmark_stream_pool_impact() -> pd.DataFrame:
     
     results = []
     n_samples = N_SAMPLES_DEFAULT
-    stream_counts = [1, 2, 4, 8]
+    stream_counts = [1]
     
     print(f"\n{'Streams':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*60)
     
+    jobs = []
     for num_streams in stream_counts:
         config = BACKEND_CONFIGS["cuda_states"].copy()
         config["num_streams"] = num_streams
-        
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name="cuda_states",
-            config=config,
-        )
-        
+        jobs.append({
+            "n_qubits": N_QUBITS_DEFAULT,
+            "n_samples": n_samples,
+            "backend_name": "cuda_states",
+            "config": config,
+            "gpu_id": _assign_gpu_id(len(jobs), "cuda_states", parallel_gpus),
+            "num_streams": num_streams,
+            "warmup": warmup_runs > 0,
+            "warmup_runs": warmup_runs,
+            "repeats": benchmark_runs,
+        })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    for job, result in zip(jobs, raw):
         if result:
-            result["num_streams"] = num_streams
+            result["num_streams"] = job["num_streams"]
             results.append(result)
-            print(f"{num_streams:<12} {result['time_s']:<12.3f} "
+            print(f"{job['num_streams']:<12} {result['time_s']:<12.3f} "
                   f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
     
     if results:
@@ -426,7 +731,7 @@ def benchmark_stream_pool_impact() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
-def benchmark_optimization_ablation() -> pd.DataFrame:
+def benchmark_optimization_ablation(parallel_gpus: int = 1, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Compare each optimization's individual contribution (cuda_states)."""
     
     print("\n" + "="*80)
@@ -441,37 +746,37 @@ def benchmark_optimization_ablation() -> pd.DataFrame:
         "All Optimizations": {
             "autotune": True,
             "precompute_all_states": True,
-            "dynamic_batch": True,
-            "use_cuda_graphs": True,
-            "num_streams": 4,
+            "dynamic_batch": False,
+            "use_cuda_graphs": False,
+            "num_streams": 1,
         },
         "No Autotune": {
             "autotune": False,
             "precompute_all_states": True,
-            "dynamic_batch": True,
-            "use_cuda_graphs": True,
-            "num_streams": 4,
+            "dynamic_batch": False,
+            "use_cuda_graphs": False,
+            "num_streams": 1,
         },
         "No Precompute": {
             "autotune": True,
             "precompute_all_states": False,
-            "dynamic_batch": True,
-            "use_cuda_graphs": True,
-            "num_streams": 4,
+            "dynamic_batch": False,
+            "use_cuda_graphs": False,
+            "num_streams": 1,
         },
         "No Dynamic Batch": {
             "autotune": True,
             "precompute_all_states": True,
             "dynamic_batch": False,
-            "use_cuda_graphs": True,
-            "num_streams": 4,
+            "use_cuda_graphs": False,
+            "num_streams": 1,
         },
         "No CUDA Graphs": {
             "autotune": True,
             "precompute_all_states": True,
-            "dynamic_batch": True,
+            "dynamic_batch": False,
             "use_cuda_graphs": False,
-            "num_streams": 4,
+            "num_streams": 1,
         },
         "Baseline (No Opts)": {
             "autotune": False,
@@ -485,36 +790,44 @@ def benchmark_optimization_ablation() -> pd.DataFrame:
     print(f"\n{'Configuration':<22} {'Time (s)':<12} {'Mpairs/s':<12} {'Speedup':<10}")
     print("-"*70)
     
-    baseline_time = None
-    
-    for config_name, opts in configs.items():
+    jobs = []
+    ordered_names = list(configs.keys())
+    for config_name in ordered_names:
+        opts = configs[config_name]
         config = BACKEND_CONFIGS["cuda_states"].copy()
         config.update(opts)
-        
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name="cuda_states",
-            config=config,
-        )
-        
+        jobs.append({
+            "n_qubits": N_QUBITS_DEFAULT,
+            "n_samples": n_samples,
+            "backend_name": "cuda_states",
+            "config": config,
+            "gpu_id": _assign_gpu_id(len(jobs), "cuda_states", parallel_gpus),
+            "configuration": config_name,
+            "warmup": warmup_runs > 0,
+            "warmup_runs": warmup_runs,
+            "repeats": benchmark_runs,
+        })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    rows = []
+    for job, result in zip(jobs, raw):
         if result:
-            # Use baseline for speedup calculation
-            if config_name == "Baseline (No Opts)":
-                baseline_time = result['time_s']
-            
-            speedup = baseline_time / result['time_s'] if baseline_time and result['time_s'] > 0 else 1.0
-            
-            result["configuration"] = config_name
-            result["speedup"] = speedup
-            results.append(result)
-            
-            print(f"{config_name:<22} {result['time_s']:<12.3f} "
-                  f"{result['throughput_mpairs_s']:<12.3f} {speedup:<10.2f}x")
+            result["configuration"] = job["configuration"]
+            rows.append(result)
+
+    baseline_row = next((r for r in rows if r.get("configuration") == "Baseline (No Opts)"), None)
+    baseline_time = baseline_row['time_s'] if baseline_row else None
+
+    for row in rows:
+        speedup = baseline_time / row['time_s'] if baseline_time and row['time_s'] > 0 else 1.0
+        row["speedup"] = speedup
+        results.append(row)
+        print(f"{row['configuration']:<22} {row['time_s']:<12.3f} "
+              f"{row['throughput_mpairs_s']:<12.3f} {speedup:<10.2f}x")
     
     return pd.DataFrame(results)
 
-def benchmark_with_profiling() -> pd.DataFrame:
+def benchmark_with_profiling(warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Run with full memory profiling and report (cuda_states)."""
     
     print("\n" + "="*80)
@@ -537,6 +850,9 @@ def benchmark_with_profiling() -> pd.DataFrame:
         n_samples=n_samples,
         backend_name="cuda_states",
         config=config,
+        warmup=warmup_runs > 0,
+        warmup_runs=warmup_runs,
+        repeats=benchmark_runs,
     )
     
     if result:
@@ -546,7 +862,7 @@ def benchmark_with_profiling() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
-def benchmark_torch_optimizations() -> pd.DataFrame:
+def benchmark_torch_optimizations(parallel_gpus: int = 1, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Benchmark torch backend with different optimization flags."""
     
     print("\n" + "="*80)
@@ -567,6 +883,7 @@ def benchmark_torch_optimizations() -> pd.DataFrame:
     print(f"\n{'Config':<25} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*70)
     
+    jobs = []
     for config_dict in configs:
         base_config = BACKEND_CONFIGS["torch"].copy()
         base_config["tile_size"] = tile_size
@@ -574,19 +891,26 @@ def benchmark_torch_optimizations() -> pd.DataFrame:
         for key in ["use_pinned_memory", "use_cuda_streams", "use_amp", "use_compile"]:
             if key in config_dict:
                 base_config[key] = config_dict[key]
-        
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name="torch",
-            config=base_config,
-        )
-        
+        jobs.append({
+            "n_qubits": N_QUBITS_DEFAULT,
+            "n_samples": n_samples,
+            "backend_name": "torch",
+            "config": base_config,
+            "gpu_id": _assign_gpu_id(len(jobs), "torch", parallel_gpus),
+            "config_name": config_dict["name"],
+            "tile_size": tile_size,
+            "warmup": warmup_runs > 0,
+            "warmup_runs": warmup_runs,
+            "repeats": benchmark_runs,
+        })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    for job, result in zip(jobs, raw):
         if result:
-            result["config_name"] = config_dict["name"]
-            result["tile_size"] = tile_size
+            result["config_name"] = job["config_name"]
+            result["tile_size"] = job["tile_size"]
             results.append(result)
-            print(f"{config_dict['name']:<25} {result['time_s']:<12.3f} "
+            print(f"{job['config_name']:<25} {result['time_s']:<12.3f} "
                   f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
     
     if results:
@@ -595,7 +919,7 @@ def benchmark_torch_optimizations() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
-def benchmark_torch_tile_sizes() -> pd.DataFrame:
+def benchmark_torch_tile_sizes(parallel_gpus: int = 1, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Test optimal tile_size for torch backend."""
     
     print("\n" + "="*80)
@@ -609,21 +933,28 @@ def benchmark_torch_tile_sizes() -> pd.DataFrame:
     print(f"\n{'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*60)
     
+    jobs = []
     for tile_size in tile_sizes:
         config = BACKEND_CONFIGS["torch"].copy()
         config["tile_size"] = tile_size
-        
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name="torch",
-            config=config,
-        )
-        
+        jobs.append({
+            "n_qubits": N_QUBITS_DEFAULT,
+            "n_samples": n_samples,
+            "backend_name": "torch",
+            "config": config,
+            "gpu_id": _assign_gpu_id(len(jobs), "torch", parallel_gpus),
+            "tile_size": tile_size,
+            "warmup": warmup_runs > 0,
+            "warmup_runs": warmup_runs,
+            "repeats": benchmark_runs,
+        })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    for job, result in zip(jobs, raw):
         if result:
-            result["tile_size"] = tile_size
+            result["tile_size"] = job["tile_size"]
             results.append(result)
-            print(f"{tile_size:<12} {result['time_s']:<12.3f} "
+            print(f"{job['tile_size']:<12} {result['time_s']:<12.3f} "
                   f"{result['throughput_mpairs_s']:<12.3f} {result['peak_vram_gb']:<12.2f}")
     
     if results:
@@ -632,7 +963,7 @@ def benchmark_torch_tile_sizes() -> pd.DataFrame:
     
     return pd.DataFrame(results)
 
-def benchmark_backend_comparison() -> pd.DataFrame:
+def benchmark_backend_comparison(parallel_gpus: int = 1, backends: Optional[List[str]] = None, warmup_runs: int = 1, benchmark_runs: int = 1) -> pd.DataFrame:
     """Compare all backends: cuda_states, torch, numpy."""
     
     print("\n" + "="*80)
@@ -645,19 +976,87 @@ def benchmark_backend_comparison() -> pd.DataFrame:
     print(f"\n{'Backend':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
     print("-"*60)
     
-    for backend_name, config in BACKEND_CONFIGS.items():
-        result = benchmark_single_config(
-            n_qubits=N_QUBITS_DEFAULT,
-            n_samples=n_samples,
-            backend_name=backend_name,
-            config=config,
-        )
-        
-        if result:
-            results.append(result)
-            vram_str = f"{result['peak_vram_gb']:.2f}" if result['peak_vram_gb'] > 0 else "N/A"
-            print(f"{backend_name:<15} {result['time_s']:<12.3f} "
-                  f"{result['throughput_mpairs_s']:<12.3f} {vram_str:<12}")
+    jobs = []
+    selected_backends = _resolve_backends(backends)
+    for backend_name in selected_backends:
+        config = _backend_runtime_config(backend_name, BACKEND_CONFIGS[backend_name])
+        jobs.append({
+            "n_qubits": N_QUBITS_DEFAULT,
+            "n_samples": n_samples,
+            "backend_name": backend_name,
+            "config": config,
+            "gpu_id": _assign_gpu_id(len(jobs), backend_name, parallel_gpus),
+            "warmup": warmup_runs > 0,
+            "warmup_runs": warmup_runs,
+            "repeats": benchmark_runs,
+        })
+
+    raw = run_jobs_parallel(jobs, parallel_gpus=parallel_gpus)
+    for result in [r for r in raw if r]:
+        results.append(result)
+        vram_str = f"{result['peak_vram_gb']:.2f}" if result['peak_vram_gb'] > 0 else "N/A"
+        print(f"{result['backend']:<15} {result['time_s']:<12.3f} "
+              f"{result['throughput_mpairs_s']:<12.3f} {vram_str:<12}")
+
+    # Evaluate kernel fidelity against numpy reference to match training objective.
+    if results:
+        result_by_backend = {r['backend']: r for r in results}
+        if 'numpy' in result_by_backend:
+            print("\nKernel fidelity vs numpy reference (smaller is better):")
+            print(f"{'Backend':<15} {'MAE':<12} {'MaxAbs':<12} {'RelFro':<12} {'DiagMAE':<12}")
+            print("-"*70)
+
+            ref_backend = 'numpy'
+            validation_samples = min(N_SAMPLES_DEFAULT, COMPARISON_VALIDATION_SAMPLES)
+            ref_config = _backend_runtime_config(ref_backend, BACKEND_CONFIGS[ref_backend])
+            ref_eval = benchmark_single_config(
+                n_qubits=N_QUBITS_DEFAULT,
+                n_samples=validation_samples,
+                backend_name=ref_backend,
+                config=ref_config,
+                warmup=False,
+                repeats=1,
+                gpu_id=-1,
+                return_kernel=True,
+            )
+            ref_kernel = ref_eval.get('kernel_matrix') if ref_eval else None
+
+            if ref_kernel is not None:
+                for backend_name in sorted(result_by_backend.keys()):
+                    if backend_name == ref_backend:
+                        result_by_backend[backend_name].update({
+                            'kernel_mae': 0.0,
+                            'kernel_max_abs_err': 0.0,
+                            'kernel_rel_fro_err': 0.0,
+                            'kernel_diag_mae': 0.0,
+                        })
+                        print(f"{backend_name:<15} {0.0:<12.3e} {0.0:<12.3e} {0.0:<12.3e} {0.0:<12.3e}")
+                        continue
+
+                    gpu_id = _assign_gpu_id(0, backend_name, parallel_gpus)
+                    eval_res = benchmark_single_config(
+                        n_qubits=N_QUBITS_DEFAULT,
+                        n_samples=validation_samples,
+                        backend_name=backend_name,
+                        config=_backend_runtime_config(backend_name, BACKEND_CONFIGS[backend_name]),
+                        warmup=False,
+                        repeats=1,
+                        gpu_id=gpu_id,
+                        return_kernel=True,
+                    )
+                    cand_kernel = eval_res.get('kernel_matrix') if eval_res else None
+                    if cand_kernel is None:
+                        continue
+
+                    fidelity = _kernel_fidelity_metrics(ref_kernel, cand_kernel)
+                    result_by_backend[backend_name].update(fidelity)
+                    print(
+                        f"{backend_name:<15} "
+                        f"{fidelity.get('kernel_mae', np.nan):<12.3e} "
+                        f"{fidelity.get('kernel_max_abs_err', np.nan):<12.3e} "
+                        f"{fidelity.get('kernel_rel_fro_err', np.nan):<12.3e} "
+                        f"{fidelity.get('kernel_diag_mae', np.nan):<12.3e}"
+                    )
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
@@ -680,9 +1079,10 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
     ax1 = fig.add_subplot(gs[0, 0])
     if not df_qubit.empty:
         for backend in df_qubit['backend'].unique():
-            subset = df_qubit[df_qubit['backend'] == backend]
+            subset = df_qubit[df_qubit['backend'] == backend].sort_values('n_qubits')
+            color = BACKEND_COLORS.get(backend, None)
             ax1.plot(subset['n_qubits'], subset['throughput_mpairs_s'],
-                    marker='o', linewidth=2.5, markersize=8, label=backend)
+                    marker='o', linewidth=2.5, markersize=8, label=backend, color=color)
         
         ax1.set_title("Throughput vs Qubits", fontsize=14, fontweight='bold')
         ax1.set_ylabel("Throughput (Mpairs/s)", fontsize=12)
@@ -694,9 +1094,10 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
     ax2 = fig.add_subplot(gs[0, 1])
     if not df_qubit.empty:
         for backend in df_qubit['backend'].unique():
-            subset = df_qubit[df_qubit['backend'] == backend]
+            subset = df_qubit[df_qubit['backend'] == backend].sort_values('n_qubits')
+            color = BACKEND_COLORS.get(backend, None)
             ax2.semilogy(subset['n_qubits'], subset['time_s'],
-                        marker='s', linewidth=2.5, markersize=8, label=backend)
+                        marker='s', linewidth=2.5, markersize=8, label=backend, color=color)
         
         ax2.set_title("Time vs Qubits (Log Scale)", fontsize=14, fontweight='bold')
         ax2.set_ylabel("Time (seconds) - Log Scale", fontsize=12)
@@ -710,9 +1111,10 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
         gpu_data = df_qubit[df_qubit['backend'].isin(['cuda_states', 'torch'])]
         if not gpu_data.empty:
             for backend in gpu_data['backend'].unique():
-                subset = gpu_data[gpu_data['backend'] == backend]
+                subset = gpu_data[gpu_data['backend'] == backend].sort_values('n_qubits')
+                color = BACKEND_COLORS.get(backend, None)
                 ax3.plot(subset['n_qubits'], subset['peak_vram_gb'],
-                        marker='d', linewidth=2.5, markersize=8, label=backend)
+                        marker='d', linewidth=2.5, markersize=8, label=backend, color=color)
             
             ax3.set_title("GPU Memory Usage", fontsize=14, fontweight='bold')
             ax3.set_ylabel("Peak VRAM (GB)", fontsize=12)
@@ -723,10 +1125,23 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
     # --- PLOT 4: Sample Scaling ---
     ax4 = fig.add_subplot(gs[1, 0])
     if not df_sample.empty:
+        scaling_notes = []
         for backend in df_sample['backend'].unique():
-            subset = df_sample[df_sample['backend'] == backend]
+            subset = df_sample[df_sample['backend'] == backend].sort_values('n_samples')
+            color = BACKEND_COLORS.get(backend, None)
             ax4.loglog(subset['n_samples'], subset['time_s'],
-                      marker='o', linewidth=2.5, markersize=8, label=backend)
+                      marker='o', linewidth=2.5, markersize=8, label=backend, color=color)
+
+            # Fit slope in log-log space to quantify observed scaling.
+            if len(subset) >= 3 and (subset['n_samples'] > 0).all() and (subset['time_s'] > 0).all():
+                x = np.log10(subset['n_samples'].values)
+                y = np.log10(subset['time_s'].values)
+                slope, intercept = np.polyfit(x, y, 1)
+                y_pred = slope * x + intercept
+                ss_res = float(np.sum((y - y_pred) ** 2))
+                ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+                r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
+                scaling_notes.append(f"{backend}: slope={slope:.2f}, R²={r2:.2f}")
         
         # Add O(N²) reference line
         if len(df_sample) > 0:
@@ -744,6 +1159,11 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
         ax4.set_xlabel("Number of Samples - Log Scale", fontsize=12)
         ax4.legend()
         ax4.grid(True, which="both", alpha=0.3)
+
+        if scaling_notes:
+            ax4.text(0.03, 0.97, "\n".join(scaling_notes), transform=ax4.transAxes,
+                va='top', ha='left', fontsize=9,
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
     
     # --- PLOT 5: Optimization Ablation Study ---
     ax5 = fig.add_subplot(gs[1, 1])
@@ -812,6 +1232,7 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
         
         if speedup_data:
             speedup_df = pd.DataFrame(speedup_data)
+            speedup_df = speedup_df.sort_values('n_qubits')
             bars = ax6.bar(speedup_df['n_qubits'].astype(str), speedup_df['speedup'],
                           color='green', alpha=0.8, edgecolor='black')
             
@@ -831,7 +1252,60 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
                             fontweight='bold', fontsize=10)
     
     plt.savefig(OUTPUT_PLOTS, dpi=300, bbox_inches='tight')
+    plt.savefig(OUTPUT_PLOTS_SVG, bbox_inches='tight')
     print(f"🖼️  Plots saved to: {OUTPUT_PLOTS}")
+
+def generate_best_config_report(df_all: pd.DataFrame) -> pd.DataFrame:
+    """Create a ranked best-configuration report by backend and save to CSV."""
+    if df_all.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for backend in sorted(df_all['backend'].dropna().unique()):
+        subset = df_all[df_all['backend'] == backend].copy()
+        if subset.empty:
+            continue
+
+        subset['vram_safe'] = subset['peak_vram_gb'].replace(0, np.nan)
+        subset['throughput_per_gb'] = subset['throughput_mpairs_s'] / subset['vram_safe']
+        subset['throughput_per_gb'] = subset['throughput_per_gb'].replace([np.inf, -np.inf], np.nan)
+        subset['cv_pct'] = (subset['time_std_s'] / subset['time_s']) * 100.0
+        subset['cv_pct'] = subset['cv_pct'].replace([np.inf, -np.inf], np.nan)
+
+        best_tp = subset.loc[subset['throughput_mpairs_s'].idxmax()]
+        best_time = subset.loc[subset['time_s'].idxmin()]
+
+        mem_eff_subset = subset.dropna(subset=['throughput_per_gb'])
+        if not mem_eff_subset.empty:
+            best_mem_eff = mem_eff_subset.loc[mem_eff_subset['throughput_per_gb'].idxmax()]
+            best_mem_eff_value = float(best_mem_eff['throughput_per_gb'])
+        else:
+            best_mem_eff = best_tp
+            best_mem_eff_value = float('nan')
+
+        stable_subset = subset.dropna(subset=['cv_pct'])
+        if not stable_subset.empty:
+            best_stability = stable_subset.loc[stable_subset['cv_pct'].idxmin()]
+            best_cv = float(best_stability['cv_pct'])
+        else:
+            best_stability = best_tp
+            best_cv = float('nan')
+
+        rows.append({
+            'backend': backend,
+            'best_throughput_mpairs_s': float(best_tp['throughput_mpairs_s']),
+            'best_throughput_time_s': float(best_tp['time_s']),
+            'best_time_s': float(best_time['time_s']),
+            'best_time_throughput_mpairs_s': float(best_time['throughput_mpairs_s']),
+            'best_mem_eff_mpairs_per_gb': best_mem_eff_value,
+            'best_stability_cv_pct': best_cv,
+            'stability_flag': 'unstable' if np.isfinite(best_cv) and best_cv > 10.0 else 'stable',
+        })
+
+    report_df = pd.DataFrame(rows).sort_values('best_throughput_mpairs_s', ascending=False)
+    report_df.to_csv(OUTPUT_BEST_CSV, index=False)
+    print(f"🏆 Best configuration report saved to: {OUTPUT_BEST_CSV}")
+    return report_df
 
 def generate_summary_report(df_all: pd.DataFrame):
     """Generate summary statistics and save to JSON."""
@@ -846,6 +1320,9 @@ def generate_summary_report(df_all: pd.DataFrame):
         "total_tests": len(df_all),
         "backends_tested": df_all['backend'].unique().tolist(),
     }
+
+    if 'dataset_profile' in df_all.columns and not df_all['dataset_profile'].dropna().empty:
+        summary["dataset_profiles"] = sorted(df_all['dataset_profile'].dropna().unique().tolist())
     
     # Add ranges only if columns exist and have valid values
     if 'n_qubits' in df_all.columns and not df_all['n_qubits'].isna().all():
@@ -854,17 +1331,79 @@ def generate_summary_report(df_all: pd.DataFrame):
     if 'n_samples' in df_all.columns and not df_all['n_samples'].isna().all():
         summary["sample_range"] = [int(df_all['n_samples'].min()), int(df_all['n_samples'].max())]
     
-    # Per-backend statistics
+    # Per-backend statistics (global)
     for backend in df_all['backend'].unique():
         subset = df_all[df_all['backend'] == backend]
+        p95_time = float(np.percentile(subset['time_s'], 95)) if len(subset) > 0 else float('nan')
+        median_time = float(subset['time_s'].median()) if len(subset) > 0 else float('nan')
+        std_time = float(subset['time_s'].std(ddof=0)) if len(subset) > 1 else 0.0
+        cv_pct = (std_time / median_time * 100.0) if median_time > 0 else float('nan')
+        p95_tp = float(np.percentile(subset['throughput_mpairs_s'], 95)) if len(subset) > 0 else float('nan')
+        median_tp = float(subset['throughput_mpairs_s'].median()) if len(subset) > 0 else float('nan')
+
+        vram_series = subset['peak_vram_gb'].replace(0, np.nan) if 'peak_vram_gb' in subset.columns else pd.Series(dtype=float)
+        mem_eff_series = subset['throughput_mpairs_s'] / vram_series if not vram_series.empty else pd.Series(dtype=float)
+        mem_eff_series = mem_eff_series.replace([np.inf, -np.inf], np.nan)
+
         summary[backend] = {
             "avg_throughput_mpairs_s": float(subset['throughput_mpairs_s'].mean()),
             "max_throughput_mpairs_s": float(subset['throughput_mpairs_s'].max()),
+            "median_throughput_mpairs_s": median_tp,
+            "p95_throughput_mpairs_s": p95_tp,
             "avg_time_s": float(subset['time_s'].mean()),
+            "median_time_s": median_time,
+            "p95_time_s": p95_time,
+            "time_std_s": std_time,
+            "time_cv_pct": cv_pct,
+            "stability_flag": "unstable" if np.isfinite(cv_pct) and cv_pct > 10.0 else "stable",
         }
+
+        if 'kernel_mae' in subset.columns and not subset['kernel_mae'].dropna().empty:
+            summary[backend]["kernel_mae"] = float(subset['kernel_mae'].median())
+        if 'kernel_max_abs_err' in subset.columns and not subset['kernel_max_abs_err'].dropna().empty:
+            summary[backend]["kernel_max_abs_err"] = float(subset['kernel_max_abs_err'].median())
+        if 'kernel_rel_fro_err' in subset.columns and not subset['kernel_rel_fro_err'].dropna().empty:
+            summary[backend]["kernel_rel_fro_err"] = float(subset['kernel_rel_fro_err'].median())
+        if 'kernel_diag_mae' in subset.columns and not subset['kernel_diag_mae'].dropna().empty:
+            summary[backend]["kernel_diag_mae"] = float(subset['kernel_diag_mae'].median())
         
         if 'peak_vram_gb' in subset.columns:
             summary[backend]["peak_vram_gb"] = float(subset['peak_vram_gb'].max())
+            if not mem_eff_series.empty and not mem_eff_series.dropna().empty:
+                summary[backend]["median_throughput_per_gb"] = float(mem_eff_series.median())
+
+    family_summary = {}
+    if 'test_family' in df_all.columns:
+        for family_name in sorted(df_all['test_family'].dropna().unique()):
+            fam_df = df_all[df_all['test_family'] == family_name]
+            if fam_df.empty:
+                continue
+
+            per_backend = {}
+            for backend in sorted(fam_df['backend'].dropna().unique()):
+                sub = fam_df[fam_df['backend'] == backend]
+                if sub.empty:
+                    continue
+
+                median_time = float(sub['time_s'].median())
+                std_time = float(sub['time_s'].std(ddof=0)) if len(sub) > 1 else 0.0
+                cv_pct = (std_time / median_time * 100.0) if median_time > 0 else float('nan')
+
+                per_backend[backend] = {
+                    "num_points": int(len(sub)),
+                    "median_time_s": median_time,
+                    "time_std_s": std_time,
+                    "time_cv_pct": cv_pct,
+                    "stability_flag": "unstable" if np.isfinite(cv_pct) and cv_pct > 10.0 else "stable",
+                    "median_throughput_mpairs_s": float(sub['throughput_mpairs_s'].median()),
+                    "max_throughput_mpairs_s": float(sub['throughput_mpairs_s'].max()),
+                }
+
+            if per_backend:
+                family_summary[family_name] = per_backend
+
+    if family_summary:
+        summary["stability_by_test_family"] = family_summary
     
     with open(OUTPUT_JSON, 'w') as f:
         json.dump(summary, f, indent=2)
@@ -877,7 +1416,7 @@ def generate_summary_report(df_all: pd.DataFrame):
 # MAIN ENTRY POINT
 # ═══════════════════════════════════════════════════════════
 
-def run_production_benchmark(tests: List[str] = None, backends: List[str] = None):
+def run_production_benchmark(tests: Optional[List[str]] = None, backends: Optional[List[str]] = None, parallel_gpus: int = 1):
     """Run comprehensive production benchmark."""
     
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -888,55 +1427,89 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
     print(f"📁 Output directory: {OUTPUT_DIR}")
     print(f"🔧 Tests: {tests if tests else 'all'}")
     print(f"🔧 Backends: {backends if backends else 'all'}")
+    print(f"🧩 Parallel GPUs requested: {parallel_gpus}")
+    print(f"🔥 Warmup runs: {WARMUP_RUNS_DEFAULT}")
+    print(f"📏 Benchmark runs: {BENCHMARK_RUNS_DEFAULT}")
     print("="*80)
     
     all_results = []
     df_qubit = pd.DataFrame()
     df_sample = pd.DataFrame()
     df_tile = pd.DataFrame()
-    #df_torch_opt = pd.DataFrame()
-    #df_torch_tile = pd.DataFrame()
+    df_ablation = pd.DataFrame()
+    df_torch_opt = pd.DataFrame()
+    df_torch_tile = pd.DataFrame()
     df_comparison = pd.DataFrame()
     
     # Run tests based on selection
     if tests is None or 'qubit' in tests:
-        df_qubit = test_qubit_impact(backends)
+        df_qubit = test_qubit_impact(backends, parallel_gpus=parallel_gpus, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_qubit.empty:
+            df_qubit['test_family'] = 'qubit_scaling'
+            df_qubit['dataset_profile'] = CURRENT_DATASET_PROFILE
         all_results.append(df_qubit)
     
     if tests is None or 'sample' in tests:
-        df_sample = test_sample_scaling(backends)
+        df_sample = test_sample_scaling(backends, parallel_gpus=parallel_gpus, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_sample.empty:
+            df_sample['test_family'] = 'sample_scaling'
+            df_sample['dataset_profile'] = CURRENT_DATASET_PROFILE
         all_results.append(df_sample)
     
     if tests is None or 'tile' in tests:
-        df_tile = test_tile_optimization()
+        df_tile = test_tile_optimization(parallel_gpus=parallel_gpus, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_tile.empty:
+            df_tile['test_family'] = 'cuda_states_tile'
+            df_tile['dataset_profile'] = CURRENT_DATASET_PROFILE
         all_results.append(df_tile)
     
     if tests is None or 'vram' in tests:
-        df_vram = benchmark_vram_fraction_impact()
+        df_vram = benchmark_vram_fraction_impact(parallel_gpus=parallel_gpus, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_vram.empty:
+            df_vram['test_family'] = 'cuda_states_vram'
+            df_vram['dataset_profile'] = CURRENT_DATASET_PROFILE
         all_results.append(df_vram)
     
     if tests is None or 'streams' in tests:
-        df_streams = benchmark_stream_pool_impact()
+        df_streams = benchmark_stream_pool_impact(parallel_gpus=parallel_gpus, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_streams.empty:
+            df_streams['test_family'] = 'cuda_states_streams'
+            df_streams['dataset_profile'] = CURRENT_DATASET_PROFILE
         all_results.append(df_streams)
     
     if tests is None or 'ablation' in tests:
-        df_ablation = benchmark_optimization_ablation()
+        df_ablation = benchmark_optimization_ablation(parallel_gpus=parallel_gpus, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_ablation.empty:
+            df_ablation['test_family'] = 'cuda_states_ablation'
+            df_ablation['dataset_profile'] = CURRENT_DATASET_PROFILE
         all_results.append(df_ablation)
     
     if tests is None or 'profile' in tests:
-        df_profiling = benchmark_with_profiling()
+        df_profiling = benchmark_with_profiling(warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_profiling.empty:
+            df_profiling['test_family'] = 'memory_profiling'
+            df_profiling['dataset_profile'] = CURRENT_DATASET_PROFILE
         all_results.append(df_profiling)
     
-   # if tests is None or 'torch' in tests:
-   #     df_torch_opt = benchmark_torch_optimizations()
-   #    all_results.append(df_torch_opt)
+    if tests is None or 'torch' in tests:
+        df_torch_opt = benchmark_torch_optimizations(parallel_gpus=parallel_gpus, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_torch_opt.empty:
+            df_torch_opt['test_family'] = 'torch_optimizations'
+            df_torch_opt['dataset_profile'] = CURRENT_DATASET_PROFILE
+        all_results.append(df_torch_opt)
     
-   # if tests is None or 'torch_tiles' in tests:
-   #     df_torch_tile = benchmark_torch_tile_sizes()
-   #     all_results.append(df_torch_tile)
+    if tests is None or 'torch_tiles' in tests:
+        df_torch_tile = benchmark_torch_tile_sizes(parallel_gpus=parallel_gpus, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_torch_tile.empty:
+            df_torch_tile['test_family'] = 'torch_tile_sizes'
+            df_torch_tile['dataset_profile'] = CURRENT_DATASET_PROFILE
+        all_results.append(df_torch_tile)
     
     if tests is None or 'compare' in tests:
-        df_comparison = benchmark_backend_comparison()
+        df_comparison = benchmark_backend_comparison(parallel_gpus=parallel_gpus, backends=backends, warmup_runs=WARMUP_RUNS_DEFAULT, benchmark_runs=BENCHMARK_RUNS_DEFAULT)
+        if not df_comparison.empty:
+            df_comparison['test_family'] = 'backend_comparison'
+            df_comparison['dataset_profile'] = CURRENT_DATASET_PROFILE
         all_results.append(df_comparison)
     
     # Combine all results
@@ -948,22 +1521,53 @@ def run_production_benchmark(tests: List[str] = None, backends: List[str] = None
         print(f"\n💾 All results saved to: {OUTPUT_CSV}")
         
         # Generate plots
-        generate_plots(df_qubit, df_sample, df_tile)
+        generate_plots(df_qubit, df_sample, df_tile, df_ablation)
         
         # Generate summary report
         summary = generate_summary_report(df_all)
+        best_report = generate_best_config_report(df_all)
         
         # Print summary
         print("\n" + "="*80)
         print("SUMMARY STATISTICS")
         print("="*80)
         for backend, stats in summary.items():
-            if isinstance(stats, dict):
+            if backend == "stability_by_test_family":
+                print("\nSTABILITY BY TEST FAMILY:")
+                for family_name, family_stats in stats.items():
+                    print(f"  {family_name}:")
+                    for fam_backend, fam_vals in family_stats.items():
+                        cv = fam_vals.get('time_cv_pct', float('nan'))
+                        status = fam_vals.get('stability_flag', 'n/a')
+                        med_tp = fam_vals.get('median_throughput_mpairs_s', float('nan'))
+                        n_pts = fam_vals.get('num_points', 0)
+                        print(
+                            f"    - {fam_backend}: CV={cv:.2f}% [{status}], "
+                            f"median_tp={med_tp:.3f} Mpairs/s, points={n_pts}"
+                        )
+                continue
+
+            if isinstance(stats, dict) and 'avg_throughput_mpairs_s' in stats:
                 print(f"\n{backend.upper()}:")
                 print(f"  - Avg Throughput: {stats['avg_throughput_mpairs_s']:.2f} Mpairs/s")
                 print(f"  - Max Throughput: {stats['max_throughput_mpairs_s']:.2f} Mpairs/s")
+                print(f"  - Median Throughput: {stats['median_throughput_mpairs_s']:.2f} Mpairs/s")
+                print(f"  - P95 Time: {stats['p95_time_s']:.3f} s")
+                print(f"  - Stability (CV): {stats['time_cv_pct']:.2f}% [{stats['stability_flag']}]")
                 if 'peak_vram_gb' in stats:
                     print(f"  - Peak VRAM: {stats['peak_vram_gb']:.2f} GB")
+                if 'median_throughput_per_gb' in stats:
+                    print(f"  - Median Throughput/GB: {stats['median_throughput_per_gb']:.2f} Mpairs/s/GB")
+                if 'kernel_rel_fro_err' in stats:
+                    print(f"  - Kernel RelFro Error vs numpy: {stats['kernel_rel_fro_err']:.3e}")
+                if 'kernel_max_abs_err' in stats:
+                    print(f"  - Kernel MaxAbs Error vs numpy: {stats['kernel_max_abs_err']:.3e}")
+
+        if not best_report.empty:
+            print("\n" + "="*80)
+            print("BEST CONFIGURATION RANKING")
+            print("="*80)
+            print(best_report.to_string(index=False, float_format=lambda x: f"{x:.3f}" if np.isfinite(x) else "nan"))
     
     print("\n" + "="*80)
     print("🎉 Benchmark completed successfully!")
@@ -979,18 +1583,28 @@ if __name__ == "__main__":
     parser.add_argument("--cuda-states-state-tile", action="store_true", help="Run cuda_states state tile optimization")
     parser.add_argument("--cuda-states-vram", action="store_true", help="Run cuda_states VRAM fraction test")
     parser.add_argument("--cuda-states-streams", action="store_true", help="Run cuda_states stream pool test")
-    #parser.add_argument("--torch-ablation", action="store_true", help="Run torch optimization ablation")
-    #parser.add_argument("--torch-tiles", action="store_true", help="Run torch tile size optimization")
+    parser.add_argument("--torch-ablation", action="store_true", help="Run torch optimization ablation")
+    parser.add_argument("--torch-tiles", action="store_true", help="Run torch tile size optimization")
     parser.add_argument("--memory-profiling", action="store_true", help="Run memory profiling benchmark")
     parser.add_argument("--qubit-scaling", action="store_true", help="Run qubit scaling analysis")
     parser.add_argument("--sample-scaling", action="store_true", help="Run sample scaling analysis")
     
     # Configuration
-    parser.add_argument("--n-samples", type=int, default=N_SAMPLES_DEFAULT, help=f"Number of samples (default: {N_SAMPLES_DEFAULT})")
-    parser.add_argument("--n-qubits", type=int, default=N_QUBITS_DEFAULT, help=f"Number of qubits (default: {N_QUBITS_DEFAULT})")
+    parser.add_argument("--n-samples", type=int, default=None,
+                       help="Number of samples (overrides dataset-profile default when provided)")
+    parser.add_argument("--n-qubits", type=int, default=None,
+                       help="Number of qubits (overrides dataset-profile default when provided)")
     parser.add_argument("--output-dir", type=str, default="benchmark_results", help="Output directory for results")
+    parser.add_argument("--qubits-range", type=int, nargs='+', default=None,
+                       help="Explicit qubit sweep values for --qubit-scaling (e.g. --qubits-range 6 8 12 16)")
+    parser.add_argument("--sample-sizes", type=int, nargs='+', default=None,
+                       help="Explicit sample sweep values for --sample-scaling (e.g. --sample-sizes 1024 2048 4096)")
     parser.add_argument("--warmup-runs", type=int, default=1, help="Number of warmup runs (default: 1)")
     parser.add_argument("--benchmark-runs", type=int, default=1, help="Number of benchmark runs (default: 1)")
+    parser.add_argument("--parallel-gpus", type=int, default=DEFAULT_PARALLEL_GPUS,
+                       help=f"Number of GPUs for parallel execution (default: {DEFAULT_PARALLEL_GPUS})")
+    parser.add_argument("--dataset-profile", type=str, default="custom", choices=["custom"] + sorted(DATASET_PROFILES.keys()),
+                       help="Dataset profile to apply benchmark scales (fashion, cifar10, svhn)")
     parser.add_argument("--verbose", action="store_true", help="Print detailed information")
     
     # Legacy support
@@ -1016,10 +1630,10 @@ if __name__ == "__main__":
             tests_to_run.append('vram')
         if args.cuda_states_streams:
             tests_to_run.append('streams')
-       # if args.torch_ablation:
-       #     tests_to_run.append('torch')
-       # if args.torch_tiles:
-       #     tests_to_run.append('torch_tiles')
+        if args.torch_ablation:
+            tests_to_run.append('torch')
+        if args.torch_tiles:
+            tests_to_run.append('torch_tiles')
         if args.memory_profiling:
             tests_to_run.append('profile')
         if args.qubit_scaling:
@@ -1039,7 +1653,42 @@ if __name__ == "__main__":
     backends = None if not args.backends or 'all' in args.backends else args.backends
     
     try:
-        run_production_benchmark(tests=tests, backends=backends)
+        CURRENT_DATASET_PROFILE = args.dataset_profile
+        if args.dataset_profile != "custom":
+            apply_dataset_profile(args.dataset_profile)
+
+        # Allow explicit CLI overrides on top of profile defaults.
+        if args.n_samples is not None:
+            N_SAMPLES_DEFAULT = int(args.n_samples)
+        if args.n_qubits is not None:
+            N_QUBITS_DEFAULT = int(args.n_qubits)
+
+        if args.qubits_range:
+            QUBITS_RANGE = [int(q) for q in args.qubits_range if int(q) > 0]
+            if not QUBITS_RANGE:
+                raise ValueError("--qubits-range must contain at least one positive integer")
+
+        if args.sample_sizes:
+            SAMPLE_SIZES = [int(n) for n in args.sample_sizes if int(n) > 0]
+            if not SAMPLE_SIZES:
+                raise ValueError("--sample-sizes must contain at least one positive integer")
+
+        WARMUP_RUNS_DEFAULT = max(0, int(args.warmup_runs))
+        BENCHMARK_RUNS_DEFAULT = max(1, int(args.benchmark_runs))
+        COMPARISON_VALIDATION_SAMPLES = min(N_SAMPLES_DEFAULT, COMPARISON_VALIDATION_SAMPLES)
+
+        configure_output_paths(args.output_dir)
+
+        available_gpus = TORCH_GPU_COUNT if HAS_TORCH else 0
+        requested_gpus = max(0, int(args.parallel_gpus))
+        parallel_gpus = min(requested_gpus, available_gpus) if available_gpus > 0 else 0
+
+        if requested_gpus > 0 and parallel_gpus == 0:
+            print("⚠️ Parallel GPU execution requested but no CUDA GPUs are visible; running without GPU parallelism.")
+        elif requested_gpus > parallel_gpus:
+            print(f"⚠️ Requested {requested_gpus} GPUs but only {parallel_gpus} available; using {parallel_gpus}.")
+
+        run_production_benchmark(tests=tests, backends=backends, parallel_gpus=parallel_gpus)
     except KeyboardInterrupt:
         print("\n⚠️ Benchmark interrupted by user.")
         sys.exit(1)

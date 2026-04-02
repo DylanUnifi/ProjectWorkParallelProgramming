@@ -269,14 +269,18 @@ class CUDAStreamPool:
             num_streams: Number of streams to pre-allocate
         """
         import cupy as cp
+        self.device_id = int(cp.cuda.runtime.getDevice())
         self.num_streams = num_streams
-        self.streams = [cp.cuda.Stream(non_blocking=True) for _ in range(num_streams)]
+        with cp.cuda.Device(self.device_id):
+            self.streams = [cp.cuda.Stream(non_blocking=True) for _ in range(num_streams)]
         self.current_idx = 0
         self.usage_count = [0] * num_streams
         self.total_operations = 0
     
     def get_stream(self):
         """Get next available stream from pool using round-robin."""
+        import cupy as cp
+        cp.cuda.Device(self.device_id).use()
         stream = self.streams[self.current_idx]
         self.usage_count[self.current_idx] += 1
         self.current_idx = (self.current_idx + 1) % self.num_streams
@@ -285,6 +289,8 @@ class CUDAStreamPool:
     
     def synchronize_all(self):
         """Synchronize all streams in the pool."""
+        import cupy as cp
+        cp.cuda.Device(self.device_id).use()
         for stream in self.streams:
             stream.synchronize()
     
@@ -300,6 +306,8 @@ class CUDAStreamPool:
         return 1.0 - min(1.0, variance / (expected_per_stream ** 2))
     
     def __enter__(self):
+        import cupy as cp
+        cp.cuda.Device(self.device_id).use()
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -1452,7 +1460,7 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
     
     # OPTIMIZATION 4: --- EXECUTION AVEC PRECISION DYNAMIQUE ---
     with th.no_grad():
-        with th.cuda.amp.autocast(enabled=enable_amp, dtype=autocast_dtype):
+        with th.amp.autocast(device_type="cuda", enabled=enable_amp, dtype=autocast_dtype):
             for i0 in range(0, n, tile_size):
                 i1 = min(i0+tile_size, n)
                 

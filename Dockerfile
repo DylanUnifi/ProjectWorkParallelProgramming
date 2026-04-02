@@ -38,7 +38,7 @@ RUN pip install --no-cache-dir \
 # ----------------------------------------------------
 # Project dependencies
 # ----------------------------------------------------
-RUN pip install --no-cache-dir -r requirements.txt || true
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 ENV PYTHONPATH=/app

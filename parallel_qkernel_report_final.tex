@@ -1,0 +1,385 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+% CVPR-style formatting and fonts
+\usepackage{cvpr}
+\usepackage{times}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{url}
+\usepackage{siunitx}
+\sisetup{group-separator = {\,}, group-minimum-digits=4}
+\usepackage{booktabs}
+\usepackage{subcaption}
+\usepackage{caption}
+\captionsetup{compatibility=false}
+\usepackage{tabularx}
+\usepackage{authblk}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\cvprfinalcopy
+\def\cvprPaperID{****}
+\def\httilde{\mbox{\tt\raisebox{-.5ex}{\symbol{126}}}}
+\ifcvprfinal\pagestyle{empty}\fi
+
+\begin{document}
+
+\title{Parallel Acceleration of Quantum Kernel Methods for Image Classification Tasks: \\ A Detailed Project Report from Unified Pipelines to CUDA Debugging}
+
+\author{Fouepe Dylan\\
+{\tt\small dylan.fouepe@edu.unifi.it}}
+\affil{University of Florence}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+Ce projet étudie l'entraînement de SVM binaires sur des images classiques à l'aide de noyaux quantiques simulés, avec un accent fort sur la programmation parallèle et l'optimisation hétérogène CPU/GPU. Le dépôt fournit trois chemins d'exécution cohérents: une baseline classique CPU, un backend quantique GPU fondé sur PennyLane+PyTorch (\texttt{torch}), et un backend HPC personnalisé (\texttt{cuda\_states}) fondé sur CuPy, DLPack et un noyau CUDA C++ sur mesure. Le coeur scientifique du travail consiste à construire rapidement et correctement des matrices de Gram quantiques de taille $N \times N$, dont le coût reste en $O(N^2 \cdot 2^Q)$ pour $Q$ qubits.
+
+Au-delà de l'implémentation initiale, une partie importante du projet a porté sur la robustesse numérique et la validation de la justesse. Le backend \texttt{cuda\_states} a été refactoré vers un design \emph{output-stationary} en \texttt{double2}, avec accumulateurs \texttt{double} explicites, normalisation stricte des kernels croisés, calcul direct des diagonales, autotuning des tuiles, dimensionnement VRAM-aware des blocs d'états, et synchronisation explicite des streams CUDA entre PyTorch et CuPy. Ces corrections ont transformé un chemin auparavant instable en un backend mathématiquement cohérent et compétitif.
+
+Les expériences menées sur Fashion-MNIST, CIFAR-10 et SVHN montrent deux régimes. Sur Fashion-MNIST, le noyau quantique est performant et proche de la baseline classique, avec jusqu'à \textbf{F1 = 0.9756} et \textbf{AUC = 0.9964} pour \texttt{cuda\_states}. Sur CIFAR-10 et SVHN, en revanche, les kernels se concentrent fortement, l'écart inter-classes devient quasi nul, et le SVM finit souvent avec une fraction de vecteurs de support proche de $1.0$, ce qui est cohérent avec un phénomène de \emph{kernel collapse} ou de \emph{barren plateau-like behavior}. Le projet livre ainsi à la fois un pipeline HPC complet, un backend CUDA personnalisable pour la recherche, et une analyse honnête des limites actuelles du QML simulé sur données d'images complexes.
+\end{abstract}
+
+\section{Introduction}
+Les méthodes à noyau quantique offrent une manière élégante de projeter des données classiques dans un espace de Hilbert de très grande dimension, puis d'y résoudre une tâche de classification à l'aide d'un SVM pré-calculé. En pratique, cette promesse se heurte rapidement à un problème de coût: pour $N$ échantillons et $Q$ qubits, construire la matrice de Gram demande de simuler des états de dimension $2^Q$ et d'évaluer $O(N^2)$ recouvrements complexes. À $Q=16$, un seul vecteur d'état contient déjà $65\,536$ amplitudes complexes.
+
+L'objectif du projet a donc été double. D'une part, construire un pipeline de recherche unifié pour comparer des SVM classiques et quantiques sur plusieurs datasets d'images binarisés. D'autre part, développer un backend GPU bas niveau suffisamment contrôlable pour servir de base à une thèse HPC: gestion fine de la mémoire, tuilage explicite, noyau CUDA personnalisé, instrumentation W\&B, et capacité à diagnostiquer des erreurs numériques ou des effondrements de kernel.
+
+\section{Scope of the Project}
+Le dépôt couvre quatre blocs fonctionnels:
+\begin{itemize}
+    \item \textbf{Entraînement} avec \texttt{train\_svm\_qkernel.py} pour les noyaux quantiques et \texttt{train\_svm\_classical.py} pour la baseline classique.
+    \item \textbf{Backend unifié} avec \texttt{scripts/pipeline\_backends.py}, point d'entrée unique pour calculer les matrices de Gram avec les backends \texttt{numpy}, \texttt{torch} et \texttt{cuda\_states}.
+    \item \textbf{Benchmarking} avec \texttt{benchmark\_production.py}, \texttt{tools/benchmark\_pl\_kernel.py}, \texttt{tools/profile\_kernel.py} et les artefacts \texttt{benchmark\_results/}.
+    \item \textbf{Validation et reproductibilité} avec Docker, scripts batch (\texttt{run\_all\_cpu.sh}, \texttt{run\_all\_gpu.sh}), cache des kernels, cache d'autotuning et outillage de comparaison croisée des backends.
+\end{itemize}
+
+Le projet ne se limite donc pas à ``faire tourner un QSVM''. Il propose une chaîne complète allant de la préparation des données à l'analyse des limites du noyau, en passant par la micro-ingénierie CUDA.
+
+\section{Experimental Methodology}
+\subsection{Datasets and Binary Tasks}
+Les expériences portent sur trois datasets classiques: Fashion-MNIST, CIFAR-10 et SVHN. Chaque dataset est réduit à un problème binaire \emph{easy}, \emph{medium} ou \emph{hard} via les fichiers de configuration YAML. Les images sont converties en niveaux de gris, aplaties puis projetées par PCA pour s'adapter au nombre de qubits.
+
+\begin{table}[t]
+\centering
+\caption{Tâches binaires configurées dans le dépôt.}
+\label{tab:tasks}
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{Dataset} & \textbf{Easy} & \textbf{Med} & \textbf{Hard} \\
+\midrule
+Fashion-MNIST & 0 vs 1 & 3 vs 8 & 0 vs 6 \\
+CIFAR-10 & 1 vs 6 & 0 vs 2 & 3 vs 5 \\
+SVHN & 1 vs 0 & 2 vs 7 & 3 vs 5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Du point de vue quantique, la majorité des configurations utilisent $16$ composantes PCA donc $16$ qubits, avec un circuit de profondeur faible par défaut. Les couches du circuit sont configurables depuis les YAML via \texttt{pennylane.layers}; un cas important du projet est \texttt{configs/cifar10\_hard.yaml}, qui force \textbf{6 couches} et sert de régime ``difficile'' pour observer la concentration du noyau.
+
+\subsection{Preprocessing and Quantum Feature Map}
+Le pipeline d'entraînement suit les étapes suivantes:
+\begin{enumerate}
+    \item extraction des pixels et aplatissement;
+    \item PCA vers $d=16$ composantes;
+    \item mise à l'échelle via \texttt{MinMaxScaler};
+    \item encodage quantique selon \texttt{angle}, \texttt{ry} ou \texttt{ryrz};
+    \item simulation des états via PennyLane/\texttt{lightning}.
+\end{enumerate}
+
+Le projet utilise principalement l'ansatz \texttt{RYRZ} avec couches d'intrication, ce qui donne un compromis simple entre expressivité et coût de simulation. Les poids du circuit sont initialisés une fois par run via une loi normale et restent fixes durant l'entraînement du SVM; ce n'est donc pas un apprentissage variationnel complet, mais un apprentissage \emph{kernel-based}.
+
+Le noyau cible est le noyau de fidélité
+\[
+k(x_i, x_j) = \left|\langle \psi(x_i) \mid \psi(x_j) \rangle \right|^2.
+\]
+En pratique, si $S_A \in \mathbb{C}^{N_A \times 2^Q}$ et $S_B \in \mathbb{C}^{N_B \times 2^Q}$ sont les matrices d'états, alors
+\[
+K_{ij} = \left| \sum_{k=1}^{2^Q} S_A[i,k]\;\overline{S_B[j,k]} \right|^2.
+\]
+
+\subsection{Training Protocol}
+Le script \texttt{train\_svm\_qkernel.py} met en oeuvre un protocole relativement complet:
+\begin{itemize}
+    \item séparation train/test héritée du dataset;
+    \item validation croisée à $3$ folds sur la partie train;
+    \item optimisation du paramètre $C$ via Optuna;
+    \item re-fit final sur train+val;
+    \item évaluation finale sur le test.
+\end{itemize}
+
+Le projet ne journalise pas uniquement \texttt{F1} et \texttt{AUC}. Il enregistre aussi \texttt{accuracy}, \texttt{precision}, \texttt{recall}, \texttt{balanced accuracy}, \texttt{PR-AUC}, matrices de confusion, paramètres d'exécution, diagnostics spectraux du kernel et diagnostics du solveur SVM (\texttt{fit\_status}, nombre d'itérations, fraction de vecteurs de support). Ce point est important: les runs W\&B permettent une vraie évaluation des modèles, pas seulement une métrique finale isolée.
+
+\section{HPC Architecture}
+\subsection{Unified Backend API}
+Toute la logique de calcul de Gram converge vers une seule fonction:
+\[
+\texttt{compute\_kernel\_matrix}(X, Y, \ldots).
+\]
+Cette API accepte les mêmes données et les mêmes drapeaux de normalisation, mais délègue l'exécution à trois chemins:
+\begin{itemize}
+    \item \texttt{numpy}: fallback CPU, utile comme référence et pour les petits cas;
+    \item \texttt{torch}: génération des états et calcul matriciel directement sur GPU avec PyTorch;
+    \item \texttt{cuda\_states}: génération des états avec PyTorch, puis passage en CuPy via DLPack et calcul du Gram via un \texttt{RawKernel} personnalisé.
+\end{itemize}
+
+Cette unification a eu une vraie valeur d'ingénierie: elle a permis de comparer la justesse des backends avec le même prétraitement, la même normalisation et la même instrumentation.
+
+\subsection{Torch GPU Backend}
+Le backend \texttt{torch} correspond au chemin ``haut niveau''. Il prépare les états sur GPU via PennyLane+Torch et calcule ensuite le Gram avec les opérations natives de PyTorch. Ce backend sert de référence pratique: il est plus simple à écrire, mais moins flexible pour les recherches bas niveau.
+
+Dans le projet, ce backend a servi à trois choses:
+\begin{itemize}
+    \item établir une borne de performance et de justesse;
+    \item fournir un point de comparaison pour le backend CUDA personnalisé;
+    \item confirmer que les problèmes observés sur certains datasets ne venaient pas uniquement du noyau C++.
+\end{itemize}
+
+\subsection{Custom CUDA Backend \texttt{cuda\_states}}
+La contribution centrale du projet est le backend \texttt{cuda\_states}. Son principe est le suivant:
+\begin{enumerate}
+    \item construire les états quantiques avec PennyLane+Torch sur GPU;
+    \item convertir les tenseurs Torch CUDA en CuPy par \texttt{DLPack} sans copie CPU;
+    \item calculer le Gram avec un noyau CUDA compilé à la volée via \texttt{cp.RawKernel}.
+\end{enumerate}
+
+La version finale du noyau suit un design \textbf{output-stationary} simple et robuste:
+\begin{itemize}
+    \item un thread CUDA calcule exactement une case $C[i,j]$;
+    \item les états sont stockés en \texttt{double2};
+    \item les accumulateurs internes sont \texttt{double sum\_real} et \texttt{double sum\_imag};
+    \item le produit complexe utilise explicitement le conjugué de $B$;
+    \item la sortie stockée est $\texttt{sum\_real}^2 + \texttt{sum\_imag}^2$.
+\end{itemize}
+
+Autrement dit, le calcul effectué par thread est:
+\[
+\texttt{sum\_real} \leftarrow \sum_k (a_r b_r + a_i b_i), \qquad
+\texttt{sum\_imag} \leftarrow \sum_k (a_i b_r - a_r b_i),
+\]
+puis
+\[
+C[i,j] = \texttt{sum\_real}^2 + \texttt{sum\_imag}^2.
+\]
+
+Le launcher Python force en plus les tuiles d'entrée à être contiguës avec \texttt{cp.ascontiguousarray(..., dtype=cp.complex128)} avant de lancer le kernel. Ce détail a compté dans la stabilisation du backend.
+
+\subsection{Memory Management, Tiling, and Streams}
+Le projet a ajouté plusieurs couches d'optimisation autour du noyau:
+\begin{itemize}
+    \item \textbf{VRAM-aware sizing}: \texttt{state\_tile=-1} dimensionne automatiquement la taille des blocs d'états selon la VRAM disponible.
+    \item \textbf{Autotuning}: les tailles de tuiles du kernel CUDA sont apprises et mises en cache dans \texttt{.cuda\_kernel\_autotune.json}. Une entrée spécifique pour $16$ qubits en double précision est prise en compte.
+    \item \textbf{Bulk precompute}: quand la mémoire le permet, tous les états d'un bloc sont préconstruits pour réduire les allers-retours.
+    \item \textbf{Stream pool}: plusieurs streams CUDA peuvent être utilisés pour orchestrer la préparation des états et le calcul du Gram.
+    \item \textbf{Profiling mémoire}: le benchmark de production sait mesurer VRAM, transferts et throughput.
+\end{itemize}
+
+L'optimisation la plus importante n'a toutefois pas été le streaming mais la \textbf{cohérence de synchronisation}. Une erreur subtile existait entre les streams PyTorch et CuPy: certains états étaient préparés sur un stream et consommés par le \texttt{RawKernel} sur un autre. Cela pouvait corrompre des blocs du Gram, fausser la géométrie du noyau et faire s'effondrer l'AUC à $\approx 0.5$. Le correctif a consisté à garantir que la normalisation des états, les contrôles numériques et l'écriture de \texttt{K\_cp} se produisent sur le même stream que le kernel.
+
+\subsection{Numerical Safety and Shared Post-Processing}
+Une autre partie essentielle du travail a porté sur la sémantique mathématique commune des backends. Dans la version finale:
+\begin{itemize}
+    \item les runs en $16$ qubits basculent automatiquement en \texttt{float64} pour éviter les débordements et l'accumulation d'erreur;
+    \item les états GPU peuvent être renormalisés explicitement avant les overlaps pour les grands espaces de Hilbert;
+    \item les \texttt{NaN}/\texttt{Inf} sont détectés et réparés par bloc;
+    \item la normalisation du kernel n'est plus spécifique à \texttt{cuda\_states}, mais commune à tous les backends;
+    \item la normalisation croisée stricte
+    \[
+    \hat K(X,Y)_{ij} = \frac{K(X,Y)_{ij}}{\sqrt{K(X,X)_{ii}K(Y,Y)_{jj}}}
+    \]
+    est appliquée après calcul des diagonales.
+\end{itemize}
+
+Le projet a ensuite optimisé ce point en ajoutant un \textbf{calcul direct des diagonales} du self-kernel. Au lieu de former entièrement $K(X,X)$ juste pour extraire sa diagonale, le code reconstruit les états par blocs, calcule leur norme, puis en déduit directement la diagonale du noyau. Cette optimisation réduit fortement le coût des kernels croisés normalisés.
+
+\section{Validation and Debugging Deliverables}
+Le projet a produit plusieurs livrables de validation qui dépassent le simple entraînement:
+\begin{itemize}
+    \item \texttt{tools/compare\_kernel\_backends.py}: comparaison systématique de blocs équilibrés entre \texttt{torch} et \texttt{cuda\_states}, avant et après normalisation/centrage;
+    \item \texttt{tests/check\_nan.py}: contrôle rapide de stabilité numérique;
+    \item mise à jour du \texttt{README.md} pour documenter l'architecture, Docker et les commandes réelles du dépôt;
+    \item correction du chemin dans \texttt{tests/test\_static\_validation.py};
+    \item nettoyage des scripts batch et uniformisation du logging.
+\end{itemize}
+
+En pratique, la comparaison croisée des backends a joué un rôle de \emph{regression harness}: c'est elle qui a permis d'isoler le bug de stream, puis de vérifier que la nouvelle normalisation stricte donnait la même sémantique de kernel quel que soit le backend.
+
+\section{Performance Results}
+\subsection{Production Benchmark}
+Le benchmark de production du dépôt ne se limite pas à un temps final; il mesure le scaling en nombre de qubits, le scaling en nombre d'échantillons, l'impact du pré-calcul des états, la taille des blocs, la fraction de VRAM autorisée et le nombre de streams. Les artefacts principaux sont \texttt{benchmark\_results/production\_benchmark.csv} et \texttt{benchmark\_results/production\_benchmark\_summary.json}.
+
+\begin{table}[t]
+\centering
+\caption{Benchmark de production représentatif à $16$ qubits.}
+\label{tab:benchmark}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Configuration} & \textbf{Samples} & \textbf{Time (s)} & \textbf{Mpairs/s} \\
+\midrule
+\texttt{cuda\_states} & 10\,000 & 97.97 & 0.510 \\
+\texttt{cuda\_states} & 20\,000 & 223.89 & 0.893 \\
+\texttt{cuda\_states} & 30\,000 & 373.32 & 1.205 \\
+\texttt{numpy} & 10\,000 & 245.69 & 0.204 \\
+\texttt{numpy} & 20\,000 & 863.53 & 0.232 \\
+\texttt{numpy} & 30\,000 & 1\,803.14 & 0.250 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Le message principal de ce benchmark est le suivant:
+\begin{itemize}
+    \item sur les cas lourds à $16$ qubits, \texttt{cuda\_states} devient nettement plus rapide que le backend CPU;
+    \item à 10\,000 échantillons, le gain est déjà d'environ $2.5\times$;
+    \item à 30\,000 échantillons, le gain dépasse $4.8\times$;
+    \item le pic VRAM observé atteint environ \SI{29.3}{GB} pour \texttt{cuda\_states} à 30\,000 échantillons.
+\end{itemize}
+
+Le résumé global JSON donne bien une moyenne de throughput plus élevée pour \texttt{numpy}, mais cette moyenne mélange des cas petits et moyens où le CPU reste très compétitif. Dès que la dimension de l'espace d'état et la taille du Gram augmentent, le backend GPU personnalisé devient le chemin pertinent.
+
+\subsection{Optimization Ablation}
+Les ablations du benchmark montrent aussi quels choix ont réellement payé:
+\begin{itemize}
+    \item \textbf{Pré-calcul de tous les états}: c'est le gain le plus marqué. À $16$ qubits et 10\,000 échantillons, passer de \emph{No Precompute} (\SI{167.46}{s}) à la configuration optimisée (\SI{90.07}{s}) donne un gain proche de $1.85\times$.
+    \item \textbf{Auto state tile}: le mode \texttt{state\_tile=-1} est nettement meilleur que plusieurs tailles fixes testées.
+    \item \textbf{Autotuning et CUDA graphs}: leur effet existe mais reste modeste par rapport au simple fait de bulk-precompute correctement.
+    \item \textbf{Nombre de streams}: l'effet est relativement faible entre 1, 2 et 4 streams sur le benchmark synthétique à 10\,000 échantillons.
+\end{itemize}
+
+Ce résultat est intéressant d'un point de vue HPC: dans ce projet précis, les gains dominants proviennent d'abord de l'organisation mémoire et du niveau de pré-calcul, avant de venir des raffinements les plus sophistiqués.
+
+\section{Classification Results}
+\begin{table*}[t]
+\centering
+\caption{Résultats finaux sur les tâches \texttt{all} du dépôt. Les temps correspondent aux logs agrégés dans \texttt{summary\_results\_v2.csv}.}
+\label{tab:results}
+\small
+\begin{tabular}{lllrrl}
+\toprule
+\textbf{Dataset} & \textbf{Difficulty} & \textbf{Backend} & \textbf{F1} & \textbf{AUC} & \textbf{Wall-clock} \\
+\midrule
+cifar10 & easy & classical & 0.8026 & 0.8726 & 6m 20s \\
+cifar10 & easy & torch & 0.5432 & 0.5295 & 39m 50s \\
+cifar10 & easy & cuda\_states & 0.5971 & 0.5516 & 50m 54s \\
+\midrule
+cifar10 & med & classical & 0.7390 & 0.7736 & 5m 55s \\
+cifar10 & med & torch & 0.6571 & 0.5589 & 40m 38s \\
+cifar10 & med & cuda\_states & 0.6648 & 0.6108 & 51m 37s \\
+\midrule
+cifar10 & hard & classical & 0.5414 & 0.5000 & 6m 17s \\
+cifar10 & hard & torch & 0.5080 & 0.5449 & 42m 22s \\
+cifar10 & hard & cuda\_states & 0.5084 & 0.5000 & 52m 21s \\
+\midrule
+fashion & easy & classical & 0.9864 & 0.9993 & 0m 48s \\
+fashion & easy & torch & 0.9750 & 0.9965 & 46m 27s \\
+fashion & easy & cuda\_states & 0.9756 & 0.9964 & 56m 10s \\
+\midrule
+fashion & med & classical & 0.9917 & 0.9987 & 3m 07s \\
+fashion & med & torch & 0.9824 & 0.9971 & 47m 29s \\
+fashion & med & cuda\_states & 0.9829 & 0.9971 & 56m 25s \\
+\midrule
+fashion & hard & classical & 0.8265 & 0.9163 & 6m 39s \\
+fashion & hard & torch & 0.7907 & 0.8945 & 47m 41s \\
+fashion & hard & cuda\_states & 0.7815 & 0.8893 & 56m 40s \\
+\midrule
+svhn & easy & classical & 0.8640 & 0.9747 & 17m 45s \\
+svhn & easy & torch & 0.0000 & 0.4616 & 93m 59s \\
+svhn & easy & cuda\_states & 0.1191 & 0.4883 & 109m 49s \\
+\midrule
+svhn & med & classical & 0.7864 & 0.9156 & 9m 20s \\
+svhn & med & torch & 0.2780 & 0.5044 & 79m 39s \\
+svhn & med & cuda\_states & 0.4347 & 0.5163 & 93m 40s \\
+\midrule
+svhn & hard & classical & 0.7688 & 0.8638 & 6m 26s \\
+svhn & hard & torch & 0.4155 & 0.4560 & 73m 07s \\
+svhn & hard & cuda\_states & 0.3657 & 0.4561 & 87m 00s \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Trois faits ressortent immédiatement:
+\begin{itemize}
+    \item \textbf{Fashion-MNIST} est le cas de réussite du projet quantique. Les deux backends quantiques restent très proches l'un de l'autre et relativement proches du classique.
+    \item \textbf{CIFAR-10} est beaucoup plus ambigu. Sur les tâches faciles et moyennes, le classique garde un net avantage. Les backends quantiques restent parfois exploitables mais perdent fortement en discriminabilité.
+    \item \textbf{SVHN} est le cas d'échec le plus net pour le QSVM actuel. Les AUC restent proches de $0.5$ malgré des temps de calcul importants.
+\end{itemize}
+
+Il faut aussi noter un résultat de validation important obtenu après correction du backend. Sur la commande de test ciblée \texttt{fashion\_easy}, \texttt{cuda\_states}, subset 1\,000, le log \texttt{log\_test\_cuda\_states.txt} donne \textbf{val\_F1 = 0.9662}, \textbf{test\_F1 = 0.9623} et \textbf{test\_AUC = 0.9933} en \textbf{4m33}. Ce run prouve que le backend corrigé n'est plus bloqué à AUC $0.5$ et reproduit bien la qualité attendue sur un cas favorable.
+
+\section{Failure Analysis: Kernel Collapse and Barren Plateau-Like Regimes}
+L'un des apports les plus intéressants du projet est précisément qu'il ne cache pas ses échecs. Les logs montrent clairement que plusieurs tâches difficiles produisent des kernels quasiment constants après centrage/normalisation:
+\begin{itemize}
+    \item écart inter-classes (\texttt{class\_gap}) proche de zéro;
+    \item écart-type du kernel test souvent autour de $10^{-4}$ à $10^{-3}$;
+    \item fraction de vecteurs de support proche de $1.0$;
+    \item AUC finale proche de l'aléatoire.
+\end{itemize}
+
+Le cas \texttt{cifar10\_hard} avec \textbf{6 couches} est particulièrement révélateur. Dans les logs \texttt{log\_cifar10\_hard\_torch\_500\_6layers.txt}, on observe typiquement:
+\begin{itemize}
+    \item \texttt{Val kernel std = 0.0005};
+    \item \texttt{support\_frac = 1.0000};
+    \item \texttt{test\_F1 = 0.0000};
+    \item \texttt{test\_AUC = 0.4757}.
+\end{itemize}
+
+Ce comportement est cohérent avec une \textbf{concentration du noyau}: les états deviennent presque indiscernables du point de vue du recouvrement utilisé par le SVM. Il est raisonnable d'interpréter cela comme un régime \emph{barren plateau-like} ou \emph{kernel collapse}, même si plusieurs facteurs s'additionnent probablement:
+\begin{itemize}
+    \item perte d'information due au passage en niveaux de gris puis à la PCA;
+    \item ansatz générique peu informé par la géométrie des images;
+    \item profondeur accrue qui favorise la concentration des overlaps;
+    \item limites intrinsèques des kernels de fidélité globaux sur des données visuelles complexes.
+\end{itemize}
+
+Le projet montre donc une limite scientifique importante: accélérer le calcul d'un mauvais noyau ne suffit pas à rendre le modèle bon. L'ingénierie HPC a résolu le problème de coût et de justesse d'implémentation; elle n'a pas supprimé les limites de représentation du feature map quantique choisi.
+
+\section{Reproducibility and Engineering Hygiene}
+Un autre aspect réussi du projet est sa reproductibilité pratique:
+\begin{itemize}
+    \item image Docker GPU documentée dans le \texttt{README};
+    \item scripts batch CPU/GPU pour lancer des campagnes d'expériences;
+    \item fichiers YAML par dataset et niveau de difficulté;
+    \item cache disque des kernels;
+    \item cache d'autotuning persistant pour les tuiles CUDA;
+    \item logs détaillés et export systématique dans W\&B.
+\end{itemize}
+
+L'ensemble forme un environnement de recherche crédible: un autre utilisateur peut relancer les expériences, profiler le backend, modifier le noyau CUDA, comparer les backends et analyser les mêmes métriques de diagnostic.
+
+\section{What Was Achieved in This Project}
+En synthèse, le projet a effectivement réalisé les tâches suivantes:
+\begin{enumerate}
+    \item conception d'une chaîne d'entraînement complète pour SVM classiques et quantiques;
+    \item implémentation d'un backend GPU haut niveau \texttt{torch};
+    \item implémentation d'un backend GPU bas niveau \texttt{cuda\_states} avec \texttt{RawKernel};
+    \item intégration DLPack pour éviter les copies CPU intermédiaires;
+    \item ajout d'un autotuning persistant et d'un dimensionnement mémoire VRAM-aware;
+    \item ajout d'un pool de streams CUDA, de profiling mémoire et d'ablations de performance;
+    \item correction d'erreurs numériques d'accumulation via le passage en \texttt{double2}/\texttt{float64};
+    \item correction d'un bug de synchronisation inter-streams qui corrompait la matrice de Gram;
+    \item harmonisation stricte de la normalisation des kernels entre backends;
+    \item ajout d'une journalisation W\&B suffisamment riche pour évaluer proprement les modèles;
+    \item production d'un jeu cohérent de benchmarks, logs et tableaux de résultats.
+\end{enumerate}
+
+\section{Conclusion}
+Ce projet valide un point important pour le calcul scientifique appliqué au QML: un backend CUDA personnalisé n'est pas seulement un exercice d'optimisation, c'est aussi un moyen de contrôler précisément la sémantique mathématique du calcul. Le passage à un noyau \emph{output-stationary} en double précision, la gestion rigoureuse des streams, la normalisation croisée stricte et le calcul direct des diagonales ont transformé \texttt{cuda\_states} en un backend fiable pour la recherche.
+
+Sur le plan applicatif, le projet montre que les noyaux quantiques simulés peuvent être très compétitifs sur des tâches simples comme Fashion-MNIST, mais qu'ils restent en difficulté sur des images plus riches comme CIFAR-10 ou SVHN avec le feature map actuel. Cette conclusion est utile: elle indique que le prochain goulot d'étranglement n'est plus uniquement l'implémentation HPC, mais la conception de noyaux et d'ansatz mieux adaptés aux données.
+
+\section{Perspectives}
+Les suites logiques du projet sont claires:
+\begin{itemize}
+    \item kernels projetés ou locaux pour limiter la concentration globale de la fidélité;
+    \item ansatz géométriquement informés pour les images;
+    \item comparaison systématique avec des features classiques plus fortes avant la PCA;
+    \item multi-GPU ou MPI pour distribuer une matrice de Gram unique;
+    \item raffinement du benchmark croisé \texttt{torch} vs \texttt{cuda\_states} en plus grande échelle;
+    \item éventuelle intégration d'un solveur SVM GPU natif pour supprimer le dernier goulot CPU.
+\end{itemize}
+
+\end{document}

@@ -1,6 +1,6 @@
 # Parallel Programming Project
 
-[![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CuPy%20%7C%20CUDA-green?logo=pytorch)](#)
+[![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CuPy%20%7C%20CUDA-green?logo=pytorch)](#overview)
 [![Hardware](https://img.shields.io/badge/Hardware-NVIDIA%20RTX%206000%20(96GB)%20%7C%20AMD%20EPYC%2074F3-red)](#-hardware-specs)
 [![W&B](https://img.shields.io/badge/Weights_&_Biases-logging-orange?logo=weightsandbiases)](#-logging--artifacts)
 
@@ -12,6 +12,7 @@ Project developed in the *Parallel Programming* course (University of Florence).
 ---
 
 ## Table of Contents
+
 - [Overview](#overview)
 - [Repo layout](#repo-layout)
 - [High-Performance Architecture](#-high-performance-architecture)
@@ -86,10 +87,10 @@ This project implements a custom **GPU-accelerated pipeline** (`cuda_states`) de
 
 Benchmarks and training were performed on a high-end HPC node:
 
-* **GPU:** 2x **NVIDIA RTX 6000 Ada Generation** (96 GB VRAM each)
-* **CPU:** Dual **AMD EPYC 74F3** 24-Core Processor (96 threads total)
-* **RAM:** 512 GB DDR4
-* **CUDA:** Version 13.0
+- **GPU:** 2x **NVIDIA RTX 6000 Ada Generation** (96 GB VRAM each)
+- **CPU:** Dual **AMD EPYC 74F3** 24-Core Processor (96 threads total)
+- **RAM:** 512 GB DDR4
+- **CUDA:** Version 13.0
 
 ---
 
@@ -97,8 +98,8 @@ Benchmarks and training were performed on a high-end HPC node:
 
 ### Environment
 
-* **OS**: Linux (tested on Ubuntu 22.04/24.04)
-* **CUDA**: 12.x or 13.x
+- **OS**: Linux (tested on Ubuntu 22.04/24.04)
+- **CUDA**: 12.x or 13.x
 
 ```bash
 # Clone
@@ -156,6 +157,7 @@ python train_svm_qkernel.py \
 ```
 
 **Key findings:**
+
 - `precompute_all_states=True` provides **74% speedup** (most critical)
 - `state_tile=-1` (auto) is **78% faster** than fixed sizes
 - `vram_fraction=0.95` maximizes GPU utilization
@@ -209,7 +211,7 @@ bash run_all_cpu.sh   # classical baseline runs
 Test the three backends with a smaller workload:
 
 ```bash
-python benchmark_production.py --backend-comparison --n-samples 4000 --n-qubits 8
+python benchmark_production.py --backend-comparison --n-samples 4000 --n-qubits 16
 ```
 
 ### Example 2: Full cuda_states Optimization Study
@@ -223,7 +225,7 @@ python benchmark_production.py \
     --cuda-states-vram \
     --cuda-states-streams \
     --n-samples 8000 \
-    --n-qubits 10 \
+    --n-qubits 16 \
     --verbose
 ```
 
@@ -269,13 +271,52 @@ Run the complete benchmark suite with production settings:
 ```bash
 python benchmark_production.py \
     --all \
-    --n-samples 8000 \
-    --n-qubits 10 \
+    --n-samples 1000 \
+    --n-qubits 16 \
     --warmup-runs 2 \
     --benchmark-runs 5 \
     --output-dir benchmark_results \
     --verbose
 ```
+
+### Example 7: Dataset Profiles (Fashion, CIFAR10, SVHN)
+
+Use dataset-specific benchmark presets for fair backend comparison across your three datasets.
+
+```bash
+# Fashion-MNIST profile
+docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
+    --all \
+    --parallel-gpus 5 \
+    --dataset-profile fashion \
+    --warmup-runs 2 \
+    --benchmark-runs 2 \
+    --output-dir benchmark_results/fashion
+
+# CIFAR10 profile
+docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
+    --all \
+    --parallel-gpus 5 \
+    --dataset-profile cifar10 \
+    --warmup-runs 2 \
+    --benchmark-runs 2 \
+    --output-dir benchmark_results/cifar10
+
+# SVHN profile
+docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
+    --all \
+    --parallel-gpus 5 \
+    --dataset-profile svhn \
+    --warmup-runs 2 \
+    --benchmark-runs 2 \
+    --output-dir benchmark_results/svhn
+```
+
+Notes:
+
+- `--dataset-profile` configures `QUBITS_RANGE`, `SAMPLE_SIZES`, and default benchmark scales.
+- `--warmup-runs` controls GPU warmup passes before timing.
+- `--benchmark-runs` controls timed repetitions and averages per test point.
 
 ## Output Files
 
@@ -298,6 +339,7 @@ The benchmark generates comprehensive output in the selected output directory. B
 ### Backend Comparison
 
 Look for:
+
 - **Best throughput** (Mpairs/s): Higher is better
 - **GPU memory usage**: Ensure it fits in available VRAM
 - **Speedup vs CPU**: How much faster GPU backends are
@@ -360,6 +402,7 @@ Look for:
 ### Import Errors
 
 Ensure all dependencies are installed:
+
 ```bash
 pip install numpy pandas matplotlib seaborn torch cupy
 ```
@@ -404,21 +447,20 @@ done
 - **Recommended**: NVIDIA GPU with 16GB+ VRAM, CUDA 12.0+
 - **Optimal**: NVIDIA RTX 6000 Ada (96GB VRAM), CUDA 13.0
 
-
 ---
 
 ## 📦 Logging & artifacts
 
-* **Weights & Biases**: Tracks F1-score, AUC, Accuracy, and **Confusion Matrices**.
-* **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data and parameters).
-* **Batch Logs**: `run_all_cpu.sh` writes `log_*_classical_*.txt` and `run_all_gpu.sh` writes `log_*_torch_*.txt`.
+- **Weights & Biases**: Tracks F1-score, AUC, Accuracy, and **Confusion Matrices**.
+- **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data and parameters).
+- **Batch Logs**: `run_all_cpu.sh` writes `log_*_classical_*.txt` and `run_all_gpu.sh` writes `log_*_torch_*.txt`.
 
 ---
 
 ## License & citation
 
-* Code released for academic use within the Parallel Programming course.
-* Please cite the repo and upstream frameworks (PennyLane, PyTorch, CuPy) if you build on it.
+- Code released for academic use within the Parallel Programming course.
+- Please cite the repo and upstream frameworks (PennyLane, PyTorch, CuPy) if you build on it.
 
 ---
 

@@ -9,8 +9,8 @@ def parse_logs():
     results = []
 
     # Expressions régulières pour attraper les infos
-    # Nom du fichier : log_dataset_diff_backend_size.txt
-    filename_regex = re.compile(r"log_(?P<dataset>[^_]+)_(?P<diff>[^_]+)_(?P<backend>[^_]+)_(?P<size>[^\.]+)\.txt")
+    # J'ai amélioré le regex pour qu'il reconnaisse spécifiquement "cuda_states" sans le couper !
+    filename_regex = re.compile(r"log_(?P<dataset>[^_]+)_(?P<diff>[^_]+)_(?P<backend>classical|classique|torch|cuda_states)_(?P<size>[^\.]+)\.txt")
     
     # Métriques Quantiques
     q_metrics_regex = re.compile(r"test_F1=([0-9\.]+)\s+test_AUC=([0-9\.]+)")
@@ -37,26 +37,27 @@ def parse_logs():
         with open(file, "r", encoding="utf-8") as f:
             content = f.read()
             
-            # 1. Chercher F1 et AUC
+            # 1. Chercher F1 et AUC (On utilise findall pour tout lister)
             if backend in ["classique", "classical"]:
-                metrics_match = c_metrics_regex.search(content)
+                metrics_matches = c_metrics_regex.findall(content)
             else:
-                metrics_match = q_metrics_regex.search(content)
+                metrics_matches = q_metrics_regex.findall(content)
                 
-            if metrics_match:
-                f1 = metrics_match.group(1)
-                auc = metrics_match.group(2)
+            if metrics_matches:
+                # On prend l'index [-1] pour lire la DERNIÈRE exécution (le vrai run !)
+                f1 = metrics_matches[-1][0]
+                auc = metrics_matches[-1][1]
             else:
                 f1, auc = "FAILED", "FAILED" # Si le script a planté avant la fin
                 
-            # 2. Chercher le temps
-            time_match_1 = time_regex_1.search(content)
-            time_match_2 = time_regex_2.search(content)
+            # 2. Chercher le temps (On utilise findall et on prend la dernière valeur)
+            time_matches_1 = time_regex_1.findall(content)
+            time_matches_2 = time_regex_2.findall(content)
             
-            if time_match_1:
-                exec_time = time_match_1.group(1)
-            elif time_match_2:
-                exec_time = time_match_2.group(1)
+            if time_matches_1:
+                exec_time = time_matches_1[-1]
+            elif time_matches_2:
+                exec_time = time_matches_2[-1]
 
         results.append({
             "Dataset": dataset,
@@ -72,14 +73,14 @@ def parse_logs():
     results = sorted(results, key=lambda x: (x["Dataset"], x["Difficulty"], x["Backend"], x["Size"]))
 
     # Exporter en CSV
-    csv_file = "summary_results.csv"
+    csv_file = "summary_results_v2.csv"
     with open(csv_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["Dataset", "Difficulty", "Backend", "Size", "F1-Score", "AUC", "Time"])
         writer.writeheader()
         writer.writerows(results)
 
-    print(f"✅ Extraction terminée ! {len(results)} logs analysés.")
-    print(f"📄 Les résultats sont sauvegardés dans le fichier '{csv_file}'.")
+    print(f"✅ Extraction v2 terminée ! {len(results)} logs analysés.")
+    print(f"📄 Les résultats corrigés sont sauvegardés dans '{csv_file}'.")
 
 if __name__ == "__main__":
     parse_logs()

@@ -5,7 +5,12 @@ import csv
 
 def parse_logs():
     # Chercher tous les fichiers qui commencent par log_ et finissent par .txt
-    log_files = glob.glob("log_*.txt")
+    log_files = sorted(
+        set(
+            glob.glob("log_*.txt") +
+            glob.glob("logs/**/log_*.txt", recursive=True)
+        )
+    )
     results = []
 
     # Expressions régulières pour attraper les infos

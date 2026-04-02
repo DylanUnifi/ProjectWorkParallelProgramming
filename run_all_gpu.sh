@@ -7,6 +7,10 @@ difficulties=("easy" "med" "hard")
 sizes=("500" "1000" "2500" "5000" "all")
 backends=("torch" "cuda_states") # 👈 La magie opère ici !
 
+RUN_TS="$(date +%Y%m%d_%H%M%S)"
+LOG_ROOT="logs/quantum/${RUN_TS}"
+mkdir -p "${LOG_ROOT}"
+
 gpu_id=0
 max_gpus=5
 failures=0
@@ -59,7 +63,8 @@ for ds in "${datasets[@]}"; do
           cmd+=(--train-subset "$size")
         fi
 
-        (time CUDA_VISIBLE_DEVICES=$gpu_id "${cmd[@]}") 2>&1 | tee -a "log_${ds}_${diff}_${backend}_${size}.txt" &
+        log_file="${LOG_ROOT}/log_${ds}_${diff}_${backend}_${size}.txt"
+        (time CUDA_VISIBLE_DEVICES=$gpu_id "${cmd[@]}") 2>&1 | tee -a "${log_file}" &
         batch_pids+=("$!")
         batch_labels+=("${ds}|${diff}|${size}|${backend}|gpu${gpu_id}")
         
@@ -79,7 +84,9 @@ wait_for_batch
 
 if [ "$failures" -gt 0 ]; then
   echo "❌ TÂCHES TERMINÉES AVEC ${failures} ÉCHEC(S)."
+  echo "📁 Logs available in: ${LOG_ROOT}"
   exit 1
 fi
 
 echo "✅ TOUTES LES TÂCHES QUANTIQUES SONT TERMINÉES !"
+echo "📁 Logs available in: ${LOG_ROOT}"

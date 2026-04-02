@@ -6,6 +6,10 @@ datasets=("fashion" "cifar10" "svhn")
 difficulties=("easy" "med" "hard")
 sizes=("500" "1000" "2500" "5000" "all")
 
+RUN_TS="$(date +%Y%m%d_%H%M%S)"
+LOG_ROOT="logs/classical/${RUN_TS}"
+mkdir -p "${LOG_ROOT}"
+
 cpu_jobs=0
 max_cpu_jobs=6
 failures=0
@@ -53,7 +57,8 @@ for ds in "${datasets[@]}"; do
         cmd+=(--train-subset "$size")
       fi
 
-      (time "${cmd[@]}") 2>&1 | tee -a "log_${ds}_${diff}_classical_${size}.txt" &
+      log_file="${LOG_ROOT}/log_${ds}_${diff}_classical_${size}.txt"
+      (time "${cmd[@]}") 2>&1 | tee -a "${log_file}" &
       batch_pids+=("$!")
       batch_labels+=("${ds}|${diff}|${size}|classical")
       
@@ -72,7 +77,9 @@ wait_for_batch
 
 if [ "$failures" -gt 0 ]; then
   echo "❌ Classical jobs completed with ${failures} failure(s)."
+  echo "📁 Logs available in: ${LOG_ROOT}"
   exit 1
 fi
 
 echo "All classical jobs completed."
+echo "📁 Logs available in: ${LOG_ROOT}"

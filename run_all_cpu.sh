@@ -27,7 +27,7 @@ wait_for_batch() {
     pid="${batch_pids[$i]}"
     label="${batch_labels[$i]}"
     if wait "$pid"; then
-      echo "✅ Completed: ${label}"
+      echo "Success: Completed: ${label}"
     else
       echo "❌ Failed: ${label}"
       failures=$((failures + 1))

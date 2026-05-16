@@ -30,3 +30,72 @@ services:
       - ./outputs:/app/outputs
     working_dir: /app
     command: bash
+
+  train-qkernel:
+    image: parallel-programming-exam-gpu
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
+    command: python3 train_svm_qkernel.py
+
+  train-classical:
+    image: parallel-programming-exam-gpu
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
+    command: python3 train_svm_classical.py
+
+  benchmark-production:
+    image: parallel-programming-exam-gpu
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
+    command: python3 benchmark_production.py
+
+  extract-results:
+    image: parallel-programming-exam-gpu
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
+    command: python3 extract_results.py
+
+  run-all-gpu:
+    image: parallel-programming-exam-gpu25
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
+    command: bash run_all_gpu.sh
+
+  run-all-cpu:
+    image: parallel-programming-exam-gpu
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
+    command: bash run_all_cpu.sh

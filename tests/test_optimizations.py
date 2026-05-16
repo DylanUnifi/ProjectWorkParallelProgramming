@@ -72,7 +72,7 @@ def test_dynamic_batch_sizer():
     print(f"    Total kernels: {report['total_kernels']}")
     print(f"    Avg kernel time: {report['avg_kernel_time']:.4f}s")
     
-    print("  ✅ DynamicBatchSizer test passed")
+    print("  Success: DynamicBatchSizer test passed")
 
 
 def test_cuda_stream_pool():
@@ -105,7 +105,7 @@ def test_cuda_stream_pool():
         # Test synchronization
         print("\n  Testing synchronization...")
         pool.synchronize_all()
-        print("  ✅ All streams synchronized")
+        print("  Success: All streams synchronized")
         
         # Test context manager
         print("\n  Testing context manager...")
@@ -113,17 +113,17 @@ def test_cuda_stream_pool():
             s1 = pool2.get_stream()
             s2 = pool2.get_stream()
             assert s1 is not s2, "Different streams should be returned"
-        print("  ✅ Context manager works correctly")
+        print("  Success: Context manager works correctly")
         
         # Test utilization
         utilization = pool.get_utilization()
         print(f"\n  Stream utilization: {utilization:.2%}")
         assert 0.0 <= utilization <= 1.0, "Utilization should be between 0 and 1"
         
-        print("  ✅ CUDAStreamPool test passed")
+        print("  Success: CUDAStreamPool test passed")
         
     except ImportError:
-        print("  ⚠️  CuPy not available, skipping CUDAStreamPool test")
+        print("  Warning:  CuPy not available, skipping CUDAStreamPool test")
 
 
 def test_tile_size_optimizer():
@@ -187,7 +187,7 @@ def test_tile_size_optimizer():
         stats2 = optimizer2.get_statistics()
         assert stats2['total_runs'] == stats['total_runs'], "History should persist"
         
-        print("  ✅ TileSizeOptimizer test passed")
+        print("  Success: TileSizeOptimizer test passed")
         
     finally:
         # Clean up temp file
@@ -248,7 +248,7 @@ def test_memory_profiler():
     snapshot = profiler.snapshot()
     print(f"    Snapshot keys: {list(snapshot.keys())}")
     
-    print("  ✅ MemoryProfiler test passed")
+    print("  Success: MemoryProfiler test passed")
 
 
 def test_cuda_graph_manager():
@@ -294,7 +294,7 @@ def test_cuda_graph_manager():
             kernel(grid, block, args)
         stream.synchronize()
         
-        print("  ✅ Normal execution succeeded")
+        print("  Success: Normal execution succeeded")
         
         # Test graph capture (Note: May not work in all environments)
         print("\n  Testing graph capture...")
@@ -304,18 +304,18 @@ def test_cuda_graph_manager():
             manager.capture_graph(graph_key, stream, kernel, grid, block, args)
             
             if manager.has_graph(graph_key):
-                print("  ✅ Graph captured successfully")
+                print("  Success: Graph captured successfully")
                 
                 # Test graph replay
                 print("\n  Testing graph replay...")
                 manager.replay_graph(graph_key, stream)
                 stream.synchronize()
-                print("  ✅ Graph replayed successfully")
+                print("  Success: Graph replayed successfully")
             else:
-                print("  ⚠️  Graph capture not supported in this environment")
+                print("  Warning:  Graph capture not supported in this environment")
         
         except Exception as e:
-            print(f"  ⚠️  Graph operations not supported: {e}")
+            print(f"  Warning:  Graph operations not supported: {e}")
         
         # Test statistics
         stats = manager.get_statistics()
@@ -329,14 +329,14 @@ def test_cuda_graph_manager():
         print("\n  Testing clear...")
         manager.clear()
         assert len(manager.graphs) == 0, "Graphs should be cleared"
-        print("  ✅ Clear succeeded")
+        print("  Success: Clear succeeded")
         
-        print("  ✅ CUDAGraphManager test passed")
+        print("  Success: CUDAGraphManager test passed")
         
     except ImportError:
-        print("  ⚠️  CuPy not available, skipping CUDAGraphManager test")
+        print("  Warning:  CuPy not available, skipping CUDAGraphManager test")
     except Exception as e:
-        print(f"  ⚠️  Test skipped due to environment limitations: {e}")
+        print(f"  Warning:  Test skipped due to environment limitations: {e}")
 
 
 def main():
@@ -353,7 +353,7 @@ def main():
         print(f"  ❌ Test failed: {e}")
         all_passed = False
     except Exception as e:
-        print(f"  ⚠️  Test error: {e}")
+        print(f"  Warning:  Test error: {e}")
     
     try:
         test_cuda_stream_pool()
@@ -361,7 +361,7 @@ def main():
         print(f"  ❌ Test failed: {e}")
         all_passed = False
     except Exception as e:
-        print(f"  ⚠️  Test error: {e}")
+        print(f"  Warning:  Test error: {e}")
     
     try:
         test_tile_size_optimizer()
@@ -369,7 +369,7 @@ def main():
         print(f"  ❌ Test failed: {e}")
         all_passed = False
     except Exception as e:
-        print(f"  ⚠️  Test error: {e}")
+        print(f"  Warning:  Test error: {e}")
     
     try:
         test_memory_profiler()
@@ -377,7 +377,7 @@ def main():
         print(f"  ❌ Test failed: {e}")
         all_passed = False
     except Exception as e:
-        print(f"  ⚠️  Test error: {e}")
+        print(f"  Warning:  Test error: {e}")
     
     try:
         test_cuda_graph_manager()
@@ -385,11 +385,11 @@ def main():
         print(f"  ❌ Test failed: {e}")
         all_passed = False
     except Exception as e:
-        print(f"  ⚠️  Test error: {e}")
+        print(f"  Warning:  Test error: {e}")
     
     print("\n" + "="*70)
     if all_passed:
-        print("ALL TESTS PASSED ✅")
+        print("ALL TESTS PASSED Success:")
     else:
         print("SOME TESTS FAILED ❌")
     print("="*70 + "\n")

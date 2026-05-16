@@ -9,14 +9,14 @@ dist/
 *.egg-info/
 .eggs/
 
-# --- Environnements Virtuels ---
+# --- Virtual Environments ---
 .env
 .venv
 env/
 venv/
 ENV/
 
-# --- IDEs & Éditeurs ---
+# --- IDEs & Editors ---
 .idea/
 .vscode/
 *.swp
@@ -27,26 +27,26 @@ Thumbs.db
 # --- Logs & Debug ---
 *.log
 logs/
-logs_*/           # Ignore tous les dossiers de logs (logs_fashion_grid, etc.)
-wandb/            # Dossier local de Weights & Biases (Lourd !)
+logs_*/           # Ignore all log folders (logs_fashion_grid, etc.)
+wandb/            # Local Weights & Biases folder (large)
 
-# --- Données & Résultats ---
+# --- Data & Outputs ---
 data/
 datasets/
 results/
-outputs/          # Volume monté Docker
+outputs/          # Docker-mounted volume
 
-# --- Checkpoints & Modèles ---
+# --- Checkpoints & Models ---
 checkpoints/
-checkpoints_svm/  # Dossier par défaut de EnhancedSVM
+checkpoints_svm/  # Default folder for EnhancedSVM
 *.pt
 *.pth
 *.pkl
 *.ckpt
 
-# --- Caches Spécifiques au Projet (IMPORTANT) ---
-kernel_cache/     # EXCLU : Matrices de kernel quantique (.npy)
-*.npy             # Sécurité : Ignore tous les fichiers numpy isolés
+# --- Project-specific Caches (IMPORTANT) ---
+kernel_cache/     # Exclude: quantum kernel matrices (.npy)
+*.npy             # Safety: ignore standalone numpy files
 
 # --- Docker ---
 .dockerignore

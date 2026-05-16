@@ -63,7 +63,7 @@ def run_once(
         if HAS_TORCH and "gpu" in device_name:
             torch.cuda.synchronize()
     except Exception as e:
-        print(f"⚠️ Warmup failed: {e}")
+        print(f"Warning: Warmup failed: {e}")
 
     reset_peak_memory()
     times = []

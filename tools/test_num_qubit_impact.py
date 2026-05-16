@@ -204,7 +204,7 @@ def benchmark_single_config(
     # Otherwise, reduce samples automatically for high qubits to avoid OOM
     elif n_qubits >= 16:
         n_samples = get_safe_sample_size(n_qubits, n_samples)
-        print(f"  ⚠️ Reduced samples to {n_samples} for {n_qubits} qubits (VRAM limit)")
+        print(f"  Warning: Reduced samples to {n_samples} for {n_qubits} qubits (VRAM limit)")
     
     # Generate test data
     rng = np.random.default_rng(42)
@@ -244,7 +244,7 @@ def benchmark_single_config(
             
             # FIX: Check for NaN/Inf in output
             if not np.all(np.isfinite(K)):
-                print(f"  ⚠️ WARNING: NaN/Inf detected in kernel matrix for {n_qubits} qubits")
+                print(f"  Warning: WARNING: NaN/Inf detected in kernel matrix for {n_qubits} qubits")
             
             del K
         
@@ -329,7 +329,7 @@ def run_qubit_impact_test() -> pd.DataFrame:
     # Save results
     df = pd.DataFrame(results)
     df.to_csv(OUTPUT_CSV, index=False)
-    print(f"\n💾 Results saved to: {OUTPUT_CSV}")
+    print(f"\nSaved: Results saved to: {OUTPUT_CSV}")
     
     # Print summary
     print("\n" + "="*80)
@@ -420,9 +420,9 @@ if __name__ == "__main__":
     
     try:
         df = run_qubit_impact_test()
-        print("\n✅ Test completed successfully!")
+        print("\nSuccess: Test completed successfully!")
     except KeyboardInterrupt:
-        print("\n⚠️ Test interrupted by user.")
+        print("\nWarning: Test interrupted by user.")
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")

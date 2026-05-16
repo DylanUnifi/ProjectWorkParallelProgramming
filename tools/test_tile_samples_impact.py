@@ -200,7 +200,7 @@ def test_cuda_states_tile_impact():
     # Find optimal
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: state_tile={best['state_tile']}, tile_size={best['tile_size']} "
+        print(f"\nSuccess: OPTIMAL: state_tile={best['state_tile']}, tile_size={best['tile_size']} "
               f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return results
@@ -281,7 +281,7 @@ def test_num_streams_impact():
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: num_streams={best['num_streams']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+        print(f"\nSuccess: OPTIMAL: num_streams={best['num_streams']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return results
 
@@ -509,7 +509,7 @@ def test_numpy_tile_workers_impact():
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: tile_size={best['tile_size']}, n_workers={best['n_workers']} "
+        print(f"\nSuccess: OPTIMAL: tile_size={best['tile_size']}, n_workers={best['n_workers']} "
               f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return results
@@ -559,7 +559,7 @@ def test_torch_tile_impact():
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: tile_size={best['tile_size']} "
+        print(f"\nSuccess: OPTIMAL: tile_size={best['tile_size']} "
               f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return results
@@ -613,7 +613,7 @@ def test_torch_optimizations():
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ BEST CONFIG: {best['config_name']} "
+        print(f"\nSuccess: BEST CONFIG: {best['config_name']} "
               f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return results
@@ -714,16 +714,16 @@ def run_all_tile_tests():
     # Save results
     df = pd.DataFrame(all_results)
     df.to_csv(OUTPUT_CSV, index=False)
-    print(f"\n💾 All results saved to: {OUTPUT_CSV}")
+    print(f"\nSaved: All results saved to: {OUTPUT_CSV}")
     
     return df
 
 if __name__ == "__main__":
     try:
         df = run_all_tile_tests()
-        print("\n✅ All tests completed successfully!")
+        print("\nSuccess: All tests completed successfully!")
     except KeyboardInterrupt:
-        print("\n⚠️ Tests interrupted by user.")
+        print("\nWarning: Tests interrupted by user.")
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")

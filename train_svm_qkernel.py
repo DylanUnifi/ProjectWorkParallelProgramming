@@ -569,7 +569,7 @@ def train_fold(
         **_prefix_metrics(f"fold_{fold_idx}/svm_test_fit", final_svm_stats),
     })
     
-    print(f"✅ Result Fold {fold_idx+1}: F1={test_metrics['f1']:.4f} AUC={test_metrics['auc']:.4f}")
+    print(f"Success: Result Fold {fold_idx+1}: F1={test_metrics['f1']:.4f} AUC={test_metrics['auc']:.4f}")
     return {
         "val_f1": val_metrics["f1"],
         "val_acc": val_metrics["acc"],

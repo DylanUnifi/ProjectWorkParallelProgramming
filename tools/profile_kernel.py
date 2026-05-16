@@ -151,7 +151,7 @@ def main():
             verbose_profile=args.verbose
         )
         
-        print(f"\n✅ Kernel matrix computed successfully!")
+        print(f"\nSuccess: Kernel matrix computed successfully!")
         print(f"   Output shape: {K.shape}")
         print(f"   Output dtype: {K.dtype}")
         print(f"   Min value: {K.min():.6f}")

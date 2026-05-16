@@ -34,7 +34,7 @@ def run_train(args):
     
     if args.train_subset:
         train_dataset = Subset(train_dataset, range(min(len(train_dataset), args.train_subset)))
-        print(f"⚠️ Subset Train: {len(train_dataset)}")
+        print(f"Warning: Subset Train: {len(train_dataset)}")
         
     X_train_raw, y_train = extract_raw_features(train_dataset)
     X_test_raw, y_test = extract_raw_features(test_dataset)

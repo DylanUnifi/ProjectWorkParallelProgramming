@@ -1246,7 +1246,7 @@ def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode,
             raise ValueError("Batching not natively supported")
     except:
         if progress and x.shape[0] > 1:
-            print(f"⚠️ Native batching unavailable for {desc.lower()}, using sequential state construction.")
+            print(f"Warning: Native batching unavailable for {desc.lower()}, using sequential state construction.")
         states = _build_states_sequential_torch(_state, x, progress=progress, desc=desc)
     
     states = states.to(device="cuda", dtype=t_cplx, non_blocking=False)
@@ -1325,7 +1325,7 @@ def _build_all_states_torch_cuda(x_all, w_np, dev_name, ascale, re_emb, mode,
             raise ValueError("Batching not natively supported")
     except:
         if progress and x.shape[0] > 1:
-            print(f"⚠️ Native batching unavailable for {desc.lower()}, using sequential state construction.")
+            print(f"Warning: Native batching unavailable for {desc.lower()}, using sequential state construction.")
         states = _build_states_sequential_torch(_state, x, progress=progress, desc=desc)
     
     states = states.to(device="cuda", dtype=t_cplx, non_blocking=False).contiguous()
@@ -1573,7 +1573,7 @@ def compute_kernel_matrix(
         # FIX: Force float64 for high qubit counts to prevent numerical overflow
         if nq >= 14 and dtype == "float32":
             if progress:
-                print(f"⚠️ Switching to float64 for {nq} qubits (numerical stability)")
+                print(f"Warning: Switching to float64 for {nq} qubits (numerical stability)")
             f_dt = np.float64
             is_double = True
             A = A.astype(f_dt)
@@ -1602,13 +1602,13 @@ def compute_kernel_matrix(
             tm, tn, tk = (16, 16, 16)
             kernel_tiles_locked = True
             if progress:
-                print(f"⚠️ Using conservative tiles for {nq} qubits: M={tm}, N={tn}, K={tk}")
+                print(f"Warning: Using conservative tiles for {nq} qubits: M={tm}, N={tn}, K={tk}")
         elif nq >= 12:
             # Conservative tiles for high qubit counts
             tm, tn, tk = (32, 32, 32)
             kernel_tiles_locked = True
             if progress:
-                print(f"⚠️ Using conservative tiles for {nq} qubits: M={tm}, N={tn}, K={tk}")
+                print(f"Warning: Using conservative tiles for {nq} qubits: M={tm}, N={tn}, K={tk}")
         elif autotune and tile_m == "auto":
             tm, tn, tk = _autotune_kernel_tiles(nq, is_double)
             if progress:
@@ -1698,7 +1698,7 @@ def compute_kernel_matrix(
             )
             if not can_precompute:
                 if progress:
-                    print(f"⚠️ VRAM insufficient for bulk precompute ({n} samples × {nq} qubits). "
+                    print(f"Warning: VRAM insufficient for bulk precompute ({n} samples × {nq} qubits). "
                           f"Falling back to tiled approach.")
                 precompute_all_states = False
                 
@@ -1816,7 +1816,7 @@ def compute_kernel_matrix(
                         # Replacement values: NaN→0 (no overlap), +Inf→1 (perfect overlap), -Inf→0 (invalid)
                         if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
                             if progress:
-                                print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
+                                print(f"Warning: NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
                             out_tile = cp.nan_to_num(out_tile, nan=0.0, posinf=1.0, neginf=0.0)
 
                         K_cp[i0:i1, j0:j1] = out_tile
@@ -1954,7 +1954,7 @@ def compute_kernel_matrix(
                         # Replacement values: NaN→0 (no overlap), +Inf→1 (perfect overlap), -Inf→0 (invalid)
                         if nq >= 12 and not cp.all(cp.isfinite(out_tile)):
                             if progress:
-                                print(f"⚠️ NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
+                                print(f"Warning: NaN/Inf detected in tile ({i0}:{i1}, {j0}:{j1}), repairing...")
                             out_tile = cp.nan_to_num(out_tile, nan=0.0, posinf=1.0, neginf=0.0)
 
                         K_cp[i0:i1, j0:j1] = out_tile

@@ -432,7 +432,7 @@ def benchmark_single_config(
                 "use_compile": False,
             })
             torch_fallback_tried = True
-            print("  ⚠️ Torch backend failed with the current config; retrying with conservative flags.")
+            print("  Warning: Torch backend failed with the current config; retrying with conservative flags.")
             try:
                 reset_gpu_memory()
                 run_config = safe_config
@@ -635,7 +635,7 @@ def test_tile_optimization(parallel_gpus: int = 1, warmup_runs: int = 1, benchma
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: state_tile={best['state_tile']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+        print(f"\nSuccess: OPTIMAL: state_tile={best['state_tile']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return pd.DataFrame(results)
 
@@ -683,7 +683,7 @@ def benchmark_vram_fraction_impact(parallel_gpus: int = 1, warmup_runs: int = 1,
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: vram_fraction={best.get('vram_fraction', 0.85):.2f} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+        print(f"\nSuccess: OPTIMAL: vram_fraction={best.get('vram_fraction', 0.85):.2f} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return pd.DataFrame(results)
 
@@ -727,7 +727,7 @@ def benchmark_stream_pool_impact(parallel_gpus: int = 1, warmup_runs: int = 1, b
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: num_streams={best.get('num_streams', 4)} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+        print(f"\nSuccess: OPTIMAL: num_streams={best.get('num_streams', 4)} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return pd.DataFrame(results)
 
@@ -915,7 +915,7 @@ def benchmark_torch_optimizations(parallel_gpus: int = 1, warmup_runs: int = 1, 
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ BEST CONFIG: {best['config_name']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+        print(f"\nSuccess: BEST CONFIG: {best['config_name']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return pd.DataFrame(results)
 
@@ -959,7 +959,7 @@ def benchmark_torch_tile_sizes(parallel_gpus: int = 1, warmup_runs: int = 1, ben
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ OPTIMAL: tile_size={best['tile_size']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+        print(f"\nSuccess: OPTIMAL: tile_size={best['tile_size']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return pd.DataFrame(results)
 
@@ -1060,7 +1060,7 @@ def benchmark_backend_comparison(parallel_gpus: int = 1, backends: Optional[List
     
     if results:
         best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\n✅ FASTEST: {best['backend']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
+        print(f"\nSuccess: FASTEST: {best['backend']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return pd.DataFrame(results)
 
@@ -1313,7 +1313,7 @@ def generate_summary_report(df_all: pd.DataFrame):
     import json
     
     if df_all.empty:
-        print("⚠️  No data to generate summary report")
+        print("Warning:  No data to generate summary report")
         return {}
     
     summary = {
@@ -1518,7 +1518,7 @@ def run_production_benchmark(tests: Optional[List[str]] = None, backends: Option
     if not df_all.empty:
         # Save combined results
         df_all.to_csv(OUTPUT_CSV, index=False)
-        print(f"\n💾 All results saved to: {OUTPUT_CSV}")
+        print(f"\nSaved: All results saved to: {OUTPUT_CSV}")
         
         # Generate plots
         generate_plots(df_qubit, df_sample, df_tile, df_ablation)
@@ -1684,13 +1684,13 @@ if __name__ == "__main__":
         parallel_gpus = min(requested_gpus, available_gpus) if available_gpus > 0 else 0
 
         if requested_gpus > 0 and parallel_gpus == 0:
-            print("⚠️ Parallel GPU execution requested but no CUDA GPUs are visible; running without GPU parallelism.")
+            print("Warning: Parallel GPU execution requested but no CUDA GPUs are visible; running without GPU parallelism.")
         elif requested_gpus > parallel_gpus:
-            print(f"⚠️ Requested {requested_gpus} GPUs but only {parallel_gpus} available; using {parallel_gpus}.")
+            print(f"Warning: Requested {requested_gpus} GPUs but only {parallel_gpus} available; using {parallel_gpus}.")
 
         run_production_benchmark(tests=tests, backends=backends, parallel_gpus=parallel_gpus)
     except KeyboardInterrupt:
-        print("\n⚠️ Benchmark interrupted by user.")
+        print("\nWarning: Benchmark interrupted by user.")
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")

@@ -5,7 +5,7 @@ set -euo pipefail
 datasets=("fashion" "cifar10" "svhn")
 difficulties=("easy" "med" "hard")
 sizes=("500" "1000" "2500" "5000" "all")
-backends=("torch" "cuda_states") # 👈 La magie opère ici !
+backends=("torch" "cuda_states") # backends to test
 
 RUN_TS="$(date +%Y%m%d_%H%M%S)"
 LOG_ROOT="logs/quantum/${RUN_TS}"
@@ -28,7 +28,7 @@ wait_for_batch() {
     pid="${batch_pids[$i]}"
     label="${batch_labels[$i]}"
     if wait "$pid"; then
-      echo "✅ Completed: ${label}"
+      echo "Success: Completed: ${label}"
     else
       echo "❌ Failed: ${label}"
       failures=$((failures + 1))
@@ -39,16 +39,16 @@ wait_for_batch() {
   batch_labels=()
 }
 
-echo "🔥 Démarrage du cluster Quantique sur $max_gpus GPUs (Torch & CUDA States)..."
+echo "🔥 Starting quantum cluster across $max_gpus GPUs (Torch & CUDA States)..."
 
 for ds in "${datasets[@]}"; do
   for diff in "${difficulties[@]}"; do
     for size in "${sizes[@]}"; do
       for backend in "${backends[@]}"; do
         
-        echo "➔ Lancement $ds | $diff | $size | Backend: $backend sur le GPU n°$gpu_id"
+        echo "➔ Launching $ds | $diff | $size | Backend: $backend on GPU #$gpu_id"
         
-        # Gestion du paramètre "all"
+        # Handle the "all" size parameter
         cmd=(
           python3 train_svm_qkernel.py
           --config configs/${ds}_${diff}.yaml \
@@ -70,7 +70,7 @@ for ds in "${datasets[@]}"; do
         
         gpu_id=$(( (gpu_id + 1) % max_gpus ))
         
-        # Pause tous les 5 lancements
+        # Pause every wave of max_gpus launches
         if [ $gpu_id -eq 0 ]; then
           wait_for_batch
         fi
@@ -83,10 +83,10 @@ done
 wait_for_batch
 
 if [ "$failures" -gt 0 ]; then
-  echo "❌ TÂCHES TERMINÉES AVEC ${failures} ÉCHEC(S)."
+  echo "❌ SOME TASKS FINISHED WITH ${failures} FAILURE(S)."
   echo "📁 Logs available in: ${LOG_ROOT}"
   exit 1
 fi
 
-echo "✅ TOUTES LES TÂCHES QUANTIQUES SONT TERMINÉES !"
+echo "Success: ALL QUANTUM TASKS COMPLETED!"
 echo "📁 Logs available in: ${LOG_ROOT}"

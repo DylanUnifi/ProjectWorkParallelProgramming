@@ -30,7 +30,7 @@ wait_for_batch() {
     if wait "$pid"; then
       echo "Success: Completed: ${label}"
     else
-      echo "❌ Failed: ${label}"
+      echo "Failed: ${label}"
       failures=$((failures + 1))
     fi
   done
@@ -39,14 +39,14 @@ wait_for_batch() {
   batch_labels=()
 }
 
-echo "🔥 Starting quantum cluster across $max_gpus GPUs (Torch & CUDA States)..."
+echo "Starting quantum cluster across $max_gpus GPUs (Torch and CUDA States)..."
 
 for ds in "${datasets[@]}"; do
   for diff in "${difficulties[@]}"; do
     for size in "${sizes[@]}"; do
       for backend in "${backends[@]}"; do
         
-        echo "➔ Launching $ds | $diff | $size | Backend: $backend on GPU #$gpu_id"
+        echo "Launching $ds | $diff | $size | Backend: $backend on GPU #$gpu_id"
         
         # Handle the "all" size parameter
         cmd=(
@@ -70,7 +70,7 @@ for ds in "${datasets[@]}"; do
         
         gpu_id=$(( (gpu_id + 1) % max_gpus ))
         
-        # Pause every wave of max_gpus launches
+        # Pause after each wave of max_gpus launches
         if [ $gpu_id -eq 0 ]; then
           wait_for_batch
         fi
@@ -83,10 +83,10 @@ done
 wait_for_batch
 
 if [ "$failures" -gt 0 ]; then
-  echo "❌ SOME TASKS FINISHED WITH ${failures} FAILURE(S)."
-  echo "📁 Logs available in: ${LOG_ROOT}"
+  echo "Some tasks finished with ${failures} failure(s)."
+  echo "Logs available in: ${LOG_ROOT}"
   exit 1
 fi
 
-echo "Success: ALL QUANTUM TASKS COMPLETED!"
-echo "📁 Logs available in: ${LOG_ROOT}"
+echo "All quantum tasks completed successfully."
+echo "Logs available in: ${LOG_ROOT}"

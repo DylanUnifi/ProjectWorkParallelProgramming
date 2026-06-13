@@ -1,6 +1,6 @@
 dataset:
   name: "cifar10"
-  binary_classes: [3, 5]  # Cat vs Dog
+  binary_classes: [3, 5]  # Cat vs dog
   grayscale: true
   root: "./data"
 

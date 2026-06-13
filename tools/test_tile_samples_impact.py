@@ -684,8 +684,8 @@ def run_all_tile_tests():
     print("="*80)
     print("TILE SIZE & SAMPLE COUNT IMPACT ANALYSIS")
     print("="*80)
-    print(f"📊 Fixed configuration: {N_QUBITS} qubits")
-    print(f"📁 Output: {OUTPUT_DIR}")
+    print(f"Fixed configuration: {N_QUBITS} qubits")
+    print(f"Output: {OUTPUT_DIR}")
     print("="*80)
     
     all_results = []
@@ -714,19 +714,19 @@ def run_all_tile_tests():
     # Save results
     df = pd.DataFrame(all_results)
     df.to_csv(OUTPUT_CSV, index=False)
-    print(f"\nSaved: All results saved to: {OUTPUT_CSV}")
+    print(f"\nAll results saved to: {OUTPUT_CSV}")
     
     return df
 
 if __name__ == "__main__":
     try:
         df = run_all_tile_tests()
-        print("\nSuccess: All tests completed successfully!")
+        print("All tests completed successfully")
     except KeyboardInterrupt:
-        print("\nWarning: Tests interrupted by user.")
+        print("\nWarning: tests interrupted by user.")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Fatal error: {e}")
+        print(f"\nFatal error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

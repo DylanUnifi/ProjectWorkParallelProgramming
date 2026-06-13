@@ -61,7 +61,7 @@ sys.path.insert(0, str(ROOT))
 try:
     from scripts.pipeline_backends import compute_kernel_matrix
 except ImportError:
-    print("❌ Error: Cannot import 'scripts.pipeline_backends'.")
+    print("Error: Cannot import 'scripts.pipeline_backends'.")
     print("Run this script from project root: python3 benchmark_production.py")
     sys.exit(1)
 
@@ -481,11 +481,11 @@ def benchmark_single_config(
                     "kernel_matrix": kernel_snapshot if return_kernel else None,
                 }
             except Exception as fallback_error:
-                print(f"  ❌ ERROR: {fallback_error}")
+                print(f"  ERROR: {fallback_error}")
                 traceback.print_exc()
                 return None
 
-        print(f"  ❌ ERROR: {e}")
+        print(f"  ERROR: {e}")
         traceback.print_exc()
         return None
 
@@ -858,7 +858,7 @@ def benchmark_with_profiling(warmup_runs: int = 1, benchmark_runs: int = 1) -> p
     if result:
         result["test"] = "memory_profiling"
         results.append(result)
-        print(f"\n📊 Profiling completed: {result['throughput_mpairs_s']:.3f} Mpairs/s")
+        print(f"\nProfiling completed: {result['throughput_mpairs_s']:.3f} Mpairs/s")
     
     return pd.DataFrame(results)
 
@@ -1304,7 +1304,7 @@ def generate_best_config_report(df_all: pd.DataFrame) -> pd.DataFrame:
 
     report_df = pd.DataFrame(rows).sort_values('best_throughput_mpairs_s', ascending=False)
     report_df.to_csv(OUTPUT_BEST_CSV, index=False)
-    print(f"🏆 Best configuration report saved to: {OUTPUT_BEST_CSV}")
+    print(f"Best configuration report saved to: {OUTPUT_BEST_CSV}")
     return report_df
 
 def generate_summary_report(df_all: pd.DataFrame):
@@ -1424,11 +1424,11 @@ def run_production_benchmark(tests: Optional[List[str]] = None, backends: Option
     print("="*80)
     print("PRODUCTION BENCHMARK - Comprehensive Performance Analysis")
     print("="*80)
-    print(f"📁 Output directory: {OUTPUT_DIR}")
+    print(f"Output directory: {OUTPUT_DIR}")
     print(f"🔧 Tests: {tests if tests else 'all'}")
     print(f"🔧 Backends: {backends if backends else 'all'}")
     print(f"🧩 Parallel GPUs requested: {parallel_gpus}")
-    print(f"🔥 Warmup runs: {WARMUP_RUNS_DEFAULT}")
+    print(f"Warmup runs: {WARMUP_RUNS_DEFAULT}")
     print(f"📏 Benchmark runs: {BENCHMARK_RUNS_DEFAULT}")
     print("="*80)
     
@@ -1693,7 +1693,7 @@ if __name__ == "__main__":
         print("\nWarning: Benchmark interrupted by user.")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Fatal error: {e}")
+        print(f"\nFatal error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

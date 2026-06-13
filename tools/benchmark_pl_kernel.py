@@ -138,7 +138,7 @@ def main():
         grid.append((dev, nq, tile, wrk))
 
     print(f"\n{'='*100}")
-    print(f"🚀 BENCHMARK KERNEL QUANTIQUE")
+    print("Quantum kernel benchmark")
     print(f"Backend: {args.gram_backend} | Precision: {args.dtype} | Samples: {args.samples}")
     print(f"{'='*100}\n")
     

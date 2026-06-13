@@ -1,5 +1,5 @@
 dataset:
   name: "cifar10"
-  binary_classes: [0, 2]  # Airplane vs Bird
+  binary_classes: [0, 2]  # Airplane vs bird
   grayscale: true
   root: "./data"

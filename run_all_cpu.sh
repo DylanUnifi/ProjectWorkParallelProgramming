@@ -29,7 +29,7 @@ wait_for_batch() {
     if wait "$pid"; then
       echo "Success: Completed: ${label}"
     else
-      echo "❌ Failed: ${label}"
+      echo "Failed: ${label}"
       failures=$((failures + 1))
     fi
   done
@@ -76,10 +76,10 @@ done
 wait_for_batch
 
 if [ "$failures" -gt 0 ]; then
-  echo "❌ Classical jobs completed with ${failures} failure(s)."
-  echo "📁 Logs available in: ${LOG_ROOT}"
+  echo "Classical jobs completed with ${failures} failure(s)."
+  echo "Logs available in: ${LOG_ROOT}"
   exit 1
 fi
 
 echo "All classical jobs completed."
-echo "📁 Logs available in: ${LOG_ROOT}"
+echo "Logs available in: ${LOG_ROOT}"

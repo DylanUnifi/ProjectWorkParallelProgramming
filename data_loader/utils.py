@@ -97,4 +97,4 @@ def load_dataset_by_name(name, binary_classes=None, grayscale=True, root='./data
         return train_dataset, test_dataset
 
     else:
-        raise ValueError(f"Dataset inconnu: {name}")
+        raise ValueError(f"Unknown dataset: {name}")

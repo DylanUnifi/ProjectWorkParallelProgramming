@@ -2,7 +2,7 @@ experiment_name: "svm_qkernel_fashion_mnist_hard"
 
 dataset:
   name: fashion_mnist
-  binary_classes: [0, 6]     
+  binary_classes: [0, 6]
   grayscale: true
   root: ./data
 

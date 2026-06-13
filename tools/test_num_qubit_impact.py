@@ -200,11 +200,11 @@ def benchmark_single_config(
     if n_qubits in QUBIT_SAMPLE_CONFIGS:
         n_samples = QUBIT_SAMPLE_CONFIGS[n_qubits]
         if config.get("verbose_profile", False):
-            print(f"  📊 Using {n_samples} samples for {n_qubits} qubits (qubit-specific config)")
+            print(f"  Using {n_samples} samples for {n_qubits} qubits (qubit-specific config)")
     # Otherwise, reduce samples automatically for high qubits to avoid OOM
     elif n_qubits >= 16:
         n_samples = get_safe_sample_size(n_qubits, n_samples)
-        print(f"  Warning: Reduced samples to {n_samples} for {n_qubits} qubits (VRAM limit)")
+            print(f"  Warning: reduced samples to {n_samples} for {n_qubits} qubits (VRAM limit)")
     
     # Generate test data
     rng = np.random.default_rng(42)
@@ -272,16 +272,16 @@ def benchmark_single_config(
         error_msg = str(e)
         # FIX: Provide more detailed error reporting
         if "shared memory" in error_msg.lower() or "ptxas" in error_msg.lower():
-            print(f"  ❌ CUDA shared memory error at {n_qubits} qubits")
+            print(f"  CUDA shared memory error at {n_qubits} qubits")
         elif "out of memory" in error_msg.lower() or "oom" in error_msg.lower():
-            print(f"  ❌ Out of memory at {n_qubits} qubits")
+            print(f"  Out of memory at {n_qubits} qubits")
         else:
             # Show more of error message with ellipsis if truncated
             max_len = 120
             if len(error_msg) > max_len:
-                print(f"  ❌ ERROR: {error_msg[:max_len]}...")
+                print(f"  Error: {error_msg[:max_len]}...")
             else:
-                print(f"  ❌ ERROR: {error_msg}")
+                print(f"  Error: {error_msg}")
         return None
 
 def run_qubit_impact_test() -> pd.DataFrame:
@@ -292,7 +292,7 @@ def run_qubit_impact_test() -> pd.DataFrame:
     print("="*80)
     print("TEST: Impact of Number of Qubits on Performance")
     print("="*80)
-    print(f"📊 Configuration:")
+    print("Configuration:")
     print(f"   - Qubits range: {QUBITS_RANGE}")
     print(f"   - Default samples: {DEFAULT_SAMPLES}")
     print(f"   - Qubit-specific configs: {QUBIT_SAMPLE_CONFIGS}")
@@ -305,7 +305,7 @@ def run_qubit_impact_test() -> pd.DataFrame:
         qubit_limit = BACKEND_QUBIT_LIMITS.get(backend_name, 20)
         applicable_qubits = [q for q in QUBITS_RANGE if q <= qubit_limit]
         
-        print(f"\n🔧 Backend: {backend_name.upper()}")
+        print(f"\nBackend: {backend_name.upper()}")
         print(f"   Qubit range: {applicable_qubits}")
         print("-"*60)
         print(f"{'Qubits':<8} {'Samples':<10} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
@@ -329,7 +329,7 @@ def run_qubit_impact_test() -> pd.DataFrame:
     # Save results
     df = pd.DataFrame(results)
     df.to_csv(OUTPUT_CSV, index=False)
-    print(f"\nSaved: Results saved to: {OUTPUT_CSV}")
+    print(f"\nResults saved to: {OUTPUT_CSV}")
     
     # Print summary
     print("\n" + "="*80)
@@ -416,16 +416,16 @@ if __name__ == "__main__":
         })
         
         if args.profile_memory or args.verbose_profile:
-            print("📊 Memory profiling enabled for cuda_states backend")
+            print("Memory profiling enabled for cuda_states backend")
     
     try:
         df = run_qubit_impact_test()
-        print("\nSuccess: Test completed successfully!")
+        print("Test completed successfully")
     except KeyboardInterrupt:
-        print("\nWarning: Test interrupted by user.")
+        print("\nWarning: test interrupted by user.")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Fatal error: {e}")
+        print(f"\nFatal error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

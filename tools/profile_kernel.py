@@ -122,13 +122,13 @@ def main():
     print("="*70)
     
     # Generate test data
-    print("\n📊 Generating test data...")
+    print("\nGenerating test data...")
     X, weights = generate_test_data(args.n_samples, args.n_qubits, args.n_layers, args.seed)
     print(f"   X shape: {X.shape}")
     print(f"   Weights shape: {weights.shape}")
     
     # Compute kernel matrix with profiling
-    print("\n🚀 Computing kernel matrix...")
+    print("\nComputing kernel matrix...")
     try:
         K = compute_kernel_matrix(
             X, Y=None,
@@ -151,7 +151,7 @@ def main():
             verbose_profile=args.verbose
         )
         
-        print(f"\nSuccess: Kernel matrix computed successfully!")
+        print("\nKernel matrix computed successfully.")
         print(f"   Output shape: {K.shape}")
         print(f"   Output dtype: {K.dtype}")
         print(f"   Min value: {K.min():.6f}")
@@ -160,23 +160,23 @@ def main():
         
         # Verify matrix properties
         if np.allclose(K, K.T, rtol=1e-5, atol=1e-5):
-            print("   ✓ Matrix is symmetric")
+            print("   Matrix is symmetric")
         else:
-            print("   ⚠ Matrix is not symmetric")
+            print("   Warning: matrix is not symmetric")
         
         if np.all(np.isfinite(K)):
-            print("   ✓ All values are finite")
+            print("   All values are finite")
         else:
-            print("   ⚠ Matrix contains NaN or Inf")
+            print("   Warning: matrix contains NaN or Inf")
         
         print("\n" + "="*70)
-        print("PROFILING COMPLETE")
+        print("Profiling complete")
         print("="*70)
         
         return 0
         
     except Exception as e:
-        print(f"\n❌ Error during computation: {e}")
+        print(f"\nError during computation: {e}")
         import traceback
         traceback.print_exc()
         return 1

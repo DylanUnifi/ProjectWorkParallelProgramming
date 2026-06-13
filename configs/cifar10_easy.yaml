@@ -1,5 +1,5 @@
 dataset:
   name: "cifar10"
-  binary_classes: [1, 6]  # Automobile vs Frog
-  grayscale: true         # Simplifie l'image RGB avant la PCA
+  binary_classes: [1, 6]  # Automobile vs frog
+  grayscale: true         # Convert RGB images to grayscale before PCA
   root: "./data"

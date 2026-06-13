@@ -1584,7 +1584,7 @@ def compute_kernel_matrix(
         if state_tile == -1:
             state_tile = _compute_optimal_state_tile(vram_fraction, nq, f_dt)
             if progress:
-                print(f"📊 Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
+                print(f"Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
         
         # OPTIMIZATION 3: Kernel autotuning with qubit-aware fallback
         # Reuse cached autotune results first when available.
@@ -1595,7 +1595,7 @@ def compute_kernel_matrix(
             tm, tn, tk = cached_tiles
             kernel_tiles_locked = True
             if progress:
-                print(f"🗂️ Loaded cached kernel tiles: M={tm}, N={tn}, K={tk}")
+                print(f"Loaded cached kernel tiles: M={tm}, N={tn}, K={tk}")
         # FIX: Add fallback tile sizes for high qubit counts to avoid shared memory errors
         elif nq >= 14:
             # Safe tiles for very high qubit counts
@@ -1612,7 +1612,7 @@ def compute_kernel_matrix(
         elif autotune and tile_m == "auto":
             tm, tn, tk = _autotune_kernel_tiles(nq, is_double)
             if progress:
-                print(f"🔧 Autotuned kernel tiles: M={tm}, N={tn}, K={tk}")
+                print(f"Autotuned kernel tiles: M={tm}, N={tn}, K={tk}")
         else:
             tm, tn, tk = (32, 32, 32)
             if tile_m != "auto": 
@@ -1629,26 +1629,26 @@ def compute_kernel_matrix(
             if prediction["confidence"] > 0.5 and state_tile == -1:
                 state_tile = prediction["state_tile"]
                 if state_tile > 0 and progress:
-                    print(f"🧠 Learned state_tile={state_tile} (confidence: {prediction['confidence']:.2f})")
+                    print(f"Learned state_tile={state_tile} (confidence: {prediction['confidence']:.2f})")
             
             if prediction["confidence"] > 0.5 and tile_m == "auto" and not kernel_tiles_locked:
                 tm, tn, tk = prediction["kernel_tiles"]
                 if progress:
-                    print(f"🧠 Learned kernel tiles: M={tm}, N={tn}, K={tk}")
+                    print(f"Learned kernel tiles: M={tm}, N={tn}, K={tk}")
         
         # NEW OPTIMIZATION: Memory profiler
         mem_profiler = None
         if profile_memory:
             mem_profiler = MemoryProfiler(enable_realtime=verbose_profile)
             if progress:
-                print("📊 Memory profiling enabled")
+                print("Memory profiling enabled")
         
         # NEW OPTIMIZATION: CUDA stream pool
         stream_pool = None
         if num_streams > 1:
             stream_pool = CUDAStreamPool(num_streams)
             if progress:
-                print(f"🌊 Stream pool initialized with {num_streams} streams")
+                print(f"Stream pool initialized with {num_streams} streams")
         
         # NEW OPTIMIZATION: Dynamic batch sizer
         batch_sizer = None
@@ -1660,20 +1660,20 @@ def compute_kernel_matrix(
                 target_memory_usage=vram_fraction
             )
             if progress:
-                print(f"🔄 Dynamic batch sizing enabled (initial={state_tile})")
+                print(f"Dynamic batch sizing enabled (initial={state_tile})")
         
         # NEW OPTIMIZATION: CUDA graph manager
         graph_manager = None
         if use_cuda_graphs:
             graph_manager = CUDAGraphManager()
             if progress:
-                print("📈 CUDA graph optimization enabled")
+                print("CUDA graph optimization enabled")
         
         # Re-finalize state_tile if still auto
         if state_tile == -1:
             state_tile = _compute_optimal_state_tile(vram_fraction, nq, f_dt)
             if progress:
-                print(f"📊 Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
+                print(f"Auto-sized state_tile={state_tile} (using {vram_fraction*100:.0f}% VRAM)")
         
         K_cp = cp.empty((n, m), dtype=cp.float64)
         
@@ -1685,7 +1685,7 @@ def compute_kernel_matrix(
             dim = 1 << nq
             states_gb = n * dim * (16 if is_double else 8) / 1e9
             kernel_gb = n * m * 8 / 1e9
-            print(f"📊 Estimated VRAM: states={states_gb:.1f}GB, kernel={kernel_gb:.1f}GB, "
+            print(f"Estimated VRAM: states={states_gb:.1f}GB, kernel={kernel_gb:.1f}GB, "
                   f"total={states_gb + kernel_gb:.1f}GB")
         
         # OPTIMIZATION 2: Bulk state precomputation with VRAM-aware check
@@ -1714,7 +1714,7 @@ def compute_kernel_matrix(
         if use_bulk_precompute:
             # Precompute ALL states at once to minimize handoffs
             if progress:
-                print(f"⚡ Bulk precomputing {n} + {m} states...")
+                    print(f"Bulk precomputing {n} + {m} states...")
             
             start_time = time.time()
             transfer_start = time.time()
@@ -2026,13 +2026,13 @@ def compute_kernel_matrix(
             if batch_sizer:
                 batch_stats = batch_sizer.report()
                 if verbose_profile:
-                    print("╔══════════════════════════════════════════════════════════════╗")
-                    print("║ Dynamic Adjustments                                            ║")
-                    print(f"║   Batch Size Range:   {batch_stats['min_batch_used']} → {batch_stats['max_batch_used']} ({batch_stats['adjustments']} adjustments)             ║")
+                    print("+--------------------------------------------------------------+")
+                    print("| Dynamic adjustments                                          |")
+                    print(f"|   Batch size range: {batch_stats['min_batch_used']} -> {batch_stats['max_batch_used']} ({batch_stats['adjustments']} adjustments) |")
                     if stream_pool:
                         util = stream_pool.get_utilization() * 100
-                        print(f"║   Stream Utilization: {util:.1f}%                                    ║")
-                    print("╚══════════════════════════════════════════════════════════════╝\n")
+                        print(f"|   Stream utilization: {util:.1f}%                                   |")
+                    print("+--------------------------------------------------------------+\n")
         
         # --- PROTECTION ANTI-CRASH (NEW) ---
         if not np.all(np.isfinite(K)):
@@ -2074,7 +2074,7 @@ def compute_kernel_matrix(
         return K
 
     if progress:
-        print("ℹ️ Computing self-kernel diagonals for strict cross-kernel normalization.")
+        print("Computing self-kernel diagonals for strict cross-kernel normalization.")
 
     diag_x = _compute_self_kernel_diag(
         X, weights=weights,

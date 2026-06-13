@@ -342,7 +342,7 @@ def test_cuda_graph_manager():
 def main():
     """Run all tests."""
     print("\n" + "="*70)
-    print("GPU OPTIMIZATION CLASSES - UNIT TESTS")
+    print("GPU optimization classes - unit tests")
     print("="*70)
     
     all_passed = True
@@ -350,7 +350,7 @@ def main():
     try:
         test_dynamic_batch_sizer()
     except AssertionError as e:
-        print(f"  ❌ Test failed: {e}")
+        print(f"  Test failed: {e}")
         all_passed = False
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
@@ -358,7 +358,7 @@ def main():
     try:
         test_cuda_stream_pool()
     except AssertionError as e:
-        print(f"  ❌ Test failed: {e}")
+        print(f"  Test failed: {e}")
         all_passed = False
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
@@ -366,7 +366,7 @@ def main():
     try:
         test_tile_size_optimizer()
     except AssertionError as e:
-        print(f"  ❌ Test failed: {e}")
+        print(f"  Test failed: {e}")
         all_passed = False
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
@@ -374,7 +374,7 @@ def main():
     try:
         test_memory_profiler()
     except AssertionError as e:
-        print(f"  ❌ Test failed: {e}")
+        print(f"  Test failed: {e}")
         all_passed = False
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
@@ -382,16 +382,16 @@ def main():
     try:
         test_cuda_graph_manager()
     except AssertionError as e:
-        print(f"  ❌ Test failed: {e}")
+        print(f"  Test failed: {e}")
         all_passed = False
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
     
     print("\n" + "="*70)
     if all_passed:
-        print("ALL TESTS PASSED Success:")
+        print("All tests passed")
     else:
-        print("SOME TESTS FAILED ❌")
+        print("Some tests failed")
     print("="*70 + "\n")
     
     return 0 if all_passed else 1

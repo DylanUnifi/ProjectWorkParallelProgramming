@@ -200,7 +200,7 @@ def test_tensorcore_blackwell():
         
         if res_bf16 and res_fp16:
             winner = "BF16" if res_bf16["throughput"] > res_fp16["throughput"] else "FP16"
-            print(f"\n🏆 Winner on Blackwell: {winner}")
+            print(f"\nWinner on Blackwell: {winner}")
 
 if __name__ == "__main__":
     import sys

@@ -26,4 +26,4 @@ z = cp.empty_like(x)
 ker(((n+255)//256,), (256,), (x, y, z, n))
 cp.cuda.runtime.deviceSynchronize()
 
-print("OK !")
+print("NVRTC sanity test passed")

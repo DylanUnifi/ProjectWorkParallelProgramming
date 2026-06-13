@@ -109,13 +109,13 @@ def validate_pipeline_backends():
         
         for var in required_globals:
             if var in source:
-                print(f"  ✓ {var}")
+                print(f"  OK: {var}")
             else:
-                print(f"  ✗ MISSING: {var}")
+                print(f"  Missing: {var}")
                 return False
         
         # Check for key optimizations in code
-        print("\n✓ Checking optimization implementations:")
+        print("\nChecking optimization implementations:")
         optimizations = {
             "VRAM-aware sizing": "_compute_optimal_state_tile",
             "Bulk precomputation": "_build_all_states_torch_cuda",
@@ -129,20 +129,20 @@ def validate_pipeline_backends():
         
         for name, marker in optimizations.items():
             if marker in source:
-                print(f"  ✓ {name}")
+                print(f"  OK: {name}")
             else:
-                print(f"  ⚠ Warning: {name} marker '{marker}' not found")
+                print(f"  Warning: {name} marker '{marker}' not found")
         
         print("\n" + "="*60)
-        print("✓ VALIDATION PASSED")
+        print("Validation passed")
         print("="*60)
         return True
         
     except SyntaxError as e:
-        print(f"\n✗ SYNTAX ERROR: {e}")
+        print(f"\nSyntax error: {e}")
         return False
     except Exception as e:
-        print(f"\n✗ ERROR: {e}")
+        print(f"\nError: {e}")
         import traceback
         traceback.print_exc()
         return False

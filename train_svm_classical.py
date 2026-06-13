@@ -24,7 +24,7 @@ def run_train(args):
     with open(args.config, "r") as f: config = yaml.safe_load(f)
     ds_name = config["dataset"]["name"]
     
-    print(f"📂 Loading {ds_name} (Classical SVM - {args.kernel.upper()} Kernel)...")
+    print(f"Loading {ds_name} (classical SVM - {args.kernel.upper()} kernel)...")
     train_dataset, test_dataset = load_dataset_by_name(
         name=ds_name,
         binary_classes=config.get("dataset", {}).get("binary_classes", [3, 8]),
@@ -34,7 +34,7 @@ def run_train(args):
     
     if args.train_subset:
         train_dataset = Subset(train_dataset, range(min(len(train_dataset), args.train_subset)))
-        print(f"Warning: Subset Train: {len(train_dataset)}")
+        print(f"Training subset size: {len(train_dataset)}")
         
     X_train_raw, y_train = extract_raw_features(train_dataset)
     X_test_raw, y_test = extract_raw_features(test_dataset)
@@ -48,7 +48,7 @@ def run_train(args):
     test_indices = list(range(len(X_full) - test_size, len(X_full)))
     
     results = []
-    print(f"🚀 Starting 3-Fold CV | PCA: {args.pca_components}")
+    print(f"Starting 3-fold CV | PCA: {args.pca_components}")
     
     for fold_idx, (t_idx, v_idx) in enumerate(kf.split(train_indices)):
         train_idx_global = [train_indices[i] for i in t_idx]
@@ -93,10 +93,10 @@ def run_train(args):
         f1 = f1_score(y_te, y_pred, average="binary")
         auc = roc_auc_score(y_te, y_proba)
         
-        print(f"🔹 Fold {fold_idx+1}: F1={f1:.4f}, AUC={auc:.4f} (C={best_p['C']:.2f})")
+        print(f"Fold {fold_idx+1}: F1={f1:.4f}, AUC={auc:.4f} (C={best_p['C']:.2f})")
         results.append({"f1": f1, "auc": auc})
         
-    print(f"\n🏆 AVERAGE {args.kernel.upper()} SVM | F1: {np.mean([r['f1'] for r in results]):.4f} | AUC: {np.mean([r['auc'] for r in results]):.4f}")
+    print(f"\nAverage {args.kernel.upper()} SVM | F1: {np.mean([r['f1'] for r in results]):.4f} | AUC: {np.mean([r['auc'] for r in results]):.4f}")
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()

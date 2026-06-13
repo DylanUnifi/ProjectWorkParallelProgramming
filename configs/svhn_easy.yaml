@@ -1,5 +1,5 @@
 dataset:
   name: "svhn"
-  binary_classes: [1, 0]  # Digit 1 vs Digit 0
+  binary_classes: [1, 0]  # Digit 1 vs digit 0
   grayscale: true
   root: "./data"

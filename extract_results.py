@@ -13,9 +13,9 @@ def parse_logs():
     )
     results = []
 
-    # Regular expressions to capture info
-    # Improved regex to specifically recognize "cuda_states" without cutting it!
-    filename_regex = re.compile(r"log_(?P<dataset>[^_]+)_(?P<diff>[^_]+)_(?P<backend>classical|classique|torch|cuda_states)_(?P<size>[^\.]+)\.txt")
+    # Regular expressions to capture metadata.
+    # Keep the backend pattern aligned with the current log formats.
+    filename_regex = re.compile(r"log_(?P<dataset>[^_]+)_(?P<diff>[^_]+)_(?P<backend>classical|torch|cuda_states)_(?P<size>[^\.]+)\.txt")
     
     # Quantum metrics
     q_metrics_regex = re.compile(r"test_F1=([0-9\.]+)\s+test_AUC=([0-9\.]+)")
@@ -43,7 +43,7 @@ def parse_logs():
             content = f.read()
             
             # 1. Search for F1 and AUC (use findall to list all occurrences)
-            if backend in ["classique", "classical"]:
+            if backend == "classical":
                 metrics_matches = c_metrics_regex.findall(content)
             else:
                 metrics_matches = q_metrics_regex.findall(content)
@@ -53,7 +53,7 @@ def parse_logs():
                 f1 = metrics_matches[-1][0]
                 auc = metrics_matches[-1][1]
             else:
-                f1, auc = "FAILED", "FAILED" # If the script crashed before finishing
+                f1, auc = "FAILED", "FAILED"  # If the script crashed before finishing
                 
             # 2. Search for execution time (use findall and take the last value)
             time_matches_1 = time_regex_1.findall(content)
@@ -74,7 +74,7 @@ def parse_logs():
             "Time": exec_time
         })
 
-    # Sort results for nicer output
+    # Sort results for cleaner output
     results = sorted(results, key=lambda x: (x["Dataset"], x["Difficulty"], x["Backend"], x["Size"]))
 
     # Export to CSV
@@ -84,8 +84,8 @@ def parse_logs():
         writer.writeheader()
         writer.writerows(results)
 
-    print(f"Success: Extraction v2 complete! {len(results)} logs analyzed.")
-    print(f"📄 Corrected results saved to '{csv_file}'.")
+    print(f"Extraction v2 complete: {len(results)} logs analyzed.")
+    print(f"Corrected results saved to '{csv_file}'.")
 
 if __name__ == "__main__":
     parse_logs()

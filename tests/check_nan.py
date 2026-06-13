@@ -24,6 +24,6 @@ print(f"   NaNs: {n_nans}")
 print(f"   Infs: {n_infs}")
 
 if n_nans == 0 and n_infs == 0:
-    print("Success: the backend is numerically stable.")
+    print("The backend is numerically stable.")
 else:
-    print("Failure: numerical errors are still present.")
+    print("Numerical errors are still present.")

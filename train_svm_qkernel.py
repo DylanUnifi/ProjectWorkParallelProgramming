@@ -340,7 +340,7 @@ def train_fold(
     
     cache_params = {**backend_params, "weights_hash": hashlib.md5(weights.tobytes()).hexdigest()[:8]}
 
-    print(f"\n🔹 Fold {fold_idx+1}: Kernel Train ({len(X_train)}x{len(X_train)})")
+    print(f"\nFold {fold_idx+1}: kernel train ({len(X_train)}x{len(X_train)})")
     K_train = cache_mgr.load(X_train, X_train.shape, cache_params, desc="train")
     if K_train is None:
         K_train = compute_kernel_matrix(
@@ -351,7 +351,7 @@ def train_fold(
         if args.cache_kernels:
             cache_mgr.save(K_train, X_train, X_train.shape, cache_params, desc="train")
 
-    print(f"🔹 Fold {fold_idx+1}: Kernel Val ({len(X_val)}x{len(X_train)})")
+    print(f"Fold {fold_idx+1}: kernel validation ({len(X_val)}x{len(X_train)})")
     K_val = cache_mgr.load(X_val, X_train.shape, cache_params, desc="val")
     if K_val is None:
         K_val = compute_kernel_matrix(
@@ -400,7 +400,7 @@ def train_fold(
         best_C = float(args.svm_c)
         print(f"Using user-provided C: {best_C}")
     else:
-        print(f"🔍 Optimizing C (Optuna)...")
+        print("Optimizing C with Optuna...")
 
         def objective(trial):
             C = trial.suggest_float('C', 0.1, 10.0, log=True)
@@ -474,7 +474,7 @@ def train_fold(
     X_trainval = np.vstack([X_train, X_val])
     y_trainval = np.concatenate([y_train, y_val])
     
-    print(f"🔹 Fold {fold_idx+1}: Kernel TrainVal ({len(X_trainval)}x{len(X_trainval)})")
+    print(f"Fold {fold_idx+1}: kernel train/validation ({len(X_trainval)}x{len(X_trainval)})")
     K_trainval = cache_mgr.load(X_trainval, X_trainval.shape, cache_params, desc="trainval")
     if K_trainval is None:
         K_trainval = compute_kernel_matrix(
@@ -484,7 +484,7 @@ def train_fold(
         if args.cache_kernels:
              cache_mgr.save(K_trainval, X_trainval, X_trainval.shape, cache_params, desc="trainval")
 
-    print(f"🔹 Fold {fold_idx+1}: Kernel Test ({len(X_test)}x{len(X_trainval)})")
+    print(f"Fold {fold_idx+1}: kernel test ({len(X_test)}x{len(X_trainval)})")
     K_test = cache_mgr.load(X_test, X_trainval.shape, cache_params, desc="test")
     if K_test is None:
         K_test = compute_kernel_matrix(
@@ -527,7 +527,7 @@ def train_fold(
             f" std={test_kernel_stats.get('std', float('nan')):.4f}"
         )
 
-    print(f"🚀 Retraining final SVM with best C: {best_C}...")
+    print(f"Retraining final SVM with best C: {best_C}...")
     final_svm = EnhancedSVM(
         C=best_C, 
         kernel="precomputed", 
@@ -569,7 +569,7 @@ def train_fold(
         **_prefix_metrics(f"fold_{fold_idx}/svm_test_fit", final_svm_stats),
     })
     
-    print(f"Success: Result Fold {fold_idx+1}: F1={test_metrics['f1']:.4f} AUC={test_metrics['auc']:.4f}")
+    print(f"Fold {fold_idx+1} result: F1={test_metrics['f1']:.4f} AUC={test_metrics['auc']:.4f}")
     return {
         "val_f1": val_metrics["f1"],
         "val_acc": val_metrics["acc"],
@@ -613,7 +613,7 @@ def run_train(args):
     
     wandb.init(project="pp_project", name=exp_name, config={**config, **vars(args)}, group="qsvm")
     
-    print(f"📂 Loading {ds_name}...")
+    print(f"Loading {ds_name}...")
     train_dataset, test_dataset = load_dataset_by_name(
         name=ds_name,
         binary_classes=config.get("dataset", {}).get("binary_classes", [3, 8]),
@@ -647,8 +647,8 @@ def run_train(args):
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=SEED)
     results = []
     
-    print(f"🚀 Starting {n_folds}-Fold CV on {args.pl_device} via {args.gram_backend}")
-    print(f"⚙️  Params: tile={args.tile_size}, angle_scale={args.angle_scale}, embed={args.embed_mode}")
+    print(f"Starting {n_folds}-fold CV on {args.pl_device} via {args.gram_backend}")
+    print(f"Parameters: tile={args.tile_size}, angle_scale={args.angle_scale}, embed={args.embed_mode}")
     
     for fold_idx, (t_idx, v_idx) in enumerate(kf.split(train_indices)):
         train_idx_global = [train_indices[i] for i in t_idx]
@@ -668,7 +668,7 @@ def run_train(args):
     
     wandb.log(summary)
     print(
-        f"\n🏆 Final Average: "
+        f"\nFinal average: "
         f"val_F1={summary['mean/val_f1']:.4f} "
         f"test_F1={summary['mean/test_f1']:.4f} "
         f"test_AUC={summary['mean/test_auc']:.4f}"

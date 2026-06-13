@@ -1,5 +1,5 @@
-# Full DEVEL CUDA image (required for CuPy & nvrtc kernels)
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+# CPU-only base image for classical training and CPU fallbacks
+FROM python:3.10-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -8,8 +8,7 @@ ENV PYTHONUNBUFFERED=1
 # Base system + Python
 # ----------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-dev python3-venv \
-    git libgomp1 libgl1 libglib2.0-0 libjpeg-dev zlib1g-dev libpng-dev \
+    bash git libgomp1 libgl1 libglib2.0-0 libjpeg-dev zlib1g-dev libpng-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -18,23 +17,17 @@ RUN pip install --upgrade pip
 COPY requirements.txt .
 
 # ----------------------------------------------------
-# PyTorch NIGHTLY for CUDA 13.0 (Blackwell support)
+# PyTorch CPU wheels
 # ----------------------------------------------------
-RUN pip install --no-cache-dir --pre torch torchvision \
-    --index-url https://download.pytorch.org/whl/nightly/cu130
+RUN pip install --no-cache-dir torch torchvision \
+    --index-url https://download.pytorch.org/whl/cpu
 
 # ----------------------------------------------------
-# CuPy (requires DEVEL image → OK)
-# Match the CUDA version of the base image (12.4)
-# ----------------------------------------------------
-RUN pip install --no-cache-dir cupy-cuda124
-
-# ----------------------------------------------------
-# PennyLane + Lightning GPU backend
+# PennyLane + Lightning CPU backend
 # ----------------------------------------------------
 RUN pip install --no-cache-dir \
     pennylane \
-    pennylane-lightning[gpu]
+    pennylane-lightning
 
 # ----------------------------------------------------
 # Project dependencies

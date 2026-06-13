@@ -175,7 +175,7 @@ The project added several layers of optimization around the kernel:
     \item \textbf{Autotuning}: CUDA kernel tile sizes are learned and cached in \texttt{.cuda\_kernel\_autotune.json}. A specific entry for 16 qubits in double precision is handled.
     \item \textbf{Bulk precompute}: when memory permits, all states in a block are prebuilt to reduce round-trips.
     \item \textbf{Stream pool}: multiple CUDA streams can be used to orchestrate state preparation and Gram computation.
-    \item \textbf{Memory profiling}: the production benchmark measures VRAM usage, transfers and throughput.
+    \item \textbf{Memory profiling}: the benchmark measures VRAM usage, transfers and throughput.
 \end{itemize}
 
 The most important optimization, however, was not streaming but \textbf{synchronization consistency}. A subtle bug existed between PyTorch and CuPy streams: some states were prepared on one stream and consumed by the \texttt{RawKernel} on another. This could corrupt Gram blocks, distort kernel geometry and collapse AUC to approximately $0.5$. The fix was to ensure that state normalization, numerical checks and writes to \texttt{K\_cp} occur on the same stream as the kernel.
@@ -209,12 +209,12 @@ The project produced several validation deliverables beyond plain training:
 In practice, cross-backend comparison served as a \emph{regression harness}: it enabled isolating the stream bug and verifying that the new strict normalization produced the same kernel semantics across backends.
 
 \section{Performance Results}
-\subsection{Production Benchmark}
-The repository's production benchmark measures more than a single runtime: it tracks qubit scaling, sample scaling, the impact of state precomputation, block size, allowed VRAM fraction and number of streams. The main artifacts are \texttt{benchmark\_results/production\_benchmark.csv} and \texttt{benchmark\_results/production\_benchmark\_summary.json}.
+\subsection{Benchmark}
+The repository's benchmark measures more than a single runtime: it tracks qubit scaling, sample scaling, the impact of state precomputation, block size, allowed VRAM fraction and number of streams. The main artifacts are \texttt{benchmark\_results/benchmark.csv} and \texttt{benchmark\_results/benchmark\_summary.json}.
 
 \begin{table}[t]
 \centering
-\caption{Representative production benchmark at $16$ qubits.}
+\caption{Representative benchmark at $16$ qubits.}
 \label{tab:benchmark}
 \small
 \begin{tabular}{lrrr}

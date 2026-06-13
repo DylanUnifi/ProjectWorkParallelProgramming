@@ -1,13 +1,10 @@
 services:
-  trainer-gpu:
+  trainer-cpu:
     build:
       context: .
       dockerfile: Dockerfile
-    image: parallel-programming-exam-gpu
-    runtime: nvidia
+    image: parallel-programming-exam-cpu
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - PYTHONUNBUFFERED=1
     volumes:
       - ./:/app
@@ -15,11 +12,12 @@ services:
     working_dir: /app
     command: bash
 
-  trainer-gpu25:
+  # GPU services are versioned by hardware target so new variants can be added later.
+  trainer-gpu129:
     build:
       context: .
-      dockerfile: Dockerfile.gpu25
-    image: parallel-programming-exam-gpu25
+      dockerfile: Dockerfile.gpu129
+    image: parallel-programming-exam-gpu129
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -32,7 +30,7 @@ services:
     command: bash
 
   train-qkernel:
-    image: parallel-programming-exam-gpu
+    image: parallel-programming-exam-gpu129
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -45,7 +43,7 @@ services:
     command: python3 train_svm_qkernel.py
 
   train-classical:
-    image: parallel-programming-exam-gpu
+    image: parallel-programming-exam-cpu
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
@@ -54,8 +52,8 @@ services:
     working_dir: /app
     command: python3 train_svm_classical.py
 
-  benchmark-production:
-    image: parallel-programming-exam-gpu
+  benchmark:
+    image: parallel-programming-exam-gpu129
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -65,10 +63,10 @@ services:
       - ./:/app
       - ./outputs:/app/outputs
     working_dir: /app
-    command: python3 benchmark_production.py
+    command: python3 benchmark.py
 
   extract-results:
-    image: parallel-programming-exam-gpu
+    image: parallel-programming-exam-cpu
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
@@ -77,8 +75,8 @@ services:
     working_dir: /app
     command: python3 extract_results.py
 
-  run-all-gpu:
-    image: parallel-programming-exam-gpu25
+  run-all-gpu129:
+    image: parallel-programming-exam-gpu129
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -91,7 +89,7 @@ services:
     command: bash run_all_gpu.sh
 
   run-all-cpu:
-    image: parallel-programming-exam-gpu
+    image: parallel-programming-exam-cpu
     environment:
       - PYTHONUNBUFFERED=1
     volumes:

@@ -744,11 +744,11 @@ def _compute_optimal_state_tile(vram_fraction: float = 0.85, nq: int = 6,
         # PennyLane batches even when raw VRAM would allow them.
         qubit_cap = 32768
         if nq >= 16:
-            qubit_cap = 1024
+            qubit_cap = 256
         elif nq >= 14:
-            qubit_cap = 2048
+            qubit_cap = 512
         elif nq >= 12:
-            qubit_cap = 4096
+            qubit_cap = 1024
 
         # Ensure minimum and maximum bounds
         tile_size = max(256, min(tile_size, qubit_cap))
@@ -1206,6 +1206,25 @@ def _build_states_sequential_torch(state_fn, x, progress=False, desc="States"):
     return states
 
 
+def _safe_state_chunk_size(nq: int, dtype, reserve_fraction: float = 0.5) -> int:
+    """Estimate a conservative chunk size for sequential CUDA state construction."""
+    try:
+        import torch as th
+
+        device = th.cuda.current_device()
+        free_bytes, _total_bytes = th.cuda.mem_get_info(device)
+        bytes_per_complex = 8 if dtype == np.float32 else 16
+        bytes_per_state = (1 << int(nq)) * bytes_per_complex
+        if bytes_per_state <= 0:
+            return 64
+
+        usable_bytes = max(0, int(free_bytes * reserve_fraction))
+        chunk = usable_bytes // bytes_per_state
+        return max(64, min(int(chunk) if chunk > 0 else 64, 256))
+    except Exception:
+        return 64
+
+
 def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode,
                                    progress=False, desc="States"):
     import torch as th
@@ -1244,12 +1263,38 @@ def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode,
         states = _state(x)
         if states.ndim != 2 or states.shape[0] != x.shape[0]:
             raise ValueError("Batching not natively supported")
-    except:
+    except Exception:
         if progress and x.shape[0] > 1:
             print(f"Warning: Native batching unavailable for {desc.lower()}, using sequential state construction.")
+        chunk_size = _safe_state_chunk_size(nq, t_float)
+        if x.shape[0] > chunk_size:
+            chunks = []
+            for start in range(0, x.shape[0], chunk_size):
+                stop = min(start + chunk_size, x.shape[0])
+                chunks.append(_build_states_block_torch_cuda(
+                    x_blk[start:stop], w_np, dev_name, ascale, re_emb, mode,
+                    progress=progress, desc=desc,
+                ))
+            return th.cat(chunks, dim=0)
+
         states = _build_states_sequential_torch(_state, x, progress=progress, desc=desc)
-    
-    states = states.to(device="cuda", dtype=t_cplx, non_blocking=False)
+
+    try:
+        states = states.to(device="cuda", dtype=t_cplx, non_blocking=False)
+    except th.cuda.OutOfMemoryError:
+        if x.shape[0] > 1:
+            if progress:
+                print(f"Warning: CUDA OOM for {desc.lower()} block of {x.shape[0]}, retrying with smaller chunks.")
+            chunk_size = max(1, x.shape[0] // 2)
+            chunks = []
+            for start in range(0, x.shape[0], chunk_size):
+                stop = min(start + chunk_size, x.shape[0])
+                chunks.append(_build_states_block_torch_cuda(
+                    x_blk[start:stop], w_np, dev_name, ascale, re_emb, mode,
+                    progress=progress, desc=desc,
+                ))
+            return th.cat(chunks, dim=0)
+        raise
     
     # --- CRITICAL FIX: SYNC ---
     th.cuda.synchronize()

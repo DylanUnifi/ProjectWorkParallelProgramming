@@ -1,0 +1,52 @@
+# PyTorch CUDA 12.9 runtime image avoids duplicating the full CUDA devel stack
+# plus the large nvidia-* wheels pulled by pip when installing torch from scratch.
+FROM pytorch/pytorch:2.8.0-cuda12.9-cudnn9-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# ----------------------------------------------------
+# Base system libraries required by torchvision, matplotlib and OpenCV-style IO
+# ----------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash git libgomp1 libgl1 libglib2.0-0 libjpeg-dev zlib1g-dev libpng-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN python -m pip install --upgrade pip
+
+COPY requirements.txt .
+
+# ----------------------------------------------------
+# PyTorch + torchvision
+# ----------------------------------------------------
+# torch is already provided by the base image. Keep torchvision aligned with it;
+# this is a no-op when the base image already includes torchvision 0.23.0.
+RUN python -m pip install --no-cache-dir torchvision==0.23.0 \
+    --index-url https://download.pytorch.org/whl/cu129
+
+# ----------------------------------------------------
+# CuPy (match CUDA 12.x)
+# ----------------------------------------------------
+RUN python -m pip install --no-cache-dir cupy-cuda12x
+
+# ----------------------------------------------------
+# PennyLane + Lightning GPU backend
+# ----------------------------------------------------
+RUN python -m pip install --no-cache-dir \
+    pennylane \
+    pennylane-lightning[gpu]
+
+# ----------------------------------------------------
+# Project dependencies
+# ----------------------------------------------------
+# requirements.txt intentionally supports CPU installs too, so skip packages
+# already installed above to avoid pulling duplicate CUDA/PyTorch artifacts.
+RUN grep -Ev '^(torch|torchvision|pennylane)$' requirements.txt > /tmp/requirements-gpu.txt \
+    && python -m pip install --no-cache-dir -r /tmp/requirements-gpu.txt \
+    && rm /tmp/requirements-gpu.txt
+
+COPY . .
+ENV PYTHONPATH=/app
+
+CMD ["bash"]

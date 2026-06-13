@@ -8,6 +8,7 @@ from torchvision.datasets import SVHN
 def build_transform(grayscale: bool = True, augment: bool = False):
     """Standardized transformation pipeline."""
     tfms = []
+
     if grayscale:
         tfms.append(transforms.Grayscale())
 
@@ -19,11 +20,7 @@ def build_transform(grayscale: bool = True, augment: bool = False):
         ])
 
     tfms.append(transforms.ToTensor())
-    if grayscale:
-        tfms.append(transforms.Normalize(mean=[0.5], std=[0.5]))  # 1 channel
-    else:
-        tfms.append(transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                                         std=[0.5, 0.5, 0.5]))     # 3 channels
+    tfms.append(transforms.Lambda(lambda x: (x - 0.5) / 0.5))
 
     return transforms.Compose(tfms)
 

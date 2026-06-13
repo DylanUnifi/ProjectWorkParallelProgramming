@@ -62,7 +62,7 @@ try:
     from scripts.pipeline_backends import compute_kernel_matrix
 except ImportError:
     print("Error: Cannot import 'scripts.pipeline_backends'.")
-    print("Run this script from project root: python3 benchmark_production.py")
+    print("Run this script from project root: python3 benchmark.py")
     sys.exit(1)
 
 try:
@@ -170,11 +170,11 @@ BACKEND_CONFIGS = {
 
 # Output configuration
 OUTPUT_DIR = ROOT / "benchmark_results"
-OUTPUT_CSV = OUTPUT_DIR / "production_benchmark.csv"
-OUTPUT_PLOTS = OUTPUT_DIR / "production_benchmark.png"
-OUTPUT_PLOTS_SVG = OUTPUT_DIR / "production_benchmark.svg"
-OUTPUT_JSON = OUTPUT_DIR / "production_benchmark_summary.json"
-OUTPUT_BEST_CSV = OUTPUT_DIR / "production_best_configs.csv"
+OUTPUT_CSV = OUTPUT_DIR / "benchmark.csv"
+OUTPUT_PLOTS = OUTPUT_DIR / "benchmark.png"
+OUTPUT_PLOTS_SVG = OUTPUT_DIR / "benchmark.svg"
+OUTPUT_JSON = OUTPUT_DIR / "benchmark_summary.json"
+OUTPUT_BEST_CSV = OUTPUT_DIR / "benchmark_best_configs.csv"
 
 BACKEND_COLORS = {
     "cuda_states": "#2ca02c",
@@ -224,11 +224,11 @@ def configure_output_paths(output_dir_name: str):
     """Configure output artifact paths from CLI selection."""
     global OUTPUT_DIR, OUTPUT_CSV, OUTPUT_PLOTS, OUTPUT_PLOTS_SVG, OUTPUT_JSON, OUTPUT_BEST_CSV
     OUTPUT_DIR = ROOT / output_dir_name
-    OUTPUT_CSV = OUTPUT_DIR / "production_benchmark.csv"
-    OUTPUT_PLOTS = OUTPUT_DIR / "production_benchmark.png"
-    OUTPUT_PLOTS_SVG = OUTPUT_DIR / "production_benchmark.svg"
-    OUTPUT_JSON = OUTPUT_DIR / "production_benchmark_summary.json"
-    OUTPUT_BEST_CSV = OUTPUT_DIR / "production_best_configs.csv"
+    OUTPUT_CSV = OUTPUT_DIR / "benchmark.csv"
+    OUTPUT_PLOTS = OUTPUT_DIR / "benchmark.png"
+    OUTPUT_PLOTS_SVG = OUTPUT_DIR / "benchmark.svg"
+    OUTPUT_JSON = OUTPUT_DIR / "benchmark_summary.json"
+    OUTPUT_BEST_CSV = OUTPUT_DIR / "benchmark_best_configs.csv"
 
 # ═══════════════════════════════════════════════════════════
 # UTILITY FUNCTIONS
@@ -1451,7 +1451,7 @@ def generate_summary_report(df_all: pd.DataFrame):
 # MAIN ENTRY POINT
 # ═══════════════════════════════════════════════════════════
 
-def run_production_benchmark(tests: Optional[List[str]] = None, backends: Optional[List[str]] = None, parallel_gpus: int = 1):
+def run_benchmark(tests: Optional[List[str]] = None, backends: Optional[List[str]] = None, parallel_gpus: int = 1):
     """Run comprehensive benchmark."""
     
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -1721,7 +1721,7 @@ if __name__ == "__main__":
         elif requested_gpus > parallel_gpus:
             print(f"Warning: Requested {requested_gpus} GPUs but only {parallel_gpus} available; using {parallel_gpus}.")
 
-        run_production_benchmark(tests=tests, backends=backends, parallel_gpus=parallel_gpus)
+        run_benchmark(tests=tests, backends=backends, parallel_gpus=parallel_gpus)
     except KeyboardInterrupt:
         print("\nWarning: Benchmark interrupted by user.")
         sys.exit(1)

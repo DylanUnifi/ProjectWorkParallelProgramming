@@ -5,12 +5,47 @@ from sklearn.svm import SVC
 from sklearn.model_selection import KFold
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import f1_score, roc_auc_score
+from sklearn.metrics import (
+    f1_score, accuracy_score, precision_score, recall_score,
+    balanced_accuracy_score, roc_auc_score, average_precision_score
+)
 from tqdm import tqdm
 
 from data_loader.utils import load_dataset_by_name
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+
+def _compute_binary_metrics(y_true, y_pred, y_score):
+    metrics = {
+        "f1": f1_score(y_true, y_pred, average="binary", zero_division=0),
+        "acc": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, average="binary", zero_division=0),
+        "recall": recall_score(y_true, y_pred, average="binary", zero_division=0),
+        "balanced_acc": balanced_accuracy_score(y_true, y_pred),
+    }
+
+    if np.unique(y_true).size < 2:
+        metrics["auc"] = float("nan")
+        metrics["pr_auc"] = float("nan")
+        return metrics
+
+    metrics["auc"] = roc_auc_score(y_true, y_score)
+    metrics["pr_auc"] = average_precision_score(y_true, y_score)
+    return metrics
+
+
+def _format_metrics(metrics):
+    return (
+        f"F1={metrics['f1']:.4f}, "
+        f"ACC={metrics['acc']:.4f}, "
+        f"Precision={metrics['precision']:.4f}, "
+        f"Recall={metrics['recall']:.4f}, "
+        f"BalancedACC={metrics['balanced_acc']:.4f}, "
+        f"AUC={metrics['auc']:.4f}, "
+        f"PR_AUC={metrics['pr_auc']:.4f}"
+    )
+
 
 def extract_raw_features(dataset):
     loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=2)
@@ -84,19 +119,66 @@ def run_train(args):
         y_trva = np.concatenate([y_tr, y_va])
         
         gamma_val = best_p.get('gamma', 'scale')
-        final_svm = SVC(C=best_p['C'], gamma=gamma_val, kernel=args.kernel, probability=True, class_weight="balanced")
+        selected_val_svm = SVC(
+            C=best_p['C'],
+            gamma=gamma_val,
+            kernel=args.kernel,
+            probability=True,
+            class_weight="balanced",
+        )
+        selected_val_svm.fit(X_tr, y_tr)
+        val_pred = selected_val_svm.predict(X_va)
+        val_proba = selected_val_svm.predict_proba(X_va)[:, 1]
+        val_metrics = _compute_binary_metrics(y_va, val_pred, val_proba)
+
+        final_svm = SVC(
+            C=best_p['C'],
+            gamma=gamma_val,
+            kernel=args.kernel,
+            probability=True,
+            class_weight="balanced",
+        )
         final_svm.fit(X_trva, y_trva)
         
         y_pred = final_svm.predict(X_te)
         y_proba = final_svm.predict_proba(X_te)[:, 1]
+        test_metrics = _compute_binary_metrics(y_te, y_pred, y_proba)
         
-        f1 = f1_score(y_te, y_pred, average="binary")
-        auc = roc_auc_score(y_te, y_proba)
-        
-        print(f"Fold {fold_idx+1}: F1={f1:.4f}, AUC={auc:.4f} (C={best_p['C']:.2f})")
-        results.append({"f1": f1, "auc": auc})
-        
-    print(f"\nAverage {args.kernel.upper()} SVM | F1: {np.mean([r['f1'] for r in results]):.4f} | AUC: {np.mean([r['auc'] for r in results]):.4f}")
+        print(f"Fold {fold_idx+1} val:  {_format_metrics(val_metrics)}")
+        print(f"Fold {fold_idx+1} test: {_format_metrics(test_metrics)} (C={best_p['C']:.2f})")
+        results.append({
+            "val_f1": val_metrics["f1"],
+            "val_acc": val_metrics["acc"],
+            "val_precision": val_metrics["precision"],
+            "val_recall": val_metrics["recall"],
+            "val_balanced_acc": val_metrics["balanced_acc"],
+            "val_auc": val_metrics["auc"],
+            "val_pr_auc": val_metrics["pr_auc"],
+            "test_f1": test_metrics["f1"],
+            "test_acc": test_metrics["acc"],
+            "test_precision": test_metrics["precision"],
+            "test_recall": test_metrics["recall"],
+            "test_balanced_acc": test_metrics["balanced_acc"],
+            "test_auc": test_metrics["auc"],
+            "test_pr_auc": test_metrics["pr_auc"],
+        })
+
+    summary = {}
+    for metric_name in results[0]:
+        values = np.asarray([r[metric_name] for r in results], dtype=np.float64)
+        summary[f"mean/{metric_name}"] = float(np.nanmean(values))
+        summary[f"std/{metric_name}"] = float(np.nanstd(values))
+
+    print(
+        f"\nAverage {args.kernel.upper()} SVM | "
+        f"val_F1: {summary['mean/val_f1']:.4f} | "
+        f"test_F1: {summary['mean/test_f1']:.4f} | "
+        f"test_AUC: {summary['mean/test_auc']:.4f} | "
+        f"test_PR_AUC: {summary['mean/test_pr_auc']:.4f}"
+    )
+    print("All metric means:")
+    for metric_name in results[0]:
+        print(f"  {metric_name}: {summary[f'mean/{metric_name}']:.4f} +/- {summary[f'std/{metric_name}']:.4f}")
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()

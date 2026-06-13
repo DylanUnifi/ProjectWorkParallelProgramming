@@ -38,7 +38,7 @@ We provide binary SVM classification on classical image datasets (CIFAR-10, Fash
   - **`numpy`**: Fallback CPU implementation with multiprocessing.
 - `tools/benchmark_pl_kernel.py` — Tool to measure throughput (Mpairs/s) and VRAM usage.
 - `tools/profile_kernel.py` — Standalone profiler for kernel execution and memory usage.
-- `benchmark_production.py` — End-to-end benchmark suite that writes CSV, JSON, and plot artifacts.
+- `benchmark.py` — End-to-end benchmark suite that writes CSV, JSON, and plot artifacts.
 
 ---
 
@@ -47,7 +47,7 @@ We provide binary SVM classification on classical image datasets (CIFAR-10, Fash
 ```text
 train_svm_qkernel.py               # Main Entry Point
 train_svm_classical.py             # Classical baseline
-benchmark_production.py            # Full benchmark suite
+benchmark.py                       # Full benchmark suite
 run_all_cpu.sh                     # CPU batch launcher
 run_all_gpu.sh                     # GPU batch launcher
 scripts/
@@ -113,16 +113,24 @@ pip install -r requirements.txt
 
 ### Docker (Recommended)
 
-We provide a Docker image optimized for CUDA 13.0 and Blackwell/Ada architectures.
+We provide two Docker images: a CPU baseline and a GPU image compatible with CUDA 12.9.
 
 ```bash
-# Build GPU image
-docker build -t parallel-programming:gpu -f Dockerfile.gpu25 .
+# Build CPU image
+docker build -t parallel-programming:cpu -f Dockerfile .
 
-# Run container (mounting current dir)
+# Build GPU image
+docker build -t parallel-programming:gpu -f Dockerfile.gpu129 .
+
+# Run CPU container
+docker run --rm -it -v $(pwd):/app parallel-programming:cpu
+
+# Run GPU container (mounting current dir)
 docker run --rm -it --gpus all --shm-size=16g -v $(pwd):/app parallel-programming:gpu
 
 ```
+
+With docker compose, `trainer-cpu` builds the CPU image and `trainer-gpu129` / `run-all-gpu129` build the CUDA 12.9 image from `Dockerfile.gpu129`. `run_all_gpu.sh` stays generic.
 
 ---
 
@@ -211,7 +219,7 @@ bash run_all_cpu.sh   # classical baseline runs
 Test the three backends with a smaller workload:
 
 ```bash
-python benchmark_production.py --backend-comparison --n-samples 4000 --n-qubits 16
+python benchmark.py --backend-comparison --n-samples 4000 --n-qubits 16
 ```
 
 ### Example 2: Full cuda_states Optimization Study
@@ -219,7 +227,7 @@ python benchmark_production.py --backend-comparison --n-samples 4000 --n-qubits 
 Comprehensive study of all cuda_states optimizations:
 
 ```bash
-python benchmark_production.py \
+python benchmark.py \
     --cuda-states-ablation \
     --cuda-states-state-tile \
     --cuda-states-vram \
@@ -234,7 +242,7 @@ python benchmark_production.py \
 Compare `torch` directly against `cuda_states` and `numpy`:
 
 ```bash
-python benchmark_production.py \
+python benchmark.py \
     --backend-comparison \
     --backends torch cuda_states numpy \
     --n-samples 8000 \
@@ -246,7 +254,7 @@ python benchmark_production.py \
 Run with detailed memory profiling:
 
 ```bash
-python benchmark_production.py \
+python benchmark.py \
     --memory-profiling \
     --backend-comparison \
     --n-samples 4000 \
@@ -258,7 +266,7 @@ python benchmark_production.py \
 Analyze how performance scales:
 
 ```bash
-python benchmark_production.py \
+python benchmark.py \
     --qubit-scaling \
     --sample-scaling \
     --verbose
@@ -269,7 +277,7 @@ python benchmark_production.py \
 Run the complete benchmark suite with production settings:
 
 ```bash
-python benchmark_production.py \
+python benchmark.py \
     --all \
     --n-samples 1000 \
     --n-qubits 16 \
@@ -285,7 +293,7 @@ Use dataset-specific benchmark presets for fair backend comparison across your t
 
 ```bash
 # Fashion-MNIST profile
-docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
+docker compose run --rm trainer-gpu129 python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile fashion \
@@ -294,7 +302,7 @@ docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
     --output-dir benchmark_results/fashion
 
 # CIFAR10 profile
-docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
+docker compose run --rm trainer-gpu129 python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile cifar10 \
@@ -303,7 +311,7 @@ docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
     --output-dir benchmark_results/cifar10
 
 # SVHN profile
-docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
+docker compose run --rm trainer-gpu129 python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile svhn \
@@ -324,9 +332,9 @@ The benchmark generates comprehensive output in the selected output directory. B
 
 ### Main Artifacts
 
-- `production_benchmark.csv` - Combined row-wise results from every executed benchmark test.
-- `production_benchmark_summary.json` - Aggregated summary statistics.
-- `production_benchmark.png` - Comprehensive visualization with 6 subplots:
+- `benchmark.csv` - Combined row-wise results from every executed benchmark test.
+- `benchmark_summary.json` - Aggregated summary statistics.
+- `benchmark.png` - Comprehensive visualization with 6 subplots:
   - Throughput vs Qubits
   - Time vs Qubits (Log Scale)
   - GPU Memory Usage
@@ -432,7 +440,7 @@ Create a shell script to run multiple configurations:
 #!/bin/bash
 for samples in 2000 4000 8000 16000; do
     for qubits in 8 10 12 14; do
-        python benchmark_production.py \
+        python benchmark.py \
             --backend-comparison \
             --n-samples $samples \
             --n-qubits $qubits \

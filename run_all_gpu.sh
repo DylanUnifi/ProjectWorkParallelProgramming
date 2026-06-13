@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Generic GPU launcher; hardware-specific selection stays in docker compose.
 
 set -euo pipefail
 
@@ -12,7 +13,7 @@ LOG_ROOT="logs/quantum/${RUN_TS}"
 mkdir -p "${LOG_ROOT}"
 
 gpu_id=0
-max_gpus=5
+max_gpus=8
 failures=0
 
 batch_pids=()

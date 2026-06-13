@@ -17,7 +17,7 @@ run_profile() {
   echo "Log file: ${log_file}"
   echo "============================================================"
 
-  docker compose run --rm trainer-gpu25 python3 benchmark_production.py \
+  docker compose run --rm trainer-gpu129 python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile "${profile}" \

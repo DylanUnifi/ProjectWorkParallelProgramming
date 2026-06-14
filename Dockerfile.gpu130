@@ -1,0 +1,51 @@
+# Python slim plus CUDA wheels keeps the GPU image much smaller than the full
+# PyTorch runtime image, which helps on hosts with tight Docker storage.
+FROM python:3.10-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# ----------------------------------------------------
+# Base system libraries required by torchvision, matplotlib and OpenCV-style IO
+# ----------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash git libgomp1 libgl1 libglib2.0-0 libjpeg62-turbo libpng16-16 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN python -m pip install --upgrade pip
+
+COPY requirements.txt .
+
+# ----------------------------------------------------
+# PyTorch + torchvision
+# ----------------------------------------------------
+# Install CUDA-enabled wheels directly from the PyTorch index.
+RUN python -m pip install --no-cache-dir torch torchvision \
+    --index-url https://download.pytorch.org/whl/cu130
+
+# ----------------------------------------------------
+# CuPy (match CUDA 13.x)
+# ----------------------------------------------------
+RUN python -m pip install --no-cache-dir cupy-cuda13x
+
+# ----------------------------------------------------
+# PennyLane + Lightning GPU backend
+# ----------------------------------------------------
+RUN python -m pip install --no-cache-dir \
+    pennylane \
+    pennylane-lightning-gpu
+
+# ----------------------------------------------------
+# Project dependencies
+# ----------------------------------------------------
+# requirements.txt intentionally supports CPU installs too, so skip packages
+# already installed above to avoid pulling duplicate CUDA/PyTorch artifacts.
+RUN grep -Ev '^(torch|torchvision|pennylane|pennylane-lightning-gpu)$' requirements.txt > /tmp/requirements-gpu.txt \
+    && python -m pip install --no-cache-dir -r /tmp/requirements-gpu.txt \
+    && rm /tmp/requirements-gpu.txt
+
+COPY . .
+ENV PYTHONPATH=/app
+
+CMD ["bash"]

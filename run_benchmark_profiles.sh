@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 LOG_DIR="benchmark_results/logs"
 RUN_TS="$(date +%Y%m%d_%H%M%S)"
 
@@ -17,7 +19,7 @@ run_profile() {
   echo "Log file: ${log_file}"
   echo "============================================================"
 
-  docker compose run --rm trainer-gpu129 python3 benchmark.py \
+  docker compose -f "$SCRIPT_DIR/docker-compose.yml" run --rm -T trainer-gpu130 python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile "${profile}" \

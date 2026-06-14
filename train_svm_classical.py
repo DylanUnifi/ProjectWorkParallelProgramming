@@ -48,7 +48,7 @@ def _format_metrics(metrics):
 
 
 def extract_raw_features(dataset):
-    loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=2)
+    loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=0)
     all_features, all_labels = [], []
     for images, labels in tqdm(loader, desc="Extracting", leave=False):
         all_features.append(images.view(images.shape[0], -1).numpy())

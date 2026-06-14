@@ -3,6 +3,7 @@ torch
 matplotlib
 scikit-learn
 pennylane
+pennylane-lightning-gpu
 joblib
 wandb
 tqdm

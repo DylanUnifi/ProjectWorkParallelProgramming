@@ -45,6 +45,18 @@ def _normalize_cross_inplace(K: np.ndarray, diag_left: np.ndarray, diag_right: n
     K /= d_left[:, None] * d_right[None, :]
 
 
+def _create_qml_device(device_name: str, wires: int, c_dtype=None):
+    """Create the requested PennyLane device without switching to a different backend."""
+    import pennylane as qml
+
+    if c_dtype is not None:
+        try:
+            return qml.device(device_name, wires=wires, shots=None, c_dtype=c_dtype)
+        except Exception:
+            pass
+    return qml.device(device_name, wires=wires, shots=None)
+
+
 def _compute_self_kernel_diag(
         X: Any, *, weights: np.ndarray,
         device_name: str, tile_size: int, symmetric: bool,
@@ -898,10 +910,7 @@ def _pl_get_qnode():
     global _pl_qnode
     if _pl_qnode is None:
         import pennylane as qml
-        try:
-            dev = qml.device(_pl_device, wires=_pl_nq, shots=None, c_dtype=_pl_complex_dtype)
-        except:
-            dev = qml.device(_pl_device, wires=_pl_nq, shots=None)
+        dev = _create_qml_device(_pl_device, wires=_pl_nq, c_dtype=_pl_complex_dtype)
         @qml.qnode(dev, interface=None, diff_method=None)
         def _state(theta_row):
             theta = qml.math.asarray(theta_row, dtype=_pl_float_dtype)
@@ -1237,10 +1246,11 @@ def _build_states_block_torch_cuda(x_blk, w_np, dev_name, ascale, re_emb, mode,
     x = th.from_numpy(np.ascontiguousarray(x_blk)).to("cuda", dtype=t_float, non_blocking=True)
     w = th.from_numpy(np.ascontiguousarray(w_np)).to("cuda", dtype=t_float, non_blocking=True)
     
-    try:
-        dev = qml.device(dev_name, wires=nq, shots=None, c_dtype=np.complex64 if t_float==th.float32 else np.complex128)
-    except:
-        dev = qml.device("lightning.gpu", wires=nq, shots=None)
+    dev = _create_qml_device(
+        dev_name,
+        wires=nq,
+        c_dtype=np.complex64 if t_float == th.float32 else np.complex128,
+    )
 
     @qml.qnode(dev, interface="torch", diff_method=None)
     def _state(row):
@@ -1342,10 +1352,11 @@ def _build_all_states_torch_cuda(x_all, w_np, dev_name, ascale, re_emb, mode,
         x = th.from_numpy(np.ascontiguousarray(x_all)).to("cuda", dtype=t_float, non_blocking=True)
         w = th.from_numpy(np.ascontiguousarray(w_np)).to("cuda", dtype=t_float, non_blocking=True)
     
-    try:
-        dev = qml.device(dev_name, wires=nq, shots=None, c_dtype=np.complex64 if t_float==th.float32 else np.complex128)
-    except:
-        dev = qml.device("lightning.gpu", wires=nq, shots=None)
+    dev = _create_qml_device(
+        dev_name,
+        wires=nq,
+        c_dtype=np.complex64 if t_float == th.float32 else np.complex128,
+    )
 
     @qml.qnode(dev, interface="torch", diff_method=None)
     def _state(row):
@@ -1431,8 +1442,11 @@ def _gram_torch_stream(a_np, b_np, weights_np, device_name, tile_size, symmetric
         b = a if b_np is None else th.from_numpy(b_np).to("cuda", dtype=tf)
         w = th.from_numpy(weights_np).to("cuda", dtype=tf)
     
-    try: dev = qml.device(device_name, wires=nq, shots=None, c_dtype=(np.complex64 if float_dt==np.float32 else np.complex128))
-    except: dev = qml.device("lightning.gpu", wires=nq, shots=None)
+    dev = _create_qml_device(
+        device_name,
+        wires=nq,
+        c_dtype=np.complex64 if float_dt == np.float32 else np.complex128,
+    )
     
     @qml.qnode(dev, interface="torch", diff_method=None)
     def _state(row):

@@ -92,7 +92,7 @@ def preprocess_features(X_train, X_test, scaler_type="minmax", feature_range=(0,
 
 def extract_features(dataset):
     """Extract flattened features from a dataset."""
-    loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=2)
+    loader = DataLoader(dataset, batch_size=256, shuffle=False, num_workers=0)
     
     all_features, all_labels = [], []
     
@@ -139,6 +139,34 @@ def _safe_float(value):
 def _prefix_metrics(prefix, metrics):
     """Prefix a metrics dictionary for structured W&B logging."""
     return {f"{prefix}/{key}": value for key, value in metrics.items()}
+
+
+def _format_metric_value(value):
+    """Format metrics consistently for console output."""
+    if isinstance(value, (np.floating, float)):
+        if np.isnan(value):
+            return "nan"
+        if np.isposinf(value):
+            return "inf"
+        if np.isneginf(value):
+            return "-inf"
+        abs_value = abs(float(value))
+        if abs_value != 0.0 and (abs_value >= 1e4 or abs_value < 1e-4):
+            return f"{float(value):.4e}"
+        return f"{float(value):.4f}"
+    if isinstance(value, (np.integer, int)):
+        return str(int(value))
+    return str(value)
+
+
+def _print_metric_block(title, metrics, indent="   "):
+    """Print a metrics dictionary in a readable multi-line console block."""
+    print(f"{indent}{title}:")
+    if not metrics:
+        print(f"{indent}  <none>")
+        return
+    for key, value in metrics.items():
+        print(f"{indent}  {key}: {_format_metric_value(value)}")
 
 
 def _kernel_similarity_metrics(K, row_labels=None, col_labels=None, exclude_diagonal=False):
@@ -381,19 +409,9 @@ def train_fold(
     )
 
     if train_kernel_stats:
-        print(
-            "   Train kernel:"
-            f" gap={train_kernel_stats.get('class_gap', float('nan')):.4f}"
-            f" eig_min={train_kernel_stats.get('eig_min', float('nan')):.4e}"
-            f" neg_frac={train_kernel_stats.get('negative_eig_fraction', float('nan')):.4f}"
-        )
+        _print_metric_block("Train kernel diagnostics", train_kernel_stats)
     if val_kernel_stats:
-        print(
-            "   Val kernel:"
-            f" gap={val_kernel_stats.get('class_gap', float('nan')):.4f}"
-            f" mean={val_kernel_stats.get('mean', float('nan')):.4f}"
-            f" std={val_kernel_stats.get('std', float('nan')):.4f}"
-        )
+        _print_metric_block("Validation kernel diagnostics", val_kernel_stats)
 
     optuna_best_value = float("nan")
     if args.svm_c is not None:
@@ -438,12 +456,8 @@ def train_fold(
     val_proba = selected_val_svm.predict_proba(K_val)[:, 1]
     val_metrics = _compute_binary_metrics(y_val, val_pred, val_proba)
 
-    print(
-        "   Val SVM:"
-        f" converged={int(val_svm_stats.get('converged', 0.0))}"
-        f" n_iter_max={val_svm_stats.get('n_iter_max', float('nan')):.0f}"
-        f" support_frac={val_svm_stats.get('support_fraction', float('nan')):.4f}"
-    )
+    _print_metric_block("Validation SVM diagnostics", val_svm_stats)
+    _print_metric_block("Validation classification metrics", val_metrics)
     
     wandb.log({
         f"fold_{fold_idx}/best_C": best_C,
@@ -513,19 +527,9 @@ def train_fold(
     )
 
     if trainval_kernel_stats:
-        print(
-            "   TrainVal kernel:"
-            f" gap={trainval_kernel_stats.get('class_gap', float('nan')):.4f}"
-            f" eig_min={trainval_kernel_stats.get('eig_min', float('nan')):.4e}"
-            f" neg_frac={trainval_kernel_stats.get('negative_eig_fraction', float('nan')):.4f}"
-        )
+        _print_metric_block("TrainVal kernel diagnostics", trainval_kernel_stats)
     if test_kernel_stats:
-        print(
-            "   Test kernel:"
-            f" gap={test_kernel_stats.get('class_gap', float('nan')):.4f}"
-            f" mean={test_kernel_stats.get('mean', float('nan')):.4f}"
-            f" std={test_kernel_stats.get('std', float('nan')):.4f}"
-        )
+        _print_metric_block("Test kernel diagnostics", test_kernel_stats)
 
     print(f"Retraining final SVM with best C: {best_C}...")
     final_svm = EnhancedSVM(
@@ -544,12 +548,8 @@ def train_fold(
     y_proba = final_svm.predict_proba(K_test)[:, 1]
     test_metrics = _compute_binary_metrics(y_test, y_pred, y_proba)
 
-    print(
-        "   Final SVM:"
-        f" converged={int(final_svm_stats.get('converged', 0.0))}"
-        f" n_iter_max={final_svm_stats.get('n_iter_max', float('nan')):.0f}"
-        f" support_frac={final_svm_stats.get('support_fraction', float('nan')):.4f}"
-    )
+    _print_metric_block("Test SVM diagnostics", final_svm_stats)
+    _print_metric_block("Test classification metrics", test_metrics)
     
     wandb.log({
         f"fold_{fold_idx}/test_f1": test_metrics["f1"],
@@ -569,7 +569,12 @@ def train_fold(
         **_prefix_metrics(f"fold_{fold_idx}/svm_test_fit", final_svm_stats),
     })
     
-    print(f"Fold {fold_idx+1} result: F1={test_metrics['f1']:.4f} AUC={test_metrics['auc']:.4f}")
+    print(
+        f"Fold {fold_idx+1} result: "
+        f"val_F1={val_metrics['f1']:.4f} "
+        f"test_F1={test_metrics['f1']:.4f} "
+        f"test_AUC={test_metrics['auc']:.4f}"
+    )
     return {
         "val_f1": val_metrics["f1"],
         "val_acc": val_metrics["acc"],
@@ -663,6 +668,10 @@ def run_train(args):
     summary = {}
     for metric_name in results[0]:
         values = np.asarray([r[metric_name] for r in results], dtype=np.float64)
+        if np.all(np.isnan(values)):
+            summary[f"mean/{metric_name}"] = float("nan")
+            summary[f"std/{metric_name}"] = float("nan")
+            continue
         summary[f"mean/{metric_name}"] = float(np.nanmean(values))
         summary[f"std/{metric_name}"] = float(np.nanstd(values))
     

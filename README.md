@@ -113,14 +113,14 @@ pip install -r requirements.txt
 
 ### Docker (Recommended)
 
-We provide two Docker images: a CPU baseline and a GPU image compatible with CUDA 12.9.
+We provide two Docker images: a CPU baseline and a slimmer GPU image built on Python 3.10 with CUDA 13.0 wheels.
 
 ```bash
 # Build CPU image
 docker build -t parallel-programming:cpu -f Dockerfile .
 
 # Build GPU image
-docker build -t parallel-programming:gpu -f Dockerfile.gpu129 .
+docker build -t parallel-programming:gpu -f Dockerfile.gpu130 .
 
 # Run CPU container
 docker run --rm -it -v $(pwd):/app parallel-programming:cpu
@@ -130,7 +130,7 @@ docker run --rm -it --gpus all --shm-size=16g -v $(pwd):/app parallel-programmin
 
 ```
 
-With docker compose, `trainer-cpu` builds the CPU image and `trainer-gpu129` / `run-all-gpu129` build the CUDA 12.9 image from `Dockerfile.gpu129`. `run_all_gpu.sh` stays generic.
+With docker compose, `trainer-cpu` builds the CPU image and `trainer-gpu130` / `run-all-gpu130` build the CUDA 13.0 image from `Dockerfile.gpu130`. On the server, run scripts through Docker only: `run_all_cpu.sh` and `run_all_gpu.sh` now re-execute themselves inside the right container, and direct commands should use `docker compose run`. The default GPU image keeps the optional `lightning.gpu` extra out to stay within tighter Docker storage budgets.
 
 ---
 
@@ -151,17 +151,18 @@ The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 ### Optimal Configuration (Benchmark-Validated)
 
 ```bash
-python train_svm_qkernel.py \
-    --config configs/cifar10_med.yaml \
-    --gram-backend cuda_states \
-    --pl-device lightning.gpu \
-    --state-tile -1 \
-    --vram-fraction 0.95 \
-    --num-streams 2 \
-    --precompute-all-states \
-    --no-dynamic-batch \
-    --no-cuda-graphs \
-    --dtype float64
+docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+    python3 train_svm_qkernel.py \
+        --config configs/cifar10_med.yaml \
+        --gram-backend cuda_states \
+        --pl-device lightning.gpu \
+        --state-tile -1 \
+        --vram-fraction 0.95 \
+        --num-streams 2 \
+        --precompute-all-states \
+        --no-dynamic-batch \
+        --no-cuda-graphs \
+        --dtype float64
 ```
 
 **Key findings:**
@@ -176,18 +177,18 @@ python train_svm_qkernel.py \
 To unleash the full performance on high-end GPUs, use `cuda_states` with huge tiles.
 
 ```bash
-python3 train_svm_qkernel.py \
-  --config configs/fashion_easy.yaml \
-  --gram-backend cuda_states \
-  --dtype float64 \
-  --state-tile -1 \
-  --cache-kernels \
-  --pca-components 16 \
-  --embed-mode ryrz \
-  --kernel-centering \
-  --normalize-kernel \
-  --angle-scale 0.1
-
+docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+    python3 train_svm_qkernel.py \
+        --config configs/fashion_easy.yaml \
+        --gram-backend cuda_states \
+        --dtype float64 \
+        --state-tile -1 \
+        --cache-kernels \
+        --pca-components 16 \
+        --embed-mode ryrz \
+        --kernel-centering \
+        --normalize-kernel \
+        --angle-scale 0.1
 ```
 
 ### 2. Multi-GPU Training
@@ -196,10 +197,12 @@ If your system has multiple GPUs, you can train multiple configurations simultan
 
 ```bash
 # Terminal 1: GPU 0 -> Fashion-MNIST EASY
-CUDA_VISIBLE_DEVICES=0 python train_svm_qkernel.py --config configs/fashion_easy.yaml ...
+docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+    bash -lc 'CUDA_VISIBLE_DEVICES=0 python3 train_svm_qkernel.py --config configs/fashion_easy.yaml ...'
 
 # Terminal 2: GPU 1 -> Fashion-MNIST HARD
-CUDA_VISIBLE_DEVICES=1 python train_svm_qkernel.py --config configs/fashion_hard.yaml ...
+docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+    bash -lc 'CUDA_VISIBLE_DEVICES=1 python3 train_svm_qkernel.py --config configs/fashion_hard.yaml ...'
 ```
 
 Batch helpers are also available:
@@ -219,7 +222,8 @@ bash run_all_cpu.sh   # classical baseline runs
 Test the three backends with a smaller workload:
 
 ```bash
-python benchmark.py --backend-comparison --n-samples 4000 --n-qubits 16
+docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+    python3 benchmark.py --backend-comparison --n-samples 4000 --n-qubits 16
 ```
 
 ### Example 2: Full cuda_states Optimization Study
@@ -227,14 +231,15 @@ python benchmark.py --backend-comparison --n-samples 4000 --n-qubits 16
 Comprehensive study of all cuda_states optimizations:
 
 ```bash
-python benchmark.py \
-    --cuda-states-ablation \
-    --cuda-states-state-tile \
-    --cuda-states-vram \
-    --cuda-states-streams \
-    --n-samples 8000 \
-    --n-qubits 16 \
-    --verbose
+docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+    python3 benchmark.py \
+        --cuda-states-ablation \
+        --cuda-states-state-tile \
+        --cuda-states-vram \
+        --cuda-states-streams \
+        --n-samples 8000 \
+        --n-qubits 16 \
+        --verbose
 ```
 
 ### Example 3: Focused torch Comparison
@@ -242,11 +247,12 @@ python benchmark.py \
 Compare `torch` directly against `cuda_states` and `numpy`:
 
 ```bash
-python benchmark.py \
-    --backend-comparison \
-    --backends torch cuda_states numpy \
-    --n-samples 8000 \
-    --verbose
+docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+    python3 benchmark.py \
+        --backend-comparison \
+        --backends torch cuda_states numpy \
+        --n-samples 8000 \
+        --verbose
 ```
 
 ### Example 4: Memory Profiling
@@ -293,7 +299,7 @@ Use dataset-specific benchmark presets for fair backend comparison across your t
 
 ```bash
 # Fashion-MNIST profile
-docker compose run --rm trainer-gpu129 python3 benchmark.py \
+docker compose run --rm trainer-gpu130 python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile fashion \
@@ -302,7 +308,7 @@ docker compose run --rm trainer-gpu129 python3 benchmark.py \
     --output-dir benchmark_results/fashion
 
 # CIFAR10 profile
-docker compose run --rm trainer-gpu129 python3 benchmark.py \
+docker compose run --rm trainer-gpu130 python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile cifar10 \
@@ -311,7 +317,7 @@ docker compose run --rm trainer-gpu129 python3 benchmark.py \
     --output-dir benchmark_results/cifar10
 
 # SVHN profile
-docker compose run --rm trainer-gpu129 python3 benchmark.py \
+docker compose run --rm trainer-gpu130 python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile svhn \

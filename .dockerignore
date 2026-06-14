@@ -1,4 +1,33 @@
-# --- Python & Compilation ---
+# Keep Docker build context small and avoid shipping generated data/artifacts.
+
+.git
+.github
+.vscode
+
+__pycache__/
+*.py[cod]
+
+.env
+.venv
+env/
+venv/
+
+data/
+cache/
+benchmark_results/
+kernel_cache/
+outputs/
+wandb/
+logs/
+results/
+
+*.log
+*.npy
+*.csv
+*.mat
+
+.cuda_kernel_autotune.json
+.tile_optimizer_history.json
 __pycache__/
 *.py[cod]
 *$py.class
@@ -19,6 +48,8 @@ ENV/
 # --- IDEs & Editors ---
 .idea/
 .vscode/
+/.git/
+/.venv/
 *.swp
 *.swo
 .DS_Store
@@ -35,6 +66,8 @@ data/
 datasets/
 results/
 outputs/          # Docker-mounted volume
+benchmark_results/
+cache/
 
 # --- Checkpoints & Models ---
 checkpoints/

@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -z "${IN_DOCKER_CONTAINER:-}" ]]; then
+  exec docker compose -f "$SCRIPT_DIR/docker-compose.yml" run --rm -T \
+    -e IN_DOCKER_CONTAINER=1 trainer-cpu bash run_all_cpu.sh "$@"
+fi
+
 datasets=("fashion" "cifar10" "svhn")
 difficulties=("easy" "med" "hard")
 sizes=("500" "1000" "2500" "5000" "all")

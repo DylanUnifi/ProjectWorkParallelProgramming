@@ -29,8 +29,24 @@ services:
     working_dir: /app
     command: bash
 
+  trainer-gpu130:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu130
+    image: parallel-programming-exam-gpu130
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./:/app
+      - ./outputs:/app/outputs
+    working_dir: /app
+    command: bash
+
   train-qkernel:
-    image: parallel-programming-exam-gpu129
+    image: parallel-programming-exam-gpu130
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -53,7 +69,7 @@ services:
     command: python3 train_svm_classical.py
 
   benchmark:
-    image: parallel-programming-exam-gpu129
+    image: parallel-programming-exam-gpu130
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -75,8 +91,8 @@ services:
     working_dir: /app
     command: python3 extract_results.py
 
-  run-all-gpu129:
-    image: parallel-programming-exam-gpu129
+  run-all-gpu130:
+    image: parallel-programming-exam-gpu130
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all

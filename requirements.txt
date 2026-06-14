@@ -8,4 +8,3 @@ pyyaml
 optuna
 pandas
 seaborn
-gpustat

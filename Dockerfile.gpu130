@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1
 # Base system libraries required by torchvision, matplotlib and OpenCV-style IO
 # ----------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash git libgomp1 libgl1 libglib2.0-0 libjpeg62-turbo libpng16-16 zlib1g \
+    bash libgomp1 libgl1 libglib2.0-0 libjpeg62-turbo libpng16-16 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1
 # Base system + Python
 # ----------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash git libgomp1 libgl1 libglib2.0-0 libjpeg-dev zlib1g-dev libpng-dev \
+    bash libgomp1 libgl1 libglib2.0-0 libjpeg62-turbo libpng16-16 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

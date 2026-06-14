@@ -1,15 +1,11 @@
 numpy
-torch
 matplotlib
 scikit-learn
-pennylane
-pennylane-lightning-gpu
 joblib
 wandb
 tqdm
 pyyaml
 optuna
 pandas
-torchvision
 seaborn
 gpustat

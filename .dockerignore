@@ -8,9 +8,6 @@ __pycache__/
 *.py[cod]
 
 .env
-.venv
-env/
-venv/
 
 data/
 cache/
@@ -40,16 +37,11 @@ dist/
 
 # --- Virtual Environments ---
 .env
-.venv
-env/
-venv/
-ENV/
 
 # --- IDEs & Editors ---
 .idea/
 .vscode/
 /.git/
-/.venv/
 *.swp
 *.swo
 .DS_Store

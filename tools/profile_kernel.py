@@ -6,7 +6,7 @@ This tool provides detailed profiling of quantum kernel matrix computation,
 including memory usage, bandwidth analysis, and performance metrics.
 
 Usage:
-    python tools/profile_kernel.py --n-samples 1000 --n-qubits 6 --backend cuda_states
+    python tools/profile_kernel.py --n-samples 1000 --n-qubits 12 --backend cuda_states
 """
 
 import sys

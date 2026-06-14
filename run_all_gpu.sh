@@ -25,6 +25,35 @@ failures=0
 
 batch_pids=()
 batch_labels=()
+cleanup_done=0
+
+cleanup() {
+  if [ "$cleanup_done" -eq 1 ]; then
+    return 0
+  fi
+
+  cleanup_done=1
+  local exit_code=$?
+
+  if [ ${#batch_pids[@]} -gt 0 ]; then
+    echo "Stopping running GPU jobs..."
+    for pid in "${batch_pids[@]}"; do
+      kill -- "-$pid" 2>/dev/null || true
+    done
+
+    for pid in "${batch_pids[@]}"; do
+      wait "$pid" 2>/dev/null || true
+    done
+  fi
+
+  batch_pids=()
+  batch_labels=()
+
+  return "$exit_code"
+}
+
+trap 'cleanup; exit 130' INT TERM
+trap cleanup EXIT
 
 wait_for_batch() {
   if [ ${#batch_pids[@]} -eq 0 ]; then
@@ -72,7 +101,13 @@ for ds in "${datasets[@]}"; do
         fi
 
         log_file="${LOG_ROOT}/log_${ds}_${diff}_${backend}_${size}.txt"
-        (time CUDA_VISIBLE_DEVICES=$gpu_id "${cmd[@]}") 2>&1 | tee -a "${log_file}" &
+        setsid bash -c '
+          set -euo pipefail
+          gpu_id="$1"
+          log_file="$2"
+          shift 2
+          (time CUDA_VISIBLE_DEVICES="$gpu_id" "$@") 2>&1 | tee -a "$log_file"
+        ' bash "$gpu_id" "$log_file" "${cmd[@]}" &
         batch_pids+=("$!")
         batch_labels+=("${ds}|${diff}|${size}|${backend}|gpu${gpu_id}")
         

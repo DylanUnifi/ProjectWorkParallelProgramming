@@ -5,4 +5,4 @@ set -euo pipefail
 # Resolve this script directory (project root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-docker compose -f "$SCRIPT_DIR/docker-compose.yml" run --rm trainer-cpu "$@"
+exec docker compose -f "$SCRIPT_DIR/docker-compose.yml" run --rm trainer-cpu "$@"

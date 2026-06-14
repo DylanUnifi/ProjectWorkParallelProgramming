@@ -6,13 +6,15 @@ This test suite validates:
 1. DynamicBatchSizer - Runtime batch size adjustment
 2. CUDAStreamPool - Multiple CUDA stream management
 3. TileSizeOptimizer - Learning optimal tile sizes
-4. MemoryProfiler - GPU memory tracking and analysis
-5. CUDAGraphManager - CUDA graph capture and replay
+4. Torch backend optimizations - Runtime config propagation
+5. MemoryProfiler - GPU memory tracking and analysis
+6. CUDAGraphManager - CUDA graph capture and replay
 """
 
 import sys
 import os
 import json
+import logging
 import tempfile
 import numpy as np
 from pathlib import Path
@@ -22,6 +24,57 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+TESTS_DIR = Path(__file__).resolve().parent
+LOG_FILE = TESTS_DIR / "test_optimizations.log"
+SUMMARY_FILE = TESTS_DIR / "test_optimizations_summary.json"
+
+LOG = logging.getLogger("test_optimizations")
+LOG.setLevel(logging.INFO)
+if not LOG.handlers:
+    formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    LOG.addHandler(stream_handler)
+
+    file_handler = logging.FileHandler(LOG_FILE)
+    file_handler.setFormatter(formatter)
+    LOG.addHandler(file_handler)
+
+TEST_RESULTS = []
+
+
+def _record_test_result(test_name: str, status: str, details=None):
+    entry = {"test": test_name, "status": status}
+    if details is not None:
+        entry["details"] = details
+    TEST_RESULTS.append(entry)
+    LOG.info("%s %s", test_name, json.dumps(entry, sort_keys=True, default=str))
+    return entry
+
+
+def _write_results_summary():
+    summary = {"results": TEST_RESULTS}
+    with open(SUMMARY_FILE, "w") as f:
+        json.dump(summary, f, indent=2, default=str)
+    LOG.info("Wrote test summary to %s", SUMMARY_FILE)
+
+
+def _detect_gpu_vram_gb(default_vram_gb: float = 48.0):
+    try:
+        import cupy as cp
+
+        device = cp.cuda.Device()
+        free_vram_gb = device.mem_info[0] / 1e9
+        total_vram_gb = device.mem_info[1] / 1e9
+        LOG.info("GPU VRAM: %.1f GB total, %.1f GB free", total_vram_gb, free_vram_gb)
+        return total_vram_gb, free_vram_gb, True
+    except Exception as e:
+        LOG.warning("Cannot detect GPU VRAM: %s", e)
+        LOG.warning("Falling back to %.1f GB for VRAM-aware optimization tests", default_vram_gb)
+        return default_vram_gb, default_vram_gb, False
+
+from benchmark import BACKEND_CONFIGS, _backend_runtime_config
 from scripts.pipeline_backends import (
     DynamicBatchSizer,
     CUDAStreamPool,
@@ -73,6 +126,12 @@ def test_dynamic_batch_sizer():
     print(f"    Avg kernel time: {report['avg_kernel_time']:.4f}s")
     
     print("  Success: DynamicBatchSizer test passed")
+    return {
+        "adjustments": report["adjustments"],
+        "batch_range": [report["min_batch_used"], report["max_batch_used"]],
+        "total_kernels": report["total_kernels"],
+        "avg_kernel_time_s": report["avg_kernel_time"],
+    }
 
 
 def test_cuda_stream_pool():
@@ -121,9 +180,15 @@ def test_cuda_stream_pool():
         assert 0.0 <= utilization <= 1.0, "Utilization should be between 0 and 1"
         
         print("  Success: CUDAStreamPool test passed")
+        return {
+            "streams": num_streams,
+            "usage_count": pool.usage_count,
+            "utilization": utilization,
+        }
         
     except ImportError:
         print("  Warning:  CuPy not available, skipping CUDAStreamPool test")
+        return {"skipped": True, "reason": "cupy not available"}
 
 
 def test_tile_size_optimizer():
@@ -131,6 +196,11 @@ def test_tile_size_optimizer():
     print("\n" + "="*70)
     print("TEST 3: TileSizeOptimizer")
     print("="*70)
+
+    total_vram_gb, available_vram_gb, has_gpu_vram = _detect_gpu_vram_gb()
+    vram_scale = max(0.5, min(2.0, available_vram_gb / 48.0))
+    print(f"  Detected VRAM: {total_vram_gb:.1f} GB total, {available_vram_gb:.1f} GB free")
+    print(f"  Using VRAM scale factor: {vram_scale:.2f}")
     
     # Use temporary file for testing
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -144,24 +214,51 @@ def test_tile_size_optimizer():
         
         # Record some test runs
         print("\n  Recording test runs...")
-        test_configs = [
-            (1000, 6, 2048, (32, 32, 32), 1e6, 12.5),
-            (1000, 6, 4096, (32, 32, 64), 1.2e6, 18.0),
-            (1000, 6, 2048, (64, 64, 32), 1.1e6, 14.0),
-            (2000, 8, 1024, (32, 32, 32), 8e5, 28.0),
+        base_test_configs = [
+            (1000, 16, 2048, (32, 32, 32), 1e6, 12.5),
+            (1000, 16, 4096, (32, 32, 64), 1.2e6, 18.0),
+            (1000, 16, 2048, (64, 64, 32), 1.1e6, 14.0),
+            (2000, 16, 1024, (32, 32, 32), 8e5, 28.0),
+            (1000, 16, 8192, (64, 32, 32), 1.05e6, 20.0),
+            (1000, 16, 1024, (32, 64, 32), 9.7e5, 9.5),
+            (1000, 16, 3072, (64, 32, 64), 1.15e6, 16.5),
+            (1000, 16, 6144, (32, 64, 64), 1.08e6, 22.0),
+            (1000, 16, 2560, (48, 32, 32), 1.18e6, 11.0),
+            (1000, 16, 5120, (48, 48, 32), 1.22e6, 15.0),
+            (1000, 16, 3584, (32, 48, 64), 1.19e6, 13.5),
         ]
+        test_configs = [
+            (
+                n_samples,
+                n_qubits,
+                state_tile,
+                kernel_tiles,
+                throughput,
+                peak_mem * vram_scale,
+            )
+            for n_samples, n_qubits, state_tile, kernel_tiles, throughput, peak_mem in base_test_configs
+        ]
+        top_configs = sorted(test_configs, key=lambda config: config[4], reverse=True)[:3]
+        best_config = next(config for config in test_configs if config[2] == 5120 and config[3] == (48, 48, 32))
         
         for n_samples, n_qubits, state_tile, kernel_tiles, throughput, peak_mem in test_configs:
             optimizer.record_run(n_samples, n_qubits, state_tile, kernel_tiles, throughput, peak_mem)
             print(f"    Recorded: n={n_samples}, nq={n_qubits}, tile={state_tile}, "
                   f"throughput={throughput:.2e}")
+
+        print("\n  Top throughput candidates:")
+        for rank, (n_samples, n_qubits, state_tile, kernel_tiles, throughput, peak_mem) in enumerate(top_configs, start=1):
+            print(
+                f"    #{rank}: tile={state_tile}, kernel_tiles={kernel_tiles}, "
+                f"throughput={throughput:.2e}, peak_mem={peak_mem:.1f} GB"
+            )
         
         # Test prediction
         print("\n  Testing tile prediction...")
         prediction = optimizer.predict_optimal_tiles(
             n_samples=1000,
-            n_qubits=6,
-            available_vram=96.0  # 96GB VRAM
+            n_qubits=16,
+            available_vram=available_vram_gb,
         )
         
         print(f"    Predicted state_tile: {prediction['state_tile']}")
@@ -171,6 +268,30 @@ def test_tile_size_optimizer():
         
         assert prediction['state_tile'] > 0, "Should predict a valid state tile"
         assert len(prediction['kernel_tiles']) == 3, "Should predict 3 kernel tile dimensions"
+        assert prediction['source'] == "learned", "Should use learned history when available"
+        assert prediction['confidence'] >= 0.8, "Should have a strong confidence signal from the expanded history"
+        assert prediction['state_tile'] == 5120, "Should select the best-performing learned state tile"
+        assert prediction['kernel_tiles'] == (48, 48, 32), "Should select the best-performing learned kernel tiles"
+
+        print("\n  Testing VRAM-constrained prediction...")
+        tight_vram_gb = max(4.0, best_config[5] * 0.9)
+        constrained_prediction = optimizer.predict_optimal_tiles(
+            n_samples=1000,
+            n_qubits=16,
+            available_vram=tight_vram_gb
+        )
+
+        print(f"    Constrained state_tile: {constrained_prediction['state_tile']}")
+        print(f"    Constrained kernel_tiles: {constrained_prediction['kernel_tiles']}")
+        print(f"    Constrained confidence: {constrained_prediction['confidence']:.2f}")
+
+        assert constrained_prediction['state_tile'] == 2560, (
+            "Should fall back to the best configuration that fits the tighter VRAM budget"
+        )
+        assert constrained_prediction['kernel_tiles'] == (48, 32, 32), (
+            "Should select the best valid tiles under the tighter VRAM budget"
+        )
+        assert constrained_prediction['confidence'] >= 0.2, "Should still keep a meaningful confidence level"
         
         # Test statistics
         stats = optimizer.get_statistics()
@@ -188,6 +309,30 @@ def test_tile_size_optimizer():
         assert stats2['total_runs'] == stats['total_runs'], "History should persist"
         
         print("  Success: TileSizeOptimizer test passed")
+        return {
+            "total_runs": stats["total_runs"],
+            "unique_configs": stats["unique_configs"],
+            "avg_throughput": stats["avg_throughput"],
+            "best_state_tile": prediction["state_tile"],
+            "best_kernel_tiles": prediction["kernel_tiles"],
+            "best_confidence": prediction["confidence"],
+            "constrained_state_tile": constrained_prediction["state_tile"],
+            "constrained_kernel_tiles": constrained_prediction["kernel_tiles"],
+            "constrained_confidence": constrained_prediction["confidence"],
+            "detected_total_vram_gb": total_vram_gb,
+            "detected_available_vram_gb": available_vram_gb,
+            "vram_scale": vram_scale,
+            "vram_detection": "gpu" if has_gpu_vram else "fallback",
+            "top_throughput_configs": [
+                {
+                    "state_tile": config[2],
+                    "kernel_tiles": config[3],
+                    "throughput": config[4],
+                    "peak_memory": config[5],
+                }
+                for config in top_configs
+            ],
+        }
         
     finally:
         # Clean up temp file
@@ -195,10 +340,71 @@ def test_tile_size_optimizer():
             os.remove(temp_file)
 
 
+def test_torch_optimizations():
+    """Test Torch backend optimization config propagation."""
+    print("\n" + "="*70)
+    print("TEST 4: Torch Backend Optimizations")
+    print("="*70)
+
+    base_config = BACKEND_CONFIGS["torch"]
+    runtime_config = _backend_runtime_config("torch", base_config)
+
+    print("  Checking default Torch runtime config...")
+    assert runtime_config["gram_backend"] == "torch", "Torch backend should keep gram_backend='torch'"
+    assert runtime_config["device_name"] == "lightning.gpu", "Torch backend should target lightning.gpu"
+
+    expected_defaults = {
+        "use_pinned_memory": False,
+        "use_cuda_streams": False,
+        "use_amp": False,
+        "use_compile": False,
+    }
+    for flag, expected_value in expected_defaults.items():
+        assert runtime_config[flag] is expected_value, f"Default {flag} should be {expected_value}"
+
+    print("  Checking Torch optimization flag combinations...")
+    configs = [
+        {
+            "name": "torch_pinned",
+            "use_pinned_memory": True,
+            "use_cuda_streams": False,
+            "use_amp": False,
+            "use_compile": False,
+        },
+        {
+            "name": "torch_streams",
+            "use_pinned_memory": False,
+            "use_cuda_streams": True,
+            "use_amp": False,
+            "use_compile": False,
+        },
+        {
+            "name": "torch_amp_compile",
+            "use_pinned_memory": False,
+            "use_cuda_streams": False,
+            "use_amp": True,
+            "use_compile": True,
+        },
+    ]
+
+    for config in configs:
+        runtime_config = _backend_runtime_config("torch", config)
+        print(f"    Validating {config['name']} -> {runtime_config}")
+        assert runtime_config["gram_backend"] == "torch", "Torch config should preserve gram_backend"
+        assert runtime_config["device_name"] == "lightning.gpu", "Torch config should preserve device_name"
+        for flag in expected_defaults:
+            assert runtime_config[flag] is config[flag], (
+                f"{config['name']} should preserve {flag}={config[flag]}"
+            )
+
+    print("  Success: Torch backend optimization test passed")
+    return {"configurations_checked": len(configs)}
+
+
 def test_memory_profiler():
     """Test MemoryProfiler class."""
     print("\n" + "="*70)
-    print("TEST 4: MemoryProfiler")
+    print("TEST 5: MemoryProfiler")
     print("="*70)
     
     # Initialize profiler
@@ -249,12 +455,18 @@ def test_memory_profiler():
     print(f"    Snapshot keys: {list(snapshot.keys())}")
     
     print("  Success: MemoryProfiler test passed")
+    return {
+        "peak_allocated_gb": report["peak_allocated_gb"],
+        "kernel_launches": report["kernel_launches"],
+        "h2d_total_gb": report["h2d_total_gb"],
+        "d2h_total_gb": report["d2h_total_gb"],
+    }
 
 
 def test_cuda_graph_manager():
     """Test CUDAGraphManager class."""
     print("\n" + "="*70)
-    print("TEST 5: CUDAGraphManager")
+    print("TEST 6: CUDAGraphManager")
     print("="*70)
     
     try:
@@ -332,11 +544,19 @@ def test_cuda_graph_manager():
         print("  Success: Clear succeeded")
         
         print("  Success: CUDAGraphManager test passed")
+        return {
+            "total_graphs": stats["total_graphs"],
+            "total_captures": stats["total_captures"],
+            "total_replays": stats["total_replays"],
+            "hit_rate": stats["hit_rate"],
+        }
         
     except ImportError:
         print("  Warning:  CuPy not available, skipping CUDAGraphManager test")
+        return {"skipped": True, "reason": "cupy not available"}
     except Exception as e:
         print(f"  Warning:  Test skipped due to environment limitations: {e}")
+        return {"skipped": True, "reason": str(e)}
 
 
 def main():
@@ -348,44 +568,70 @@ def main():
     all_passed = True
     
     try:
-        test_dynamic_batch_sizer()
+        result = test_dynamic_batch_sizer()
+        _record_test_result("DynamicBatchSizer", "passed", result)
     except AssertionError as e:
         print(f"  Test failed: {e}")
         all_passed = False
+        _record_test_result("DynamicBatchSizer", "failed", {"error": str(e)})
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
+        _record_test_result("DynamicBatchSizer", "error", {"error": str(e)})
     
     try:
-        test_cuda_stream_pool()
+        result = test_cuda_stream_pool()
+        _record_test_result("CUDAStreamPool", "skipped" if result.get("skipped") else "passed", result)
     except AssertionError as e:
         print(f"  Test failed: {e}")
         all_passed = False
+        _record_test_result("CUDAStreamPool", "failed", {"error": str(e)})
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
+        _record_test_result("CUDAStreamPool", "error", {"error": str(e)})
     
     try:
-        test_tile_size_optimizer()
+        result = test_tile_size_optimizer()
+        _record_test_result("TileSizeOptimizer", "passed", result)
     except AssertionError as e:
         print(f"  Test failed: {e}")
         all_passed = False
+        _record_test_result("TileSizeOptimizer", "failed", {"error": str(e)})
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
+        _record_test_result("TileSizeOptimizer", "error", {"error": str(e)})
+
+    try:
+        result = test_torch_optimizations()
+        _record_test_result("TorchBackendOptimizations", "passed", result)
+    except AssertionError as e:
+        print(f"  Test failed: {e}")
+        all_passed = False
+        _record_test_result("TorchBackendOptimizations", "failed", {"error": str(e)})
+    except Exception as e:
+        print(f"  Warning:  Test error: {e}")
+        _record_test_result("TorchBackendOptimizations", "error", {"error": str(e)})
     
     try:
-        test_memory_profiler()
+        result = test_memory_profiler()
+        _record_test_result("MemoryProfiler", "passed", result)
     except AssertionError as e:
         print(f"  Test failed: {e}")
         all_passed = False
+        _record_test_result("MemoryProfiler", "failed", {"error": str(e)})
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
+        _record_test_result("MemoryProfiler", "error", {"error": str(e)})
     
     try:
-        test_cuda_graph_manager()
+        result = test_cuda_graph_manager()
+        _record_test_result("CUDAGraphManager", "skipped" if result.get("skipped") else "passed", result)
     except AssertionError as e:
         print(f"  Test failed: {e}")
         all_passed = False
+        _record_test_result("CUDAGraphManager", "failed", {"error": str(e)})
     except Exception as e:
         print(f"  Warning:  Test error: {e}")
+        _record_test_result("CUDAGraphManager", "error", {"error": str(e)})
     
     print("\n" + "="*70)
     if all_passed:
@@ -393,6 +639,8 @@ def main():
     else:
         print("Some tests failed")
     print("="*70 + "\n")
+
+    _write_results_summary()
     
     return 0 if all_passed else 1
 

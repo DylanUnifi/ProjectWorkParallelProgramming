@@ -1,0 +1,74 @@
+{
+  "timestamp": 1781444309.1988351,
+  "results": [
+    {
+      "backend": "cuda_states",
+      "backend_kwargs": {
+        "device_name": "lightning.gpu",
+        "dtype": "float64"
+      },
+      "error": null,
+      "elapsed_s": 1.624865627847612,
+      "stats": {
+        "shape": [
+          100,
+          100
+        ],
+        "dtype": "float64",
+        "min": 5.716859228906397e-10,
+        "max": 1.000000000000004,
+        "mean": 0.02032409701049877,
+        "std": 0.1015052965908936,
+        "median": 0.0018050379382542419,
+        "n_nans": 0,
+        "n_infs": 0
+      }
+    },
+    {
+      "backend": "torch",
+      "backend_kwargs": {
+        "device_name": "lightning.gpu",
+        "dtype": "float64"
+      },
+      "error": null,
+      "elapsed_s": 0.48806155007332563,
+      "stats": {
+        "shape": [
+          100,
+          100
+        ],
+        "dtype": "float64",
+        "min": 5.716859228906293e-10,
+        "max": 1.0000000000000018,
+        "mean": 0.02032409701049877,
+        "std": 0.1015052965908936,
+        "median": 0.0018050379382542401,
+        "n_nans": 0,
+        "n_infs": 0
+      }
+    },
+    {
+      "backend": "numpy",
+      "backend_kwargs": {
+        "device_name": "lightning.qubit",
+        "dtype": "float64"
+      },
+      "error": null,
+      "elapsed_s": 2.716852347366512,
+      "stats": {
+        "shape": [
+          100,
+          100
+        ],
+        "dtype": "float64",
+        "min": 5.716859228906357e-10,
+        "max": 1.0000000000000018,
+        "mean": 0.02032409701049877,
+        "std": 0.1015052965908936,
+        "median": 0.0018050379382542406,
+        "n_nans": 0,
+        "n_infs": 0
+      }
+    }
+  ]
+}

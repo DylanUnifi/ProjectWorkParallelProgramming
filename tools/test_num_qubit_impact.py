@@ -37,6 +37,7 @@ try:
     import torch
     HAS_TORCH = torch.cuda.is_available()
 except ImportError:
+    torch = None
     HAS_TORCH = False
 
 # ═══════════════════════════════════════════════════════════
@@ -47,16 +48,16 @@ except ImportError:
 QUBITS_RANGE = [4, 8, 12, 16, 20]
 
 # Default sample size (large enough to amortize overhead)
-DEFAULT_SAMPLES = 10000
+DEFAULT_SAMPLES = 1000
 
 # Qubit-specific sample configurations (for 102GB VRAM)
 # These are calculated using get_safe_sample_size() with 85% VRAM utilization
 QUBIT_SAMPLE_CONFIGS = {
-    4: 50000,   # Can handle large samples (limited by kernel memory)
-    8: 50000,   # Can handle large samples (limited by kernel memory)
-    12: 30000,  # Can handle large samples (limited by kernel memory)
-    16: 15000,  # Reduced for VRAM (state memory starts to dominate)
-    20: 3000,   # Significantly reduced (state memory dominates)
+    4: 4096,    # Small enough to finish quickly on all backends
+    8: 4096,    # Keep the qubit sweep practical
+    12: 2048,   # Match the benchmark-sized workloads
+    16: 1024,   # Reduced for VRAM (state memory starts to dominate)
+    20: 512,    # Significantly reduced (state memory dominates)
 }
 
 # Backend configurations with VALID parameters only
@@ -79,34 +80,39 @@ BACKEND_CONFIGS = {
         "profile_memory": False,    # Enable per-test if needed
         "verbose_profile": False,
     },
-    #"torch": {
-    #    "device_name": "lightning.gpu",
-    #    "gram_backend": "torch",
-    #    "dtype": "float64",
-    #   "symmetric": True,
-    #    "tile_size": 512,           # Smaller tiles for torch
-        # Torch-specific optimizations
-    #    "use_pinned_memory": True,  # Enable pinned memory
-    #    "use_cuda_streams": True,   # Enable stream overlap
-    #    "use_amp": False,           # Auto-mixed precision (experimental)
-    #    "use_compile": False,       # torch.compile (PyTorch 2.0+)
-    #},
-    "numpy": {
-        "device_name": "default.qubit",
-        "gram_backend": "numpy",
+}
+
+if HAS_TORCH:
+    BACKEND_CONFIGS["torch"] = {
+        "device_name": "lightning.gpu",
+        "gram_backend": "torch",
         "dtype": "float64",
         "symmetric": True,
-        "tile_size": 128,
-        "n_workers": 16,
-    },
+        "tile_size": 512,
+        "use_pinned_memory": False,
+        "use_cuda_streams": False,
+        "use_amp": False,
+        "use_compile": False,
+    }
+
+BACKEND_CONFIGS["numpy"] = {
+    "device_name": "default.qubit",
+    "gram_backend": "numpy",
+    "dtype": "float64",
+    "symmetric": True,
+    "tile_size": 128,
+    "n_workers": 16,
 }
 
 # Qubit limits per backend (beyond this, backend becomes impractical)
 BACKEND_QUBIT_LIMITS = {
     "cuda_states": 20,
-    #"torch": 16,
-    "numpy": 16,
 }
+
+if HAS_TORCH:
+    BACKEND_QUBIT_LIMITS["torch"] = 16
+
+BACKEND_QUBIT_LIMITS["numpy"] = 16
 
 # Output configuration
 OUTPUT_DIR = ROOT / "benchmark_results"
@@ -118,7 +124,7 @@ OUTPUT_CSV = OUTPUT_DIR / "qubit_impact_results.csv"
 
 def get_gpu_memory_info() -> Tuple[float, float]:
     """Get current and peak GPU memory usage in GB."""
-    if HAS_TORCH:
+    if HAS_TORCH and torch is not None:
         current = torch.cuda.memory_allocated() / (1024**3)
         peak = torch.cuda.max_memory_allocated() / (1024**3)
         return current, peak
@@ -126,7 +132,7 @@ def get_gpu_memory_info() -> Tuple[float, float]:
 
 def reset_gpu_memory():
     """Reset GPU memory stats and clear cache."""
-    if HAS_TORCH:
+    if HAS_TORCH and torch is not None:
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
@@ -182,6 +188,42 @@ def adjust_state_tile_for_qubits(n_qubits: int, base_tile: int = 4096) -> int:
         return min(base_tile, 2048)
     return base_tile
 
+def _backend_runtime_config(backend_name: str, config: Dict) -> Dict:
+    """Prepare backend-specific config compatible with pipeline_backends behavior."""
+    cfg = config.copy()
+
+    if backend_name == "cuda_states":
+        cfg["gram_backend"] = "cuda_states"
+        cfg["device_name"] = "lightning.gpu"
+        return cfg
+
+    if backend_name == "torch":
+        cfg["gram_backend"] = "torch"
+        cfg["device_name"] = "lightning.gpu"
+        cfg.setdefault("use_pinned_memory", False)
+        cfg.setdefault("use_cuda_streams", False)
+        cfg.setdefault("use_amp", False)
+        cfg.setdefault("use_compile", False)
+        return cfg
+
+    cfg["gram_backend"] = "numpy"
+    cfg["device_name"] = "default.qubit"
+    cfg.pop("state_tile", None)
+    cfg.pop("vram_fraction", None)
+    cfg.pop("autotune", None)
+    cfg.pop("precompute_all_states", None)
+    cfg.pop("dynamic_batch", None)
+    cfg.pop("num_streams", None)
+    cfg.pop("learn_tiles", None)
+    cfg.pop("use_cuda_graphs", None)
+    cfg.pop("profile_memory", None)
+    cfg.pop("verbose_profile", None)
+    cfg.pop("use_pinned_memory", None)
+    cfg.pop("use_cuda_streams", None)
+    cfg.pop("use_amp", None)
+    cfg.pop("use_compile", None)
+    return cfg
+
 # ═══════════════════════════════════════════════════════════
 # BENCHMARK FUNCTIONS
 # ═══════════════════════════════════════════════════════════
@@ -204,7 +246,7 @@ def benchmark_single_config(
     # Otherwise, reduce samples automatically for high qubits to avoid OOM
     elif n_qubits >= 16:
         n_samples = get_safe_sample_size(n_qubits, n_samples)
-            print(f"  Warning: reduced samples to {n_samples} for {n_qubits} qubits (VRAM limit)")
+        print(f"  Warning: reduced samples to {n_samples} for {n_qubits} qubits (VRAM limit)")
     
     # Generate test data
     rng = np.random.default_rng(42)
@@ -213,7 +255,7 @@ def benchmark_single_config(
     weights = rng.normal(0, 0.1, (2, n_qubits)).astype(np_dtype)
     
     # Adjust state_tile for high qubit counts
-    run_config = config.copy()
+    run_config = _backend_runtime_config(backend_name, config)
     if "state_tile" in run_config:
         run_config["state_tile"] = adjust_state_tile_for_qubits(n_qubits, run_config["state_tile"])
     
@@ -223,7 +265,7 @@ def benchmark_single_config(
         # Warmup run
         if warmup:
             _ = compute_kernel_matrix(angles[:min(256, n_samples)], weights=weights, **run_config)
-            if HAS_TORCH:
+            if HAS_TORCH and torch is not None:
                 torch.cuda.synchronize()
         
         reset_gpu_memory()
@@ -231,13 +273,13 @@ def benchmark_single_config(
         # Timed runs
         times = []
         for _ in range(repeats):
-            if HAS_TORCH:
+            if HAS_TORCH and torch is not None:
                 torch.cuda.synchronize()
             
             t0 = time.perf_counter()
             K = compute_kernel_matrix(angles, weights=weights, **run_config)
             
-            if HAS_TORCH:
+            if HAS_TORCH and torch is not None:
                 torch.cuda.synchronize()
             
             times.append(time.perf_counter() - t0)

@@ -1,29 +1,23 @@
 #!/usr/bin/env python3
-"""
-Test: Impact of Tile Size and Sample Count on Performance
-==========================================================
+"""Tile-size impact benchmark for quantum kernel backends.
 
-This test measures:
-1. How tile_size affects throughput for each backend
-2. How sample count (N) affects scaling (should be O(N²))
-3. Optimal tile configurations for different workload sizes
-4. Impact of cuda_states optimization parameters:
-   - state_tile: VRAM-aware state tiling (-1 for auto)
-   - num_streams: CUDA stream parallelism
-   - vram_fraction: Memory pressure targets
-   - Optimization ablation: Individual contribution of each optimization
-   - Sample scaling with all optimizations enabled
-
-Author: Dylan Fouepe
+The script measures tile-related scaling across the available backends.
+For ``cuda_states`` it sweeps ``state_tile``. For ``numpy`` and ``torch``
+it sweeps ``tile_size``. Sample-scaling is covered by
+``tools/test_size_samples_impact.py``.
 """
 
+from __future__ import annotations
+
+import argparse
+import gc
 import sys
-import os
 import time
-import numpy as np
-import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -32,701 +26,360 @@ from scripts.pipeline_backends import compute_kernel_matrix
 
 try:
     import torch
+
     HAS_TORCH = torch.cuda.is_available()
 except ImportError:
+    torch = None
     HAS_TORCH = False
 
 # ═══════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════
 
-# Fixed qubit count for tile/sample tests
-N_QUBITS = 16
+DEFAULT_N_QUBITS = 16
+DEFAULT_SAMPLE_COUNT = 4096
+DEFAULT_WARMUP = False
+DEFAULT_REPEATS = 1
 
-# Sample sizes to test
-SAMPLE_SIZES = [2000, 4000, 8000, 16000, 20000]
+DEFAULT_CUDA_STATE_TILE_SIZES = [512, 1024, 2048, 4096, -1]
+DEFAULT_GENERIC_TILE_SIZES = [64, 128, 256, 512, 1024, 2048]
 
-# Backend base configurations
 BACKEND_CONFIGS = {
     "cuda_states": {
         "device_name": "lightning.gpu",
         "gram_backend": "cuda_states",
         "dtype": "float64",
         "symmetric": True,
+        "tile_size": 5000,
+        "state_tile": -1,
+        "vram_fraction": 0.85,
         "autotune": True,
+        "precompute_all_states": True,
+        "dynamic_batch": True,
+        "num_streams": 4,
+        "learn_tiles": True,
+        "use_cuda_graphs": True,
+        "profile_memory": False,
+        "verbose_profile": False,
     },
-    #"torch": {
-    #    "device_name": "lightning.gpu",
-    #    "gram_backend": "torch",
-    #    "dtype": "float64",
-    #    "symmetric": True,
-        # Torch-specific optimizations
-    #    "use_pinned_memory": True,
-    #    "use_cuda_streams": True,
-    #    "use_amp": False,
-    #    "use_compile": False,
-    #},
     "numpy": {
         "device_name": "default.qubit",
         "gram_backend": "numpy",
         "dtype": "float64",
         "symmetric": True,
+        "tile_size": 128,
+        "n_workers": 16,
     },
 }
 
-# Tile sizes to test
-TILE_SIZES = {
-    "cuda_states": {
-        "state_tile": [512, 1024, 2048, 4096, -1],
-        "tile_size": [1000, 5000],  # Kernel tile
-    },
-    #"torch": {
-    #    "tile_size": [64, 128, 256, 512, 1024, 2048],
-    #},
-    "numpy": {
-        "tile_size": [64, 128, 192, 256],
-        "n_workers": [16, 24],
-    },
-}
+if HAS_TORCH:
+    BACKEND_CONFIGS["torch"] = {
+        "device_name": "lightning.gpu",
+        "gram_backend": "torch",
+        "dtype": "float64",
+        "symmetric": True,
+        "tile_size": 512,
+        "use_pinned_memory": False,
+        "use_cuda_streams": False,
+        "use_amp": False,
+        "use_compile": False,
+    }
 
 OUTPUT_DIR = ROOT / "benchmark_results"
 OUTPUT_CSV = OUTPUT_DIR / "tile_samples_impact_results.csv"
 
+
 # ═══════════════════════════════════════════════════════════
-# UTILITY FUNCTIONS
+# UTILITIES
 # ═══════════════════════════════════════════════════════════
 
-def reset_gpu():
-    import gc;
-    if HAS_TORCH:
+
+def reset_gpu_memory() -> None:
+    """Clear CUDA cache and reset peak stats if torch is available."""
+    if HAS_TORCH and torch is not None:
         gc.collect()
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
-def get_peak_vram() -> float:
-    if HAS_TORCH:
-        return torch.cuda.max_memory_allocated() / (1024**3)
+
+def get_peak_vram_gb(baseline_allocated_gb: float = 0.0, baseline_reserved_gb: float = 0.0) -> float:
+    """Return incremental peak GPU memory usage in GB.
+
+    Prefer CUDA reserved memory for a stricter view of the torch footprint,
+    while falling back to allocated memory if needed.
+    """
+    if HAS_TORCH and torch is not None:
+        peak_allocated_gb = torch.cuda.max_memory_allocated() / (1024**3)
+        peak_reserved_gb = torch.cuda.max_memory_reserved() / (1024**3)
+        strict_peak_gb = max(peak_reserved_gb, peak_allocated_gb)
+        baseline_gb = max(baseline_allocated_gb, baseline_reserved_gb)
+        return max(0.0, strict_peak_gb - baseline_gb)
     return 0.0
 
-# ═══════════════════════════════════════════════════════════
-# BENCHMARK FUNCTIONS
-# ═══════════════════════════════════════════════════════════
 
-def benchmark_config(n_samples: int, n_qubits: int, **kwargs) -> Dict:
-    """Benchmark a single configuration."""
+def _backend_runtime_config(backend_name: str, config: Dict) -> Dict:
+    """Prepare backend-specific config compatible with pipeline_backends."""
+    cfg = config.copy()
+
+    if backend_name == "cuda_states":
+        cfg["gram_backend"] = "cuda_states"
+        cfg["device_name"] = "lightning.gpu"
+        return cfg
+
+    if backend_name == "torch":
+        cfg["gram_backend"] = "torch"
+        cfg["device_name"] = "lightning.gpu"
+        cfg.setdefault("use_pinned_memory", False)
+        cfg.setdefault("use_cuda_streams", False)
+        cfg.setdefault("use_amp", False)
+        cfg.setdefault("use_compile", False)
+        return cfg
+
+    cfg["gram_backend"] = "numpy"
+    cfg["device_name"] = "default.qubit"
+    cfg.pop("state_tile", None)
+    cfg.pop("vram_fraction", None)
+    cfg.pop("autotune", None)
+    cfg.pop("precompute_all_states", None)
+    cfg.pop("dynamic_batch", None)
+    cfg.pop("num_streams", None)
+    cfg.pop("learn_tiles", None)
+    cfg.pop("use_cuda_graphs", None)
+    cfg.pop("profile_memory", None)
+    cfg.pop("verbose_profile", None)
+    cfg.pop("use_pinned_memory", None)
+    cfg.pop("use_cuda_streams", None)
+    cfg.pop("use_amp", None)
+    cfg.pop("use_compile", None)
+    return cfg
+
+
+def _tile_sweep_for_backend(backend_name: str, tile_sizes: Optional[List[int]]) -> Tuple[str, List[int]]:
+    """Return the parameter name and tile sweep appropriate for a backend."""
+    if backend_name == "cuda_states":
+        values = list(tile_sizes) if tile_sizes is not None else list(DEFAULT_CUDA_STATE_TILE_SIZES)
+        return "state_tile", values
+
+    if tile_sizes is not None:
+        values = [value for value in tile_sizes if value > 0]
+        return "tile_size", values or list(DEFAULT_GENERIC_TILE_SIZES)
+
+    return "tile_size", list(DEFAULT_GENERIC_TILE_SIZES)
+
+
+def _sample_count_for_backend(backend_name: str, requested_samples: int) -> int:
+    """Keep the tile benchmark practical for slower backends."""
+    if backend_name == "cuda_states":
+        return min(requested_samples, 1024)
+    if backend_name == "torch":
+        return min(requested_samples, 1024)
+    if backend_name == "numpy":
+        return min(requested_samples, 512)
+    return requested_samples
+
+
+def _adjust_state_tile_for_qubits(n_qubits: int, state_tile: int) -> int:
+    """Keep very large state tiles conservative for higher qubit counts."""
+    if state_tile <= 0:
+        return state_tile
+    if n_qubits >= 18:
+        return min(state_tile, 512)
+    if n_qubits >= 16:
+        return min(state_tile, 1024)
+    if n_qubits >= 14:
+        return min(state_tile, 2048)
+    return state_tile
+
+
+def benchmark_config(
+    n_samples: int,
+    n_qubits: int,
+    backend_name: str,
+    config: Dict,
+    warmup: bool = DEFAULT_WARMUP,
+    repeats: int = DEFAULT_REPEATS,
+) -> Optional[Dict]:
+    """Benchmark a single backend/workload configuration."""
     rng = np.random.default_rng(42)
-    dtype_str = kwargs.get("dtype", "float64")
-    np_dtype = np.float32 if dtype_str == "float32" else np.float64
-    
+    np_dtype = np.float32 if config.get("dtype") == "float32" else np.float64
     angles = rng.uniform(-np.pi, np.pi, (n_samples, n_qubits)).astype(np_dtype)
     weights = rng.normal(0, 0.1, (2, n_qubits)).astype(np_dtype)
-    
-    reset_gpu()
-    
-    # Warmup
-    warmup_n = min(256, n_samples)
-    _ = compute_kernel_matrix(angles[:warmup_n], weights=weights, **kwargs)
-    
-    if HAS_TORCH:
-        torch.cuda.synchronize()
-    
-    reset_gpu()
-    
-    # Timed run
-    if HAS_TORCH:
-        torch.cuda.synchronize()
-    
-    t0 = time.perf_counter()
-    K = compute_kernel_matrix(angles, weights=weights, **kwargs)
-    
-    if HAS_TORCH:
-        torch.cuda.synchronize()
-    
-    elapsed = time.perf_counter() - t0
-    peak_vram = get_peak_vram()
-    
-    n_pairs = n_samples * (n_samples + 1) // 2
-    throughput = n_pairs / elapsed / 1e6
-    
-    del K
-    
-    return {
-        "time_s": elapsed,
-        "throughput_mpairs_s": throughput,
-        "peak_vram_gb": peak_vram,
-    }
 
-def test_cuda_states_tile_impact():
-    """Test state_tile impact for cuda_states backend (renamed from old name)."""
-    print("\n" + "="*80)
-    print("TEST 1: CUDA_STATES - state_tile Impact")
-    print("="*80)
-    
-    results = []
-    n_samples = 20000
-    
-    print(f"\n{'state_tile':<12} {'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-"*70)
-    
-    for state_tile in TILE_SIZES["cuda_states"]["state_tile"]:
-        for tile_size in TILE_SIZES["cuda_states"]["tile_size"]:
-            try:
-                res = benchmark_config(
-                    n_samples, N_QUBITS,
-                    device_name="lightning.gpu",
-                    gram_backend="cuda_states",
-                    dtype="float64",
-                    symmetric=True,
-                    state_tile=state_tile,
-                    tile_size=tile_size,
-                )
-                
-                results.append({
-                    "backend": "cuda_states",
-                    "n_samples": n_samples,
-                    "n_qubits": N_QUBITS,
-                    "state_tile": state_tile,
-                    "tile_size": tile_size,
-                    "n_workers": None,
-                    **res,
-                })
-                
-                print(f"{state_tile:<12} {tile_size:<12} {res['time_s']:<12.3f} "
-                      f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
-                
-            except Exception as e:
-                print(f"{state_tile:<12} {tile_size:<12} ERROR: {str(e)[:40]}")
-    
-    # Find optimal
-    if results:
-        best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\nSuccess: OPTIMAL: state_tile={best['state_tile']}, tile_size={best['tile_size']} "
-              f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
-    
-    return results
+    run_config = _backend_runtime_config(backend_name, config)
+    reset_gpu_memory()
+    vram_baseline_allocated_gb = 0.0
+    vram_baseline_reserved_gb = 0.0
+    if HAS_TORCH and torch is not None:
+        vram_baseline_allocated_gb = torch.cuda.memory_allocated() / (1024**3)
+        vram_baseline_reserved_gb = torch.cuda.memory_reserved() / (1024**3)
 
-def test_state_tile_optimization():
-    """Test different state_tile values including auto (-1)."""
-    print("\n" + "="*80)
-    print("TEST: State Tile Optimization (Auto vs Fixed)")
-    print("="*80)
-    
-    results = []
-    n_samples = 20000
-    state_tiles = [-1, 512, 1024, 2048, 4096]  # -1 = auto
-    
-    print(f"\n{'state_tile':<12} {'Mode':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-"*70)
-    
-    for state_tile in state_tiles:
-        try:
-            config = BACKEND_CONFIGS["cuda_states"].copy()
-            config["state_tile"] = state_tile
-            
-            res = benchmark_config(n_samples, N_QUBITS, **config)
-            
-            mode = "AUTO" if state_tile == -1 else "FIXED"
-            results.append({
-                "test": "state_tile_optimization",
-                "backend": "cuda_states",
-                "n_samples": n_samples,
-                "n_qubits": N_QUBITS,
-                "state_tile": state_tile,
-                "mode": mode,
-                **res,
-            })
-            
-            print(f"{state_tile:<12} {mode:<12} {res['time_s']:<12.3f} "
-                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
-            
-        except Exception as e:
-            print(f"{state_tile:<12} ERROR: {str(e)[:50]}")
-    
-    return results
+    try:
+        if warmup:
+            _ = compute_kernel_matrix(angles[: min(128, n_samples)], weights=weights, **run_config)
+            if HAS_TORCH and torch is not None:
+                torch.cuda.synchronize()
 
-def test_num_streams_impact():
-    """Test how stream count affects throughput."""
-    print("\n" + "="*80)
-    print("TEST: Number of CUDA Streams Impact")
-    print("="*80)
-    
-    results = []
-    n_samples = 20000
-    num_streams_values = [1, 2, 4, 8]
-    
-    print(f"\n{'num_streams':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-"*60)
-    
-    for num_streams in num_streams_values:
-        try:
-            config = BACKEND_CONFIGS["cuda_states"].copy()
-            config["num_streams"] = num_streams
-            
-            res = benchmark_config(n_samples, N_QUBITS, **config)
-            
-            results.append({
-                "test": "num_streams_impact",
-                "backend": "cuda_states",
-                "n_samples": n_samples,
-                "n_qubits": N_QUBITS,
-                "num_streams": num_streams,
-                **res,
-            })
-            
-            print(f"{num_streams:<12} {res['time_s']:<12.3f} "
-                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
-            
-        except Exception as e:
-            print(f"{num_streams:<12} ERROR: {str(e)[:50]}")
-    
-    if results:
-        best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\nSuccess: OPTIMAL: num_streams={best['num_streams']} → {best['throughput_mpairs_s']:.3f} Mpairs/s")
-    
-    return results
+        reset_gpu_memory()
 
-def test_vram_fraction_impact():
-    """Test memory pressure at different VRAM utilization targets."""
-    print("\n" + "="*80)
-    print("TEST: VRAM Fraction Impact")
-    print("="*80)
-    
-    results = []
-    n_samples = 20000
-    vram_fractions = [0.5, 0.7, 0.85, 0.95]
-    
-    print(f"\n{'vram_fraction':<15} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-"*60)
-    
-    for vram_fraction in vram_fractions:
-        try:
-            config = BACKEND_CONFIGS["cuda_states"].copy()
-            config["vram_fraction"] = vram_fraction
-            
-            res = benchmark_config(n_samples, N_QUBITS, **config)
-            
-            results.append({
-                "test": "vram_fraction_impact",
-                "backend": "cuda_states",
-                "n_samples": n_samples,
-                "n_qubits": N_QUBITS,
-                "vram_fraction": vram_fraction,
-                **res,
-            })
-            
-            print(f"{vram_fraction:<15.2f} {res['time_s']:<12.3f} "
-                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
-            
-        except Exception as e:
-            print(f"{vram_fraction:<15.2f} ERROR: {str(e)[:50]}")
-    
-    return results
+        times = []
+        for _ in range(repeats):
+            if HAS_TORCH and torch is not None:
+                torch.cuda.synchronize()
 
-def test_optimization_ablation():
-    """Compare performance with each optimization disabled."""
-    print("\n" + "="*80)
-    print("TEST: Optimization Ablation Study")
-    print("="*80)
-    
-    results = []
-    n_samples = 20000
-    
-    # Define test configurations
-    configs = {
-        "All Optimizations": {
-            "autotune": True,
-            "precompute_all_states": True,
-            "dynamic_batch": True,
-            "use_cuda_graphs": True,
-            "num_streams": 4,
-        },
-        "No Autotune": {
-            "autotune": False,
-            "precompute_all_states": True,
-            "dynamic_batch": True,
-            "use_cuda_graphs": True,
-            "num_streams": 4,
-        },
-        "No Precompute": {
-            "autotune": True,
-            "precompute_all_states": False,
-            "dynamic_batch": True,
-            "use_cuda_graphs": True,
-            "num_streams": 4,
-        },
-        "No Dynamic Batch": {
-            "autotune": True,
-            "precompute_all_states": True,
-            "dynamic_batch": False,
-            "use_cuda_graphs": True,
-            "num_streams": 4,
-        },
-        "No CUDA Graphs": {
-            "autotune": True,
-            "precompute_all_states": True,
-            "dynamic_batch": True,
-            "use_cuda_graphs": False,
-            "num_streams": 4,
-        },
-        "Single Stream": {
-            "autotune": True,
-            "precompute_all_states": True,
-            "dynamic_batch": True,
-            "use_cuda_graphs": True,
-            "num_streams": 1,
-        },
-        "No Optimizations": {
-            "autotune": False,
-            "precompute_all_states": False,
-            "dynamic_batch": False,
-            "use_cuda_graphs": False,
-            "num_streams": 1,
-        },
-    }
-    
-    print(f"\n{'Configuration':<22} {'Time (s)':<12} {'Mpairs/s':<12} {'Speedup':<10}")
-    print("-"*70)
-    
-    baseline_time = None
-    
-    for config_name, opts in configs.items():
-        try:
-            config = BACKEND_CONFIGS["cuda_states"].copy()
-            config.update(opts)
-            
-            res = benchmark_config(n_samples, N_QUBITS, **config)
-            
-            if baseline_time is None:
-                baseline_time = res['time_s']
-            
-            speedup = baseline_time / res['time_s'] if res['time_s'] > 0 else 0
-            
-            results.append({
-                "test": "optimization_ablation",
-                "configuration": config_name,
-                "backend": "cuda_states",
-                "n_samples": n_samples,
-                "n_qubits": N_QUBITS,
-                "speedup": speedup,
-                **opts,
-                **res,
-            })
-            
-            print(f"{config_name:<22} {res['time_s']:<12.3f} "
-                  f"{res['throughput_mpairs_s']:<12.3f} {speedup:<10.2f}x")
-            
-        except Exception as e:
-            print(f"{config_name:<22} ERROR: {str(e)[:50]}")
-    
-    return results
+            t0 = time.perf_counter()
+            K = compute_kernel_matrix(angles, weights=weights, **run_config)
 
-def test_sample_scaling_with_optimizations():
-    """Verify O(N²) scaling with all optimizations enabled."""
-    print("\n" + "="*80)
-    print("TEST: Sample Scaling with Full Optimizations")
-    print("="*80)
-    
-    results = []
-    sample_sizes = [2000, 4000, 8000, 16000, 20000]
-    
-    print(f"\n{'N':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'N²/Time':<12} {'VRAM (GB)':<12}")
-    print("-"*70)
-    
-    for n_samples in sample_sizes:
-        try:
-            config = BACKEND_CONFIGS["cuda_states"].copy()
-            # Ensure all optimizations are enabled
-            config.update({
-                "autotune": True,
-                "precompute_all_states": True,
-                "dynamic_batch": True,
-                "use_cuda_graphs": True,
-                "num_streams": 4,
-            })
-            
-            res = benchmark_config(n_samples, N_QUBITS, **config)
-            
-            n_squared_per_time = (n_samples ** 2) / res['time_s'] / 1e6
-            
-            results.append({
-                "test": "sample_scaling_optimized",
-                "backend": "cuda_states",
-                "n_samples": n_samples,
-                "n_qubits": N_QUBITS,
-                "n_squared_per_time": n_squared_per_time,
-                **res,
-            })
-            
-            print(f"{n_samples:<8} {res['time_s']:<12.3f} "
-                  f"{res['throughput_mpairs_s']:<12.3f} {n_squared_per_time:<12.3f} "
-                  f"{res['peak_vram_gb']:<12.2f}")
-            
-        except Exception as e:
-            print(f"{n_samples:<8} ERROR: {str(e)[:50]}")
-    
-    return results
+            if HAS_TORCH and torch is not None:
+                torch.cuda.synchronize()
 
-def test_numpy_tile_workers_impact():
-    """Test tile_size × n_workers for numpy backend."""
-    print("\n" + "="*80)
-    print("TEST 2: NUMPY - tile_size × n_workers Impact")
-    print("="*80)
-    
-    results = []
-    n_samples = 2000  # Smaller for CPU
-    
-    print(f"\n{'tile_size':<12} {'n_workers':<12} {'Time (s)':<12} {'Mpairs/s':<12}")
-    print("-"*60)
-    
-    for tile_size in TILE_SIZES["numpy"]["tile_size"]:
-        for n_workers in TILE_SIZES["numpy"]["n_workers"]:
-            try:
-                res = benchmark_config(
-                    n_samples, N_QUBITS,
-                    device_name="default.qubit",
-                    gram_backend="numpy",
-                    dtype="float64",
-                    symmetric=True,
-                    tile_size=tile_size,
-                    n_workers=n_workers,
-                )
-                
-                results.append({
-                    "backend": "numpy",
-                    "n_samples": n_samples,
-                    "n_qubits": N_QUBITS,
-                    "state_tile": None,
-                    "tile_size": tile_size,
-                    "n_workers": n_workers,
-                    **res,
-                })
-                
-                print(f"{tile_size:<12} {n_workers:<12} {res['time_s']:<12.3f} "
-                      f"{res['throughput_mpairs_s']:<12.3f}")
-                
-            except Exception as e:
-                print(f"{tile_size:<12} {n_workers:<12} ERROR: {str(e)[:40]}")
-    
-    if results:
-        best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\nSuccess: OPTIMAL: tile_size={best['tile_size']}, n_workers={best['n_workers']} "
-              f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
-    
-    return results
+            times.append(time.perf_counter() - t0)
+            del K
 
-def test_torch_tile_impact():
-    """Test tile_size impact for torch backend."""
-    print("\n" + "="*80)
-    print("TEST 3: TORCH - tile_size Impact")
-    print("="*80)
-    
-    results = []
-    n_samples = 4000
-    
-    print(f"\n{'tile_size':<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-"*60)
-    
-    for tile_size in TILE_SIZES["torch"]["tile_size"]:
-        try:
-            res = benchmark_config(
-                n_samples, N_QUBITS,
-                device_name="lightning.gpu",
-                gram_backend="torch",
-                dtype="float64",
-                symmetric=True,
-                tile_size=tile_size,
-                use_pinned_memory=True,
-                use_cuda_streams=True,
-                use_amp=False,
-                use_compile=False,
+        mean_time = float(np.mean(times))
+        std_time = float(np.std(times))
+        if HAS_TORCH and torch is not None:
+            torch.cuda.synchronize()
+        gc.collect()
+        peak_allocated_gb = 0.0
+        peak_reserved_gb = 0.0
+        peak_vram = 0.0
+        if HAS_TORCH and torch is not None:
+            peak_allocated_gb = max(
+                0.0,
+                (torch.cuda.max_memory_allocated() / (1024**3)) - vram_baseline_allocated_gb,
             )
-            
-            results.append({
-                "backend": "torch",
-                "n_samples": n_samples,
-                "n_qubits": N_QUBITS,
-                "state_tile": None,
-                "tile_size": tile_size,
-                "n_workers": None,
-                **res,
-            })
-            
-            print(f"{tile_size:<12} {res['time_s']:<12.3f} "
-                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
-            
-        except Exception as e:
-            print(f"{tile_size:<12} ERROR: {str(e)[:40]}")
-    
-    if results:
-        best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\nSuccess: OPTIMAL: tile_size={best['tile_size']} "
-              f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
-    
-    return results
-
-def test_torch_optimizations():
-    """Test torch backend optimization flags."""
-    print("\n" + "="*80)
-    print("TEST 4: TORCH - Optimization Flags Impact")
-    print("="*80)
-    
-    results = []
-    n_samples = 4000
-    tile_size = 512  # Use optimal from previous test
-    
-    configs = [
-        {"name": "baseline", "use_pinned_memory": False, "use_cuda_streams": False, "use_amp": False, "use_compile": False},
-        {"name": "pinned_memory", "use_pinned_memory": True, "use_cuda_streams": False, "use_amp": False, "use_compile": False},
-        {"name": "cuda_streams", "use_pinned_memory": False, "use_cuda_streams": True, "use_amp": False, "use_compile": False},
-        {"name": "pinned+streams", "use_pinned_memory": True, "use_cuda_streams": True, "use_amp": False, "use_compile": False},
-    ]
-    
-    print(f"\n{'Config':<20} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM (GB)':<12}")
-    print("-"*70)
-    
-    for config in configs:
-        try:
-            res = benchmark_config(
-                n_samples, N_QUBITS,
-                device_name="lightning.gpu",
-                gram_backend="torch",
-                dtype="float64",
-                symmetric=True,
-                tile_size=tile_size,
-                **{k: v for k, v in config.items() if k != "name"}
+            peak_reserved_gb = max(
+                0.0,
+                (torch.cuda.max_memory_reserved() / (1024**3)) - vram_baseline_reserved_gb,
             )
-            
-            results.append({
-                "backend": "torch",
-                "config_name": config["name"],
-                "n_samples": n_samples,
-                "n_qubits": N_QUBITS,
-                "tile_size": tile_size,
-                **res,
-            })
-            
-            print(f"{config['name']:<20} {res['time_s']:<12.3f} "
-                  f"{res['throughput_mpairs_s']:<12.3f} {res['peak_vram_gb']:<12.2f}")
-            
-        except Exception as e:
-            print(f"{config['name']:<20} ERROR: {str(e)[:40]}")
-    
-    if results:
-        best = max(results, key=lambda x: x['throughput_mpairs_s'])
-        print(f"\nSuccess: BEST CONFIG: {best['config_name']} "
-              f"→ {best['throughput_mpairs_s']:.3f} Mpairs/s")
-    
-    return results
+            peak_vram = max(peak_allocated_gb, peak_reserved_gb)
+        n_pairs = n_samples * (n_samples + 1) // 2
+        throughput = n_pairs / mean_time / 1e6
 
-
-def test_sample_scaling():
-    """Test how performance scales with sample count."""
-    print("\n" + "="*80)
-    print("TEST 5: Sample Count Scaling (O(N²) verification)")
-    print("="*80)
-    
-    results = []
-    
-    print(f"\n{'Backend':<15} {'N':<8} {'Time (s)':<12} {'Mpairs/s':<12} {'N²/Time':<12}")
-    print("-"*70)
-    
-    # Use configurations from global BACKEND_CONFIGS
-    test_backends = {
-        "cuda_states": {
-            **BACKEND_CONFIGS["cuda_states"],
-            "state_tile": 4096
-        },
-        #"torch": {
-        #    **BACKEND_CONFIGS["torch"],
-        #    "tile_size": 512
-        #},
-        "numpy": {
-            **BACKEND_CONFIGS["numpy"],
-            "tile_size": 192,
-            "n_workers": 24
+        return {
+            "n_samples": n_samples,
+            "n_qubits": n_qubits,
+            "backend": backend_name,
+            "time_s": mean_time,
+            "time_std_s": std_time,
+            "throughput_mpairs_s": throughput,
+            "peak_vram_gb": peak_vram,
+            "peak_vram_allocated_gb": peak_allocated_gb,
+            "peak_vram_reserved_gb": peak_reserved_gb,
         }
-    }
-    
-    for backend_name, config in test_backends.items():
-        if backend_name == "cuda_states":
-            sample_limits = SAMPLE_SIZES
-        elif backend_name == "torch":
-            sample_limits = [s for s in SAMPLE_SIZES if s <= 8000]
-        else:  # numpy
-            sample_limits = [s for s in SAMPLE_SIZES if s <= 4000]
-        
-        for n_samples in sample_limits:
-            try:
-                res = benchmark_config(n_samples, N_QUBITS, **config)
-                
-                n_squared_per_time = (n_samples ** 2) / res['time_s'] / 1e6
-                
-                results.append({
-                    "backend": backend_name,
-                    "n_samples": n_samples,
-                    "n_qubits": N_QUBITS,
-                    **res,
-                    "n_squared_per_time": n_squared_per_time,
-                })
-                
-                print(f"{backend_name:<15} {n_samples:<8} {res['time_s']:<12.3f} "
-                      f"{res['throughput_mpairs_s']:<12.3f} {n_squared_per_time:<12.3f}")
-                
-            except Exception as e:
-                print(f"{backend_name:<15} {n_samples:<8} ERROR: {str(e)[:40]}")
-    
-    return results
+    except Exception as e:
+        print(f"  Error: {e}")
+        return None
 
-def run_all_tile_tests():
-    """Run all tile and sample impact tests."""
+
+def run_tile_impact_test(
+    n_samples: int = DEFAULT_SAMPLE_COUNT,
+    n_qubits: int = DEFAULT_N_QUBITS,
+    tile_sizes: Optional[List[int]] = None,
+    warmup: bool = DEFAULT_WARMUP,
+    repeats: int = DEFAULT_REPEATS,
+) -> pd.DataFrame:
+    """Measure tile impact across all available backends."""
     OUTPUT_DIR.mkdir(exist_ok=True)
-    
-    print("="*80)
-    print("TILE SIZE & SAMPLE COUNT IMPACT ANALYSIS")
-    print("="*80)
-    print(f"Fixed configuration: {N_QUBITS} qubits")
-    print(f"Output: {OUTPUT_DIR}")
-    print("="*80)
-    
-    all_results = []
-    
-    # Run original tests
-    all_results.extend(test_cuda_states_tile_impact())
-    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
-    all_results.extend(test_numpy_tile_workers_impact())
-    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
-    
-    # all_results.extend(test_torch_tile_impact())
-    # all_results.extend(test_torch_optimizations())
-    # all_results.extend(test_sample_scaling())
-    
-    # Run new optimization tests
-    all_results.extend(test_state_tile_optimization())
-    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
-    all_results.extend(test_num_streams_impact())
-    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
-    all_results.extend(test_vram_fraction_impact())
-    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
-    all_results.extend(test_optimization_ablation())
-    pd.DataFrame(all_results).to_csv(OUTPUT_CSV, index=False)
-    all_results.extend(test_sample_scaling_with_optimizations())
-    
-    # Save results
-    df = pd.DataFrame(all_results)
-    df.to_csv(OUTPUT_CSV, index=False)
-    print(f"\nAll results saved to: {OUTPUT_CSV}")
-    
+
+    print("=" * 80)
+    print("TEST 1: Tile impact by backend")
+    print("=" * 80)
+    print("Configuration:")
+    print(f"   - Qubits: {n_qubits}")
+    print(f"   - Samples: {n_samples}")
+    print(f"   - Backends: {list(BACKEND_CONFIGS.keys())}")
+    print(f"   - Tile sizes: {tile_sizes if tile_sizes is not None else 'backend defaults'}")
+    print("=" * 80 + "\n")
+
+    results: List[Dict] = []
+
+    for backend_name, base_config in BACKEND_CONFIGS.items():
+        param_name, sweep_values = _tile_sweep_for_backend(backend_name, tile_sizes)
+        backend_samples = _sample_count_for_backend(backend_name, n_samples)
+
+        print(f"\nBackend: {backend_name.upper()}")
+        print("-" * 70)
+        if backend_samples != n_samples:
+            print(f"Using {backend_samples} samples for this backend to keep the sweep practical.")
+        print(f"{param_name:<12} {'Time (s)':<12} {'Mpairs/s':<12} {'VRAM alloc (GB)':<16} {'VRAM resv (GB)':<14}")
+        print("-" * 70)
+
+        for tile_value in sweep_values:
+            try:
+                run_config = base_config.copy()
+
+                if backend_name == "cuda_states":
+                    run_config["state_tile"] = _adjust_state_tile_for_qubits(n_qubits, tile_value)
+                    if tile_value == -1:
+                        run_config["state_tile"] = -1
+                else:
+                    run_config["tile_size"] = tile_value
+
+                result = benchmark_config(
+                    n_samples=backend_samples,
+                    n_qubits=n_qubits,
+                    backend_name=backend_name,
+                    config=run_config,
+                    warmup=warmup,
+                    repeats=repeats,
+                )
+
+                if result:
+                    result["tile_param"] = param_name
+                    result["tile_value"] = tile_value
+                    result["tile_size"] = run_config.get("tile_size")
+                    result["state_tile"] = run_config.get("state_tile")
+                    results.append(result)
+                    print(
+                        f"{tile_value:<12} {result['time_s']:<12.3f} "
+                        f"{result['throughput_mpairs_s']:<12.3f} "
+                        f"{result['peak_vram_allocated_gb']:<16.2f} {result['peak_vram_reserved_gb']:<14.2f}"
+                    )
+                else:
+                    print(f"{tile_value:<12} FAILED")
+            except Exception as e:
+                print(f"{tile_value:<12} ERROR: {str(e)[:60]}")
+
+    df = pd.DataFrame(results)
+    if not df.empty:
+        df["test"] = "tile_impact"
     return df
 
+
+def write_results(df: pd.DataFrame, output_csv: Path = OUTPUT_CSV) -> None:
+    """Persist results to CSV."""
+    output_csv.parent.mkdir(exist_ok=True)
+    df.to_csv(output_csv, index=False)
+    print(f"\nResults saved to: {output_csv}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Tile impact benchmark")
+    parser.add_argument("--n-qubits", type=int, default=DEFAULT_N_QUBITS)
+    parser.add_argument("--n-samples", type=int, default=DEFAULT_SAMPLE_COUNT)
+    parser.add_argument("--tile-sizes", type=int, nargs="+", default=None)
+    parser.add_argument("--warmup", action="store_true", default=DEFAULT_WARMUP)
+    parser.add_argument("--repeats", type=int, default=DEFAULT_REPEATS)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    tile_df = run_tile_impact_test(
+        n_samples=args.n_samples,
+        n_qubits=args.n_qubits,
+        tile_sizes=args.tile_sizes,
+        warmup=args.warmup,
+        repeats=args.repeats,
+    )
+
+    if not tile_df.empty:
+        write_results(tile_df)
+    else:
+        print("No successful benchmark results were produced.")
+
+
 if __name__ == "__main__":
-    try:
-        df = run_all_tile_tests()
-        print("All tests completed successfully")
-    except KeyboardInterrupt:
-        print("\nWarning: tests interrupted by user.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\nFatal error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    main()

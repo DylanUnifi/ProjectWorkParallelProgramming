@@ -47,18 +47,20 @@ except ImportError:
 # Qubit range to test
 QUBITS_RANGE = [4, 8, 12, 16, 20]
 
-# Default sample size (large enough to amortize overhead)
-DEFAULT_SAMPLES = 1000
+# Default sample size (kept modest so the sequential sweep completes reliably)
+DEFAULT_SAMPLES = 256
 
-# Qubit-specific sample configurations (for 102GB VRAM)
-# These are calculated using get_safe_sample_size() with 85% VRAM utilization
+# Qubit-specific sample configurations tuned for the sequential sweep
 QUBIT_SAMPLE_CONFIGS = {
-    4: 4096,    # Small enough to finish quickly on all backends
-    8: 4096,    # Keep the qubit sweep practical
-    12: 2048,   # Match the benchmark-sized workloads
-    16: 1024,   # Reduced for VRAM (state memory starts to dominate)
-    20: 512,    # Significantly reduced (state memory dominates)
+    4: 512,
+    8: 512,
+    12: 256,
+    16: 128,
+    20: 64,
 }
+
+BENCHMARK_REPEATS = 1
+BENCHMARK_WARMUP = False
 
 # Backend configurations with VALID parameters only
 BACKEND_CONFIGS = {
@@ -234,7 +236,7 @@ def benchmark_single_config(
     backend_name: str,
     config: Dict,
     warmup: bool = True,
-    repeats: int = 3,
+    repeats: int = 1,
 ) -> Optional[Dict]:
     """Run benchmark for a single configuration."""
     
@@ -359,6 +361,8 @@ def run_qubit_impact_test() -> pd.DataFrame:
                 n_samples=DEFAULT_SAMPLES,
                 backend_name=backend_name,
                 config=config,
+                warmup=BENCHMARK_WARMUP,
+                repeats=BENCHMARK_REPEATS,
             )
             
             if result:

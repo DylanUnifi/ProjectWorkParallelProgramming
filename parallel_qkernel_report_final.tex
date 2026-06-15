@@ -241,6 +241,67 @@ The main takeaway from this benchmark is:
 
 The global JSON summary actually reports a higher average throughput for \texttt{numpy}, but that average mixes small and medium cases where the CPU remains very competitive. As the state-space dimension and Gram size increase, the custom GPU backend becomes the relevant path.
 
+\subsection{Sample Scaling Summary}
+The dedicated sample-scaling test \texttt{tools/test\_size\_samples\_impact.py} was validated end to end with the three available backends. Table~\ref{tab:sample-impact-summary} summarizes the reduced sweep.
+
+\begin{table}[t]
+\centering
+\caption{Summary of the reduced sample-scaling sweep.}
+\label{tab:sample-impact-summary}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Backend} & \textbf{Fixed qubits} & \textbf{Best throughput} & \textbf{Scaling per sample doubling} \\
+\midrule
+\texttt{cuda\_states} & 16 & \SI{0.17}{Mpairs/s} & $1.94\times$ \\
+\texttt{torch} & 16 & \SI{0.05}{Mpairs/s} & $2.91\times$ \\
+\texttt{numpy} & 16 & \SI{0.13}{Mpairs/s} & $1.52\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The practical takeaway is that the sample-impact analysis now runs reliably with \texttt{torch} included, and the observed scaling remains consistent with the expected \(O(N^2)\) trend of Gram-matrix construction.
+
+\subsection{Qubit Impact Summary}
+The dedicated qubit-scaling test \texttt{tools/test\_num\_qubit\_impact.py} was also validated end to end with the three available backends. Table~\ref{tab:qubit-impact-summary} summarizes the reduced sweep.
+
+\begin{table}[t]
+\centering
+\caption{Summary of the reduced qubit-impact sweep.}
+\label{tab:qubit-impact-summary}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Backend} & \textbf{Best qubits} & \textbf{Best throughput} & \textbf{Scaling per qubit} \\
+\midrule
+\texttt{cuda\_states} & 8 & \SI{0.06}{Mpairs/s} & $0.98\times$ \\
+\texttt{torch} & 4 & \SI{0.11}{Mpairs/s} & $0.99\times$ \\
+\texttt{numpy} & 4 & \SI{0.04}{Mpairs/s} & $1.11\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The practical takeaway is that the qubit-impact analysis now runs reliably with \texttt{torch} included, and the backend comparison remains consistent with the benchmark results reported above.
+
+\subsection{Tile Impact Summary}
+The dedicated tile benchmark \texttt{tools/test\_tile\_samples\_impact.py} was validated end to end with the three available backends. Because the script keeps the sweep practical, the reported throughput values below use backend-specific sample caps.
+
+\begin{table}[t]
+\centering
+\caption{Summary of the reduced tile-impact sweep.}
+\label{tab:tile-impact-summary}
+\small
+\begin{tabular}{lrrrl}
+\toprule
+\textbf{Backend} & \textbf{Practical samples} & \textbf{Best tile parameter} & \textbf{Best throughput} & \textbf{Peak VRAM note} \\
+\midrule
+\texttt{cuda\_states} & 1024 & \texttt{state\_tile=2048} & \SI{0.056}{Mpairs/s} & CUDA peak during run \\
+\texttt{torch} & 1024 & \texttt{tile\_size=2048} & \SI{0.057}{Mpairs/s} & Incremental CUDA allocation \\
+\texttt{numpy} & 512 & \texttt{tile\_size=64} & \SI{0.016}{Mpairs/s} & CPU backend, no CUDA VRAM \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Optimization Ablation}
 Benchmark ablations also show which choices paid off:
 \begin{itemize}

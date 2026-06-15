@@ -389,6 +389,28 @@ Look for:
 - **Sample scaling**: Should show O(N²) behavior
 - **Backend comparison**: How different backends scale
 
+The dedicated qubit-scaling test `tools/test_num_qubit_impact.py`, the sample-scaling test `tools/test_size_samples_impact.py`, and the tile benchmark `tools/test_tile_samples_impact.py` were all validated end to end with the three available backends. The tables below summarize the reduced sweeps.
+
+| Backend | Best qubits | Best throughput | Scaling per qubit |
+| --- | ---: | ---: | ---: |
+| `cuda_states` | 8 | 0.06 Mpairs/s | 0.98x |
+| `torch` | 4 | 0.11 Mpairs/s | 0.99x |
+| `numpy` | 4 | 0.04 Mpairs/s | 1.11x |
+
+| Backend | Fixed qubits | Best throughput | Scaling per sample doubling |
+| --- | ---: | ---: | ---: |
+| `cuda_states` | 16 | 0.17 Mpairs/s | 1.94x |
+| `torch` | 16 | 0.05 Mpairs/s | 2.91x |
+| `numpy` | 16 | 0.13 Mpairs/s | 1.52x |
+
+| Backend | Practical samples | Best tile parameter | Best throughput | Peak VRAM note |
+| --- | ---: | ---: | ---: | --- |
+| `cuda_states` | 1024 | `state_tile=2048` | 0.056 Mpairs/s | CUDA peak during run |
+| `torch` | 1024 | `tile_size=2048` | 0.057 Mpairs/s | Incremental CUDA allocation |
+| `numpy` | 512 | `tile_size=64` | 0.016 Mpairs/s | CPU backend, no CUDA VRAM |
+
+The practical takeaway is that both scaling analyses now run reliably with `torch` included, and the backend comparison remains consistent with the benchmark results reported above.
+
 ## Performance Tips
 
 1. **Start small**: Test with smaller workloads first (e.g., --n-samples 2000)

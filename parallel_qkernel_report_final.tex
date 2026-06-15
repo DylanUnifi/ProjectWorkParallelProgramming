@@ -210,108 +210,105 @@ In practice, cross-backend comparison served as a \emph{regression harness}: it 
 
 \section{Performance Results}
 \subsection{Benchmark}
-The repository's benchmark measures more than a single runtime: it tracks qubit scaling, sample scaling, the impact of state precomputation, block size, allowed VRAM fraction and number of streams. The main artifacts are \texttt{benchmark\_results/benchmark.csv} and \texttt{benchmark\_results/benchmark\_summary.json}.
+The repository benchmark reports more than a single runtime. It captures qubit scaling, sample scaling, optimization ablations, tile-state tuning, VRAM-fraction sensitivity, stream-count impact, and kernel fidelity against the \texttt{numpy} reference. The latest validated campaign used dataset profiles for Fashion-MNIST, CIFAR-10, and SVHN with two warmup runs and two timed runs per point. Outputs are stored under \texttt{benchmark\_results/fashion/}, \texttt{benchmark\_results/cifar10/}, and \texttt{benchmark\_results/svhn/}, with execution logs under \texttt{benchmark\_results/logs/}.
 
 \begin{table}[t]
 \centering
-\caption{Representative benchmark at $16$ qubits.}
+\caption{Multi-dataset benchmark summary (latest profile sweep).}
 \label{tab:benchmark}
 \small
-\begin{tabular}{lrrr}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Configuration} & \textbf{Samples} & \textbf{Time (s)} & \textbf{Mpairs/s} \\
+\textbf{Dataset} & \textbf{Fastest backend comparison} & \textbf{Best global throughput} & \textbf{Best torch optimization} \\
 \midrule
-\texttt{cuda\_states} & 10\,000 & 97.97 & 0.510 \\
-\texttt{cuda\_states} & 20\,000 & 223.89 & 0.893 \\
-\texttt{cuda\_states} & 30\,000 & 373.32 & 1.205 \\
-\texttt{numpy} & 10\,000 & 245.69 & 0.204 \\
-\texttt{numpy} & 20\,000 & 863.53 & 0.232 \\
-\texttt{numpy} & 30\,000 & 1\,803.14 & 0.250 \\
+fashion & \texttt{cuda\_states} (0.088) & \texttt{numpy} (0.101) & \texttt{torch\_pinned+streams} (0.060) \\
+cifar10 & \texttt{cuda\_states} (0.047) & \texttt{numpy} (0.097) & \texttt{torch\_pinned+streams} (0.038) \\
+svhn & \texttt{cuda\_states} (0.049) & \texttt{numpy} (0.097) & \texttt{torch\_pinned+streams} (0.038) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The main takeaway from this benchmark is:
+Four observations stand out from this benchmark set:
 \begin{itemize}
-    \item for heavy cases at 16 qubits, \texttt{cuda\_states} becomes significantly faster than the CPU backend;
-    \item at 10,000 samples, the speedup is already about $2.5\times$;
-    \item at 30,000 samples, the speedup exceeds $4.8\times$;
-    \item the observed VRAM peak reaches approximately \SI{29.3}{GB} for \texttt{cuda\_states} at 30,000 samples.
+    \item \texttt{cuda\_states} remains the fastest backend in direct backend-comparison panels on all three datasets.
+    \item The best single throughput value in each profile often comes from \texttt{numpy} on easier points (small/medium kernels), showing that CPU remains competitive at this scale.
+    \item The best \texttt{torch} configuration is consistent across datasets: \texttt{torch\_pinned+streams}.
+    \item At sample scaling $N=1024$, \texttt{torch} can exceed \texttt{numpy} on CIFAR-10 and SVHN, while \texttt{numpy} stays ahead on Fashion-MNIST.
 \end{itemize}
 
-The global JSON summary actually reports a higher average throughput for \texttt{numpy}, but that average mixes small and medium cases where the CPU remains very competitive. As the state-space dimension and Gram size increase, the custom GPU backend becomes the relevant path.
+Taken together, these results indicate a mixed regime: backend-comparison tests favor the custom GPU path, while the absolute best-throughput rows can still be obtained on CPU for moderate configurations.
 
 \subsection{Sample Scaling Summary}
-The dedicated sample-scaling test \texttt{tools/test\_size\_samples\_impact.py} was validated end to end with the three available backends. Table~\ref{tab:sample-impact-summary} summarizes the reduced sweep.
+Sample scaling now includes \texttt{numpy} up to \(N=1024\), matching \texttt{torch} and \texttt{cuda\_states}. Table~\ref{tab:sample-impact-summary} reports the measured throughput at \(N=1024\).
 
 \begin{table}[t]
 \centering
-\caption{Summary of the reduced sample-scaling sweep.}
+\caption{Sample-scaling throughput at \(N=1024\) (Mpairs/s).}
 \label{tab:sample-impact-summary}
 \small
-\begin{tabular}{lrrr}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Backend} & \textbf{Fixed qubits} & \textbf{Best throughput} & \textbf{Scaling per sample doubling} \\
+\textbf{Dataset} & \textbf{cuda\_states} & \textbf{torch} & \textbf{numpy} \\
 \midrule
-\texttt{cuda\_states} & 16 & \SI{0.17}{Mpairs/s} & $1.94\times$ \\
-\texttt{torch} & 16 & \SI{0.05}{Mpairs/s} & $2.91\times$ \\
-\texttt{numpy} & 16 & \SI{0.13}{Mpairs/s} & $1.52\times$ \\
+fashion & 0.055 & 0.057 & 0.086 \\
+cifar10 & 0.024 & 0.038 & 0.032 \\
+svhn & 0.024 & 0.037 & 0.033 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The practical takeaway is that the sample-impact analysis now runs reliably with \texttt{torch} included, and the observed scaling remains consistent with the expected \(O(N^2)\) trend of Gram-matrix construction.
+The practical consequence is that the panel-6 speedup analysis can now rely on sample-scaling data consistently across all backends and all dataset profiles.
 
 \subsection{Qubit Impact Summary}
-The dedicated qubit-scaling test \texttt{tools/test\_num\_qubit\_impact.py} was also validated end to end with the three available backends. Table~\ref{tab:qubit-impact-summary} summarizes the reduced sweep.
+The qubit-impact sweep confirms that \texttt{numpy} remains strong at lower qubit counts, while \texttt{cuda\_states} keeps competitive throughput at larger settings. Table~\ref{tab:qubit-impact-summary} reports the best observed values per profile.
 
 \begin{table}[t]
 \centering
-\caption{Summary of the reduced qubit-impact sweep.}
+\caption{Best observed qubit-scaling throughput per dataset (Mpairs/s).}
 \label{tab:qubit-impact-summary}
 \small
-\begin{tabular}{lrrr}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Backend} & \textbf{Best qubits} & \textbf{Best throughput} & \textbf{Scaling per qubit} \\
+\textbf{Dataset} & \textbf{cuda\_states} & \textbf{torch} & \textbf{numpy} \\
 \midrule
-\texttt{cuda\_states} & 8 & \SI{0.06}{Mpairs/s} & $0.98\times$ \\
-\texttt{torch} & 4 & \SI{0.11}{Mpairs/s} & $0.99\times$ \\
-\texttt{numpy} & 4 & \SI{0.04}{Mpairs/s} & $1.11\times$ \\
+fashion & 0.074 (6 qubits) & 0.053 (12 qubits) & 0.101 (6 qubits) \\
+cifar10 & 0.056 (8 qubits) & 0.054 (12 qubits) & 0.097 (8 qubits) \\
+svhn & 0.069 (8 qubits) & 0.034 (12 qubits) & 0.097 (8 qubits) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The practical takeaway is that the qubit-impact analysis now runs reliably with \texttt{torch} included, and the backend comparison remains consistent with the benchmark results reported above.
+This confirms that both qubit scaling and backend ranking depend on the dataset profile, which justifies reporting profile-specific benchmark tables.
 
 \subsection{Tile Impact Summary}
-The dedicated tile benchmark \texttt{tools/test\_tile\_samples\_impact.py} was validated end to end with the three available backends. Because the script keeps the sweep practical, the reported throughput values below use backend-specific sample caps.
+Tile and runtime-option sweeps produced stable best settings for each profile.
 
 \begin{table}[t]
 \centering
-\caption{Summary of the reduced tile-impact sweep.}
+\caption{Best optimization settings from profile benchmarks.}
 \label{tab:tile-impact-summary}
 \small
-\begin{tabular}{lrrrl}
+\begin{tabular}{lcccc}
 \toprule
-\textbf{Backend} & \textbf{Practical samples} & \textbf{Best tile parameter} & \textbf{Best throughput} & \textbf{Peak VRAM note} \\
+\textbf{Dataset} & \textbf{Best state\_tile} & \textbf{Best vram\_fraction} & \textbf{Best stream count} & \textbf{Best torch config} \\
 \midrule
-\texttt{cuda\_states} & 1024 & \texttt{state\_tile=2048} & \SI{0.056}{Mpairs/s} & CUDA peak during run \\
-\texttt{torch} & 1024 & \texttt{tile\_size=2048} & \SI{0.057}{Mpairs/s} & Incremental CUDA allocation \\
-\texttt{numpy} & 512 & \texttt{tile\_size=64} & \SI{0.016}{Mpairs/s} & CPU backend, no CUDA VRAM \\
+fashion & \texttt{2048} & 0.95 & 1 & \texttt{torch\_pinned+streams} \\
+cifar10 & \texttt{32768} & 0.95 & 1 & \texttt{torch\_pinned+streams} \\
+svhn & \texttt{16384} & 0.95 & 1 & \texttt{torch\_pinned+streams} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Optimization Ablation}
-Benchmark ablations also show which choices paid off:
+Benchmark ablations also clarify which choices mattered most:
 \begin{itemize}
-    \item \textbf{Bulk precompute of states}: this yields the largest gain. At 16 qubits and 10,000 samples, going from \emph{No Precompute} (\SI{167.46}{s}) to the optimized configuration (\SI{90.07}{s}) yields roughly a $1.85\times$ speedup.
-    \item \textbf{Auto state tile}: the \texttt{state\_tile=-1} mode outperforms several fixed tile sizes tested.
-    \item \textbf{Autotuning and CUDA graphs}: these provide gains but are modest compared to correct bulk precompute.
-    \item \textbf{Number of streams}: the effect is relatively small between 1, 2 and 4 streams in the synthetic 10,000-sample benchmark.
+    \item \textbf{Precompute is still the dominant lever}: \emph{No Precompute} remains the most expensive configuration in every profile.
+    \item \textbf{VRAM fraction is robust}: \texttt{vram\_fraction=0.95} is consistently the best point across Fashion-MNIST, CIFAR-10, and SVHN.
+    \item \textbf{Stream count remains simple}: \texttt{num\_streams=1} was best in all three profile sweeps.
+    \item \textbf{Torch optimization is consistent}: \texttt{torch\_pinned+streams} is the best-performing torch configuration in all profiles.
 \end{itemize}
 
-This result is interesting from an HPC perspective: in this particular project, the dominant gains come first from memory organization and the level of precomputation, before the more sophisticated refinements.
+From an HPC perspective, the current generation of experiments shows that memory organization and data movement still dominate over aggressive stream tuning at these workload sizes.
 
 \section{Classification Results}
 \begin{table*}[t]

@@ -295,35 +295,20 @@ python benchmark.py \
 
 ### Example 7: Dataset Profiles (Fashion, CIFAR10, SVHN)
 
-Use dataset-specific benchmark presets for fair backend comparison across your three datasets.
+Use dataset profiles to reproduce the validated benchmark campaign across Fashion-MNIST, CIFAR-10, and SVHN.
 
 ```bash
-# Fashion-MNIST profile
+# Run all three profiles sequentially (fashion, cifar10, svhn)
+bash run_benchmark_profiles.sh
+
+# Optional: run one profile manually
 docker compose run --rm trainer-gpu130 python3 benchmark.py \
     --all \
-    --parallel-gpus 5 \
+    --parallel-gpus 3 \
     --dataset-profile fashion \
     --warmup-runs 2 \
     --benchmark-runs 2 \
     --output-dir benchmark_results/fashion
-
-# CIFAR10 profile
-docker compose run --rm trainer-gpu130 python3 benchmark.py \
-    --all \
-    --parallel-gpus 5 \
-    --dataset-profile cifar10 \
-    --warmup-runs 2 \
-    --benchmark-runs 2 \
-    --output-dir benchmark_results/cifar10
-
-# SVHN profile
-docker compose run --rm trainer-gpu130 python3 benchmark.py \
-    --all \
-    --parallel-gpus 5 \
-    --dataset-profile svhn \
-    --warmup-runs 2 \
-    --benchmark-runs 2 \
-    --output-dir benchmark_results/svhn
 ```
 
 Notes:
@@ -331,6 +316,7 @@ Notes:
 - `--dataset-profile` configures `QUBITS_RANGE`, `SAMPLE_SIZES`, and default benchmark scales.
 - `--warmup-runs` controls GPU warmup passes before timing.
 - `--benchmark-runs` controls timed repetitions and averages per test point.
+- `run_benchmark_profiles.sh` writes logs to `benchmark_results/logs/` and per-profile outputs to `benchmark_results/<profile>/`.
 
 ## Output Files
 
@@ -345,8 +331,8 @@ The benchmark generates comprehensive output in the selected output directory. B
   - Time vs Qubits (Log Scale)
   - GPU Memory Usage
   - Sample Scaling (O(N²) verification)
-  - Tile Size Optimization
-  - GPU Speedup vs CPU
+  - Optimization Ablation (CUDA_STATES and TORCH)
+  - Backend Speedup vs Numpy (sample-scaling first, qubit fallback)
 
 ## Interpreting Results
 
@@ -389,27 +375,26 @@ Look for:
 - **Sample scaling**: Should show O(N²) behavior
 - **Backend comparison**: How different backends scale
 
-The dedicated qubit-scaling test `tools/test_num_qubit_impact.py`, the sample-scaling test `tools/test_size_samples_impact.py`, and the tile benchmark `tools/test_tile_samples_impact.py` were all validated end to end with the three available backends. The tables below summarize the reduced sweeps.
+The latest validated benchmark campaign used dataset profiles with `warmup-runs=2` and `benchmark-runs=2`.
 
-| Backend | Best qubits | Best throughput | Scaling per qubit |
-| --- | ---: | ---: | ---: |
-| `cuda_states` | 8 | 0.06 Mpairs/s | 0.98x |
-| `torch` | 4 | 0.11 Mpairs/s | 0.99x |
-| `numpy` | 4 | 0.04 Mpairs/s | 1.11x |
+| Dataset | Fastest backend (backend comparison) | Best global throughput | Best torch optimization | Sample scaling N=1024 (cuda_states / torch / numpy) |
+| --- | ---: | ---: | ---: | ---: |
+| fashion | cuda_states (0.088 Mpairs/s) | numpy (0.101 Mpairs/s) | torch_pinned+streams (0.060 Mpairs/s) | 0.055 / 0.057 / 0.086 |
+| cifar10 | cuda_states (0.047 Mpairs/s) | numpy (0.097 Mpairs/s) | torch_pinned+streams (0.038 Mpairs/s) | 0.024 / 0.038 / 0.032 |
+| svhn | cuda_states (0.049 Mpairs/s) | numpy (0.097 Mpairs/s) | torch_pinned+streams (0.038 Mpairs/s) | 0.024 / 0.037 / 0.033 |
 
-| Backend | Fixed qubits | Best throughput | Scaling per sample doubling |
-| --- | ---: | ---: | ---: |
-| `cuda_states` | 16 | 0.17 Mpairs/s | 1.94x |
-| `torch` | 16 | 0.05 Mpairs/s | 2.91x |
-| `numpy` | 16 | 0.13 Mpairs/s | 1.52x |
+Optimization summary from the same campaign:
 
-| Backend | Practical samples | Best tile parameter | Best throughput | Peak VRAM note |
+| Dataset | Best cuda_states tile | Best vram_fraction | Best stream count | Best torch config |
 | --- | ---: | ---: | ---: | --- |
-| `cuda_states` | 1024 | `state_tile=2048` | 0.056 Mpairs/s | CUDA peak during run |
-| `torch` | 1024 | `tile_size=2048` | 0.057 Mpairs/s | Incremental CUDA allocation |
-| `numpy` | 512 | `tile_size=64` | 0.016 Mpairs/s | CPU backend, no CUDA VRAM |
+| fashion | state_tile=2048 | 0.95 | 1 | torch_pinned+streams |
+| cifar10 | state_tile=32768 | 0.95 | 1 | torch_pinned+streams |
+| svhn | state_tile=16384 | 0.95 | 1 | torch_pinned+streams |
 
-The practical takeaway is that both scaling analyses now run reliably with `torch` included, and the backend comparison remains consistent with the benchmark results reported above.
+Two practical conclusions follow from these runs:
+
+- panel 6 now uses sample-scaling results for the speedup curve whenever they are available;
+- `numpy` is benchmarked up to `N=1024`, matching the GPU backends for the sample-scaling study.
 
 ## Performance Tips
 

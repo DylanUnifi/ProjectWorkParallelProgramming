@@ -108,7 +108,7 @@ DATASET_PROFILES = {
         "comparison_validation_samples": 1024,
     },
     "cifar10": {
-        "qubits_range": [8, 12],
+        "qubits_range": [8, 12, 16],
         "sample_sizes": [256, 512, 1024],
         "n_samples_default": 1024,
         "n_qubits_default": 16,
@@ -117,7 +117,7 @@ DATASET_PROFILES = {
         "comparison_validation_samples": 1024,
     },
     "svhn": {
-        "qubits_range": [8, 12],
+        "qubits_range": [8, 12, 16],
         "sample_sizes": [256, 512, 1024],
         "n_samples_default": 1024,
         "n_qubits_default": 16,
@@ -348,7 +348,7 @@ def _sample_count_for_backend(backend_name: str, requested: int) -> int:
     caps = {
         "cuda_states": 1024,
         "torch": 1024,
-        "numpy": 512,
+        "numpy": 1024,
     }
     cap = caps.get(backend_name)
     if cap is None:
@@ -1254,8 +1254,8 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
     """Generate comprehensive performance plots."""
     
     sns.set_theme(style="whitegrid", context="paper", font_scale=1.2)
-    fig = plt.figure(figsize=(22, 12))
-    gs = fig.add_gridspec(2, 3, hspace=0.35, wspace=0.32)
+    fig = plt.figure(figsize=(22, 12), constrained_layout=True)
+    gs = fig.add_gridspec(2, 3)
 
     def _wrap_label(label: str, width: int = 24) -> str:
         return textwrap.fill(str(label), width=width)
@@ -1443,47 +1443,98 @@ def generate_plots(df_qubit: pd.DataFrame, df_sample: pd.DataFrame, df_tile: pd.
     
     # --- PLOT 6: Backend Speedup vs Numpy ---
     ax6 = fig.add_subplot(gs[1, 2])
-    if not df_qubit.empty:
-        # Calculate speedup for cuda_states and torch vs numpy at each qubit count
-        speedup_data = []
-        for n_qubits in sorted(df_qubit['n_qubits'].unique()):
-            subset = df_qubit[df_qubit['n_qubits'] == n_qubits]
-            numpy_subset = subset[subset['backend'] == 'numpy']
-            
-            if not numpy_subset.empty:
-                numpy_time = numpy_subset['time_s'].values[0]
-                
-                for gpu_backend in ['cuda_states', 'torch']:
-                    gpu_subset = subset[subset['backend'] == gpu_backend]
-                    if not gpu_subset.empty:
-                        gpu_time = gpu_subset['time_s'].values[0]
-                        if gpu_time > 0 and numpy_time > 0 and np.isfinite(numpy_time) and np.isfinite(gpu_time):
-                            speedup = numpy_time / gpu_time
-                            speedup_data.append({'n_qubits': n_qubits, 'backend': gpu_backend, 'speedup': speedup})
-        
-        if speedup_data:
-            speedup_df = pd.DataFrame(speedup_data)
-            backends_list = sorted(speedup_df['backend'].unique())
-            qubits_list = sorted(speedup_df['n_qubits'].unique())
-            x = np.arange(len(qubits_list))
-            width = 0.35
-            
-            for i, backend in enumerate(backends_list):
-                backend_data = speedup_df[speedup_df['backend'] == backend].sort_values('n_qubits')
-                color = BACKEND_COLORS.get(backend, '#666666')
-                ax6.bar(x + i * width, backend_data['speedup'].values, width=width, label=backend, color=color, alpha=0.85, edgecolor='black')
-            
-            ax6.set_title("Backend Speedup vs Numpy (CPU)", fontsize=14, fontweight='bold')
-            ax6.set_ylabel("Speedup (× faster)", fontsize=12)
-            ax6.set_xlabel("Number of Qubits", fontsize=12)
-            ax6.set_xticks(x + width * 0.5)
-            ax6.set_xticklabels([str(q) for q in qubits_list])
-            ax6.tick_params(axis='x', labelsize=9)
-            ax6.axhline(y=1, color='red', linestyle='--', alpha=0.5, linewidth=1.5, label='Baseline (1×)')
-            ax6.legend(fontsize=9)
-            ax6.grid(axis='y', alpha=0.3)
+    speedup_data = []
+    speed_x_col = None
+    speed_x_label = ""
 
-    fig.tight_layout()
+    # Prefer sample-scaling output so speedup reflects dataset-size variation.
+    if not df_sample.empty and {'backend', 'n_samples', 'time_s'}.issubset(df_sample.columns):
+        speed_x_col = 'n_samples'
+        speed_x_label = "Number of Samples"
+        for n_samples in sorted(df_sample['n_samples'].dropna().unique()):
+            subset = df_sample[df_sample['n_samples'] == n_samples]
+            numpy_times = subset[subset['backend'] == 'numpy']['time_s'].dropna()
+            if numpy_times.empty:
+                continue
+
+            numpy_time = float(np.median(numpy_times.values))
+            for gpu_backend in ['cuda_states', 'torch']:
+                gpu_times = subset[subset['backend'] == gpu_backend]['time_s'].dropna()
+                if gpu_times.empty:
+                    continue
+
+                gpu_time = float(np.median(gpu_times.values))
+                if gpu_time > 0 and numpy_time > 0 and np.isfinite(numpy_time) and np.isfinite(gpu_time):
+                    speedup_data.append({
+                        'x_value': int(n_samples),
+                        'backend': gpu_backend,
+                        'speedup': numpy_time / gpu_time,
+                    })
+
+    # Fallback to qubit scaling when sample scaling is unavailable.
+    elif not df_qubit.empty and {'backend', 'n_qubits', 'time_s'}.issubset(df_qubit.columns):
+        speed_x_col = 'n_qubits'
+        speed_x_label = "Number of Qubits"
+        for n_qubits in sorted(df_qubit['n_qubits'].dropna().unique()):
+            subset = df_qubit[df_qubit['n_qubits'] == n_qubits]
+            numpy_times = subset[subset['backend'] == 'numpy']['time_s'].dropna()
+            if numpy_times.empty:
+                continue
+
+            numpy_time = float(np.median(numpy_times.values))
+            for gpu_backend in ['cuda_states', 'torch']:
+                gpu_times = subset[subset['backend'] == gpu_backend]['time_s'].dropna()
+                if gpu_times.empty:
+                    continue
+
+                gpu_time = float(np.median(gpu_times.values))
+                if gpu_time > 0 and numpy_time > 0 and np.isfinite(numpy_time) and np.isfinite(gpu_time):
+                    speedup_data.append({
+                        'x_value': int(n_qubits),
+                        'backend': gpu_backend,
+                        'speedup': numpy_time / gpu_time,
+                    })
+
+    if speedup_data:
+        speedup_df = pd.DataFrame(speedup_data)
+        backends_list = sorted(speedup_df['backend'].unique())
+        x_values = sorted(speedup_df['x_value'].unique())
+        x = np.arange(len(x_values))
+        width = 0.35
+
+        for i, backend in enumerate(backends_list):
+            backend_series = (
+                speedup_df[speedup_df['backend'] == backend]
+                .groupby('x_value', as_index=False)['speedup']
+                .median()
+                .set_index('x_value')
+                .reindex(x_values)
+            )
+            color = BACKEND_COLORS.get(backend, '#666666')
+            ax6.bar(
+                x + i * width,
+                backend_series['speedup'].values,
+                width=width,
+                label=backend,
+                color=color,
+                alpha=0.85,
+                edgecolor='black',
+            )
+
+        speed_title = "Backend Speedup vs Numpy (Sample Scaling)" if speed_x_col == 'n_samples' else "Backend Speedup vs Numpy (Qubit Scaling)"
+        ax6.set_title(speed_title, fontsize=14, fontweight='bold')
+        ax6.set_ylabel("Speedup (× faster)", fontsize=12)
+        ax6.set_xlabel(speed_x_label, fontsize=12)
+        ax6.set_xticks(x + width * 0.5)
+        ax6.set_xticklabels([str(v) for v in x_values])
+        ax6.tick_params(axis='x', labelsize=9)
+        ax6.axhline(y=1, color='red', linestyle='--', alpha=0.5, linewidth=1.5, label='Baseline (1×)')
+        ax6.legend(fontsize=9)
+        ax6.grid(axis='y', alpha=0.3)
+    else:
+        ax6.text(0.5, 0.5, "No speedup data available",
+                 ha='center', va='center', transform=ax6.transAxes, fontsize=12)
+
     plt.savefig(OUTPUT_PLOTS, dpi=300, bbox_inches='tight')
     plt.savefig(OUTPUT_PLOTS_SVG, bbox_inches='tight')
     print(f"🖼️  Plots saved to: {OUTPUT_PLOTS}")

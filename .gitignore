@@ -44,7 +44,7 @@ Thumbs.db
 .cuda_kernel_autotune.json
 
 # Benchmark results
-#benchmark_results/
+benchmark_results/
 
 # Tile optimizer history
 .tile_optimizer_history.json

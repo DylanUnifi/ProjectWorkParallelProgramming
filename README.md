@@ -48,8 +48,8 @@ We provide binary SVM classification on classical image datasets (CIFAR-10, Fash
 train_svm_qkernel.py               # Main Entry Point
 train_svm_classical.py             # Classical baseline
 benchmark.py                       # Full benchmark suite
-run_all_cpu.sh                     # CPU batch launcher
-run_all_gpu.sh                     # GPU batch launcher
+run_all_classical.sh                     # CPU batch launcher
+run_all_quantum.sh                 # GPU quantum batch launcher
 scripts/
  └─ pipeline_backends.py           # Unified kernel API (The "Engine")
 tools/
@@ -130,7 +130,7 @@ docker run --rm -it --gpus all --shm-size=16g -v $(pwd):/app parallel-programmin
 
 ```
 
-With docker compose, `trainer-cpu` builds the CPU image and `trainer-gpu130` / `run-all-gpu130` build the CUDA 13.0 image from `Dockerfile.gpu130`. On the server, run scripts through Docker only: `run_all_cpu.sh` and `run_all_gpu.sh` now re-execute themselves inside the right container, and direct commands should use `docker compose run`. The default GPU image keeps the optional `lightning.gpu` extra out to stay within tighter Docker storage budgets.
+With docker compose, `trainer-classical` builds the CPU image and `trainer-quantum` / `run-all-gpu130` build the CUDA 13.0 image from `Dockerfile.gpu130`. On the server, run scripts through Docker only: `run_all_classical.sh` and `run_all_quantum.sh` now re-execute themselves inside the right container, and direct commands should use `docker compose run`. The default GPU image keeps the optional `lightning.gpu` extra out to stay within tighter Docker storage budgets.
 
 ---
 
@@ -151,7 +151,7 @@ The script `train_svm_qkernel.py` exposes several knobs to tune performance:
 ### Optimal Configuration (Benchmark-Validated)
 
 ```bash
-docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+docker compose -f docker-compose.yml run --rm trainer-quantum \
     python3 train_svm_qkernel.py \
         --config configs/cifar10_med.yaml \
         --gram-backend cuda_states \
@@ -177,7 +177,7 @@ docker compose -f docker-compose.yml run --rm trainer-gpu130 \
 To unleash the full performance on high-end GPUs, use `cuda_states` with huge tiles.
 
 ```bash
-docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+docker compose -f docker-compose.yml run --rm trainer-quantum \
     python3 train_svm_qkernel.py \
         --config configs/fashion_easy.yaml \
         --gram-backend cuda_states \
@@ -197,19 +197,19 @@ If your system has multiple GPUs, you can train multiple configurations simultan
 
 ```bash
 # Terminal 1: GPU 0 -> Fashion-MNIST EASY
-docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+docker compose -f docker-compose.yml run --rm trainer-quantum \
     bash -lc 'CUDA_VISIBLE_DEVICES=0 python3 train_svm_qkernel.py --config configs/fashion_easy.yaml ...'
 
 # Terminal 2: GPU 1 -> Fashion-MNIST HARD
-docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+docker compose -f docker-compose.yml run --rm trainer-quantum \
     bash -lc 'CUDA_VISIBLE_DEVICES=1 python3 train_svm_qkernel.py --config configs/fashion_hard.yaml ...'
 ```
 
 Batch helpers are also available:
 
 ```bash
-bash run_all_gpu.sh   # quantum runs
-bash run_all_cpu.sh   # classical baseline runs
+bash run_all_quantum.sh   # quantum runs
+bash run_all_classical.sh   # classical baseline runs
 
 ```
 
@@ -222,7 +222,7 @@ bash run_all_cpu.sh   # classical baseline runs
 Test the three backends with a smaller workload:
 
 ```bash
-docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+docker compose -f docker-compose.yml run --rm trainer-quantum \
     python3 benchmark.py --backend-comparison --n-samples 4000 --n-qubits 16
 ```
 
@@ -231,7 +231,7 @@ docker compose -f docker-compose.yml run --rm trainer-gpu130 \
 Comprehensive study of all cuda_states optimizations:
 
 ```bash
-docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+docker compose -f docker-compose.yml run --rm trainer-quantum \
     python3 benchmark.py \
         --cuda-states-ablation \
         --cuda-states-state-tile \
@@ -247,7 +247,7 @@ docker compose -f docker-compose.yml run --rm trainer-gpu130 \
 Compare `torch` directly against `cuda_states` and `numpy`:
 
 ```bash
-docker compose -f docker-compose.yml run --rm trainer-gpu130 \
+docker compose -f docker-compose.yml run --rm trainer-quantum \
     python3 benchmark.py \
         --backend-comparison \
         --backends torch cuda_states numpy \
@@ -302,7 +302,7 @@ Use dataset profiles to reproduce the validated benchmark campaign across Fashio
 bash run_benchmark_profiles.sh
 
 # Optional: run one profile manually
-docker compose run --rm trainer-gpu130 python3 benchmark.py \
+docker compose run --rm trainer-quantum python3 benchmark.py \
     --all \
     --parallel-gpus 3 \
     --dataset-profile fashion \
@@ -474,7 +474,7 @@ done
 
 - **Weights & Biases**: Tracks F1-score, AUC, Accuracy, and **Confusion Matrices**.
 - **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data and parameters).
-- **Batch Logs**: `run_all_cpu.sh` writes `log_*_classical_*.txt` and `run_all_gpu.sh` writes `log_*_torch_*.txt`.
+- **Batch Logs**: `run_all_classical.sh` writes `log_*_classical_*.txt` and `run_all_quantum.sh` writes `log_*_torch_*.txt`.
 
 ---
 

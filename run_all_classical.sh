@@ -6,12 +6,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ -z "${IN_DOCKER_CONTAINER:-}" ]]; then
   exec docker compose -f "$SCRIPT_DIR/docker-compose.yml" run --rm -T \
-    -e IN_DOCKER_CONTAINER=1 trainer-cpu bash run_all_cpu.sh "$@"
+    -e IN_DOCKER_CONTAINER=1 trainer-classical bash run_all_classical.sh "$@"
 fi
 
 datasets=("fashion" "cifar10" "svhn")
 difficulties=("easy" "med" "hard")
-sizes=("500" "1000" "2500" "5000" "all")
+# Keep the default sweep short enough to produce actionable first results quickly.
+sizes=("500" "1000")
 
 RUN_TS="$(date +%Y%m%d_%H%M%S)"
 LOG_ROOT="logs/classical/${RUN_TS}"

@@ -1,5 +1,5 @@
 services:
-  trainer-cpu:
+  trainer-classical:
     build:
       context: .
       dockerfile: Dockerfile
@@ -29,7 +29,7 @@ services:
     working_dir: /app
     command: bash
 
-  trainer-gpu130:
+  trainer-quantum:
     build:
       context: .
       dockerfile: Dockerfile.gpu130
@@ -91,7 +91,7 @@ services:
     working_dir: /app
     command: python3 extract_results.py
 
-  run-all-gpu130:
+  run-all-quantum:
     image: parallel-programming-exam-gpu130
     runtime: nvidia
     environment:
@@ -102,9 +102,9 @@ services:
       - ./:/app
       - ./outputs:/app/outputs
     working_dir: /app
-    command: bash run_all_gpu.sh
+    command: bash run_all_quantum.sh
 
-  run-all-cpu:
+  run-all-classical:
     image: parallel-programming-exam-cpu
     environment:
       - PYTHONUNBUFFERED=1
@@ -112,4 +112,4 @@ services:
       - ./:/app
       - ./outputs:/app/outputs
     working_dir: /app
-    command: bash run_all_cpu.sh
+    command: bash run_all_classical.sh

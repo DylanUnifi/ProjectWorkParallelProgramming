@@ -19,7 +19,7 @@ run_profile() {
   echo "Log file: ${log_file}"
   echo "============================================================"
 
-  docker compose -f "$SCRIPT_DIR/docker-compose.yml" run --rm -T trainer-gpu130 python3 benchmark.py \
+  docker compose -f "$SCRIPT_DIR/docker-compose.yml" run --rm -T trainer-quantum python3 benchmark.py \
     --all \
     --parallel-gpus 5 \
     --dataset-profile "${profile}" \

@@ -18,6 +18,11 @@ import yaml
 import wandb
 import optuna
 
+# Auto-disable W&B when no API key is available and the user has not explicitly
+# set WANDB_MODE. This avoids crashes in offline/HPC environments.
+if not os.environ.get("WANDB_API_KEY") and os.environ.get("WANDB_MODE") not in ("offline", "disabled"):
+    os.environ["WANDB_MODE"] = "disabled"
+
 from data_loader.utils import load_dataset_by_name
 from models.svm_extension import EnhancedSVM
 from scripts.pipeline_backends import compute_kernel_matrix
@@ -616,8 +621,11 @@ def run_train(args):
     if args.angle_scale != 1.0:
         exp_name += f"_scale{args.angle_scale}"
     
-    wandb.init(project="pp_project", name=exp_name, config={**config, **vars(args)}, group="qsvm")
+    if getattr(args, "no_wandb", False):
+        os.environ["WANDB_MODE"] = "disabled"
     
+    wandb.init(project="pp_project", name=exp_name, config={**config, **vars(args)}, group="qsvm")
+
     print(f"Loading {ds_name}...")
     train_dataset, test_dataset = load_dataset_by_name(
         name=ds_name,
@@ -746,6 +754,9 @@ if __name__ == "__main__":
                    help="Use automatic mixed precision (experimental)")
     p.add_argument("--torch-compile", action="store_true", default=False,
                    help="Use torch.compile (PyTorch 2.0+)")
+
+    p.add_argument("--no-wandb", action="store_true", default=False,
+                   help="Disable Weights & Biases logging entirely (sets WANDB_MODE=disabled)")
 
     args = p.parse_args()
     run_train(args)

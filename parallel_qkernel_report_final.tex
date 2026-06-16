@@ -38,35 +38,39 @@
 \begin{abstract}
 This project studies training binary SVMs on classical image datasets using simulated quantum kernels, with a strong focus on parallel programming and heterogeneous CPU/GPU optimization. The repository provides three coherent execution paths: a classical CPU baseline, a GPU quantum backend based on PennyLane+PyTorch (\texttt{torch}), and a custom HPC backend (\texttt{cuda\_states}) built on CuPy, DLPack and a bespoke C++ CUDA kernel. The scientific core of the work is to build quantum Gram matrices of size $N \times N$ quickly and correctly, whose cost remains $O(N^2 \cdot 2^Q)$ for $Q$ qubits.
 
-Beyond the initial implementation, a significant part of the project focused on numerical robustness and correctness validation. The \texttt{cuda\_states} backend was refactored to an \emph{output-stationary} \texttt{double2} design with explicit \texttt{double} accumulators, strict cross-kernel normalization, direct diagonal computation, tile autotuning, VRAM-aware sizing of state blocks, and explicit CUDA stream synchronization between PyTorch and CuPy. These fixes transformed a previously unstable path into a mathematically coherent and competitive backend.
+The evaluation emphasizes measurable outcomes rather than implementation details: throughput, runtime, F1, AUC, and kernel-shape diagnostics. Results are reported with run-scoped extraction to avoid mixing historical logs and to preserve comparability across backends.
 
-Experiments on Fashion-MNIST, CIFAR-10 and SVHN reveal two regimes. On Fashion-MNIST the quantum kernel performs well and is close to the classical baseline, with up to \textbf{F1 = 0.9756} and \textbf{AUC = 0.9964} for \texttt{cuda\_states}. On CIFAR-10 and SVHN, however, kernels tend to concentrate, the inter-class gap becomes nearly zero, and the SVM often ends with a support-vector fraction close to $1.0$, consistent with a \emph{kernel collapse} or \emph{barren-plateau-like} behavior. The project thus delivers a complete HPC pipeline, a customizable CUDA research backend, and an honest analysis of current QML simulation limits on complex image data.
+Experiments on Fashion-MNIST, CIFAR-10 and SVHN reveal two regimes. On Fashion-MNIST the quantum kernel remains strong in the latest run-scoped campaign, with best values up to \textbf{F1 = 0.9653} and \textbf{AUC = 0.9956} (\texttt{torch}, size 1000). On CIFAR-10 and SVHN, however, kernels tend to concentrate, the inter-class gap becomes nearly zero, and the SVM often ends with a support-vector fraction close to $1.0$, consistent with a \emph{kernel collapse} or \emph{barren-plateau-like} behavior. Overall, the reported results provide a consistent comparison of throughput and predictive quality across classical and quantum-kernel settings.
 \end{abstract}
 
 \section{Introduction}
-Quantum kernel methods provide a clean way to project classical data into a very high-dimensional Hilbert space and then solve a classification task with a precomputed SVM. In practice this promise quickly runs into a cost problem: for $N$ samples and $Q$ qubits, building the Gram matrix requires simulating states of dimension $2^Q$ and evaluating $O(N^2)$ complex overlaps. At $Q=16$ a single state vector already contains $65{,}536$ complex amplitudes.
+Quantum kernel methods provide a clean way to project classical data into a very high-dimensional Hilbert space and then solve a classification task with a precomputed SVM~\cite{havlicek2019supervised}. In practice this promise quickly runs into a cost problem: for $N$ samples and $Q$ qubits, building the Gram matrix requires simulating states of dimension $2^Q$ and evaluating $O(N^2)$ complex overlaps. At $Q=16$ a single state vector already contains $65{,}536$ complex amplitudes.
 
-The project had a twofold objective. First, build a unified research pipeline to compare classical and quantum SVMs across several binarized image datasets. Second, develop a low-level GPU backend controllable enough to serve as the foundation for HPC research: fine-grained memory management, explicit tiling, a custom CUDA kernel, W\&B instrumentation, and tools to diagnose numerical issues or kernel collapse.
+The study compares a classical SVM baseline and two quantum-kernel backends under the same experimental protocol. The report focuses on comparative evidence: predictive quality (F1/AUC), runtime, throughput, and failure indicators related to kernel concentration.
 
 \section{Scope of the Project}
-The repository covers four functional blocks:
+This study addresses three questions:
 \begin{itemize}
-    \item \textbf{Training}: \texttt{train\_svm\_qkernel.py} for quantum kernels and \texttt{train\_svm\_classical.py} for the classical baseline.
-    \item \textbf{Unified backend}: \texttt{scripts/pipeline\_backends.py} as a single entry point to compute Gram matrices with \texttt{numpy}, \texttt{torch} and \texttt{cuda\_states} backends.
-    \item \textbf{Benchmarking}: \texttt{benchmark\_production.py}, \texttt{tools/benchmark\_pl\_kernel.py}, \texttt{tools/profile\_kernel.py} and the output directory \texttt{benchmark\_results/}.
-    \item \textbf{Validation and reproducibility}: Docker, batch scripts (\texttt{run\_all\_cpu.sh}, \texttt{run\_all\_gpu.sh}), kernel caching, autotune cache and cross-backend comparison tooling.
+    \item How do classical and quantum-kernel SVMs compare on the same binary tasks?
+    \item Which backend offers the best throughput-runtime trade-off at 16 qubits?
+    \item Which empirical signals indicate kernel concentration and loss of separability?
 \end{itemize}
 
-The project is therefore more than "running a QSVM". It provides a complete chain from data preparation to kernel-limit analysis together with CUDA micro-engineering.
+The analysis focuses on measurable outcomes: F1, AUC, runtime, throughput, and kernel-shape diagnostics.
 
 \section{Experimental Methodology}
+Three datasets are used for binary classification: Fashion-MNIST~\cite{xiao2017fashion}, CIFAR-10~\cite{krizhevsky2009cifar}, and SVHN~\cite{netzer2011svhn}. Each is binarized into three tasks of increasing difficulty (see Table~\ref{tab:tasks}). All experiments use $Q=16$ qubits by default, yielding state vectors of dimension $2^{16} = 65{,}536$ complex amplitudes. Key performance observations from the benchmark campaign at this scale are:
+\begin{itemize}
     \item for heavy cases at 16 qubits, \texttt{cuda\_states} becomes significantly faster than the CPU backend;
     \item at 10,000 samples, the speedup is already about $2.5\times$;
     \item at 30,000 samples, the speedup exceeds $4.8\times$;
     \item the observed VRAM peak reaches approximately \SI{29.3}{GB} for \texttt{cuda\_states} at 30,000 samples.
+\end{itemize}
+
+\begin{table}[t]
 \centering
-\caption{Binary tasks configured in the repository.}
-The global JSON summary actually reports a higher average throughput for \texttt{numpy}, but that average mixes small and medium cases where the CPU remains very competitive. As the state-space dimension and Gram size increase, the custom GPU backend becomes the relevant path.
+\caption{Binary classification tasks configured in the repository.}
+\label{tab:tasks}
 \small
 \begin{tabular}{llll}
 \toprule
@@ -91,7 +95,7 @@ The training pipeline follows these steps:
     \item simulate states via PennyLane/\texttt{lightning}.
 \end{enumerate}
 
-The project primarily uses the \texttt{RYRZ} ansatz with entangling layers, which provides a simple trade-off between expressivity and simulation cost. Circuit weights are initialized once per run from a normal distribution and kept fixed during SVM training; this is therefore not a full variational training loop but a \emph{kernel-based} learning approach.
+The experiments use the \texttt{RYRZ} ansatz with entangling layers, which provides a simple trade-off between expressivity and simulation cost. Circuit weights are initialized once per run from a normal distribution and kept fixed during SVM training; this is therefore not a full variational training loop but a \emph{kernel-based} learning approach.
 
 The target kernel is the fidelity kernel
 \[
@@ -103,16 +107,16 @@ K_{ij} = \left| \sum_{k=1}^{2^Q} S_A[i,k]\;\overline{S_B[j,k]} \right|^2.
 \]
 
 \subsection{Training Protocol}
-The script \texttt{train\_svm\_qkernel.py} implements a comprehensive protocol:
+The experimental protocol uses:
 \begin{itemize}
     \item train/test split inherited from the dataset;
     \item 3-fold cross-validation on the training partition;
-    \item hyperparameter optimization of $C$ via Optuna;
+    \item hyperparameter optimization of $C$ via Optuna~\cite{akiba2019optuna};
     \item final re-fit on train+val;
     \item final evaluation on the test set.
 \end{itemize}
 
-The project logs more than just \texttt{F1} and \texttt{AUC}. It also records \texttt{accuracy}, \texttt{precision}, \texttt{recall}, \texttt{balanced accuracy}, \texttt{PR-AUC}, confusion matrices, runtime parameters, spectral kernel diagnostics and SVM solver diagnostics (\texttt{fit\_status}, iteration counts, support-vector fraction). This is important: W\&B runs enable a proper evaluation of models, not only an isolated final metric.
+In addition to F1 and AUC, the analysis tracks runtime, support-vector fraction, and kernel distribution statistics to distinguish optimization effects from representational limits.
 
 \section{HPC Architecture}
 \subsection{Unified Backend API}
@@ -127,49 +131,16 @@ This API accepts the same data and normalization flags, but delegates execution 
     \item \texttt{cuda\_states}: generate states with PyTorch, convert tensors to CuPy via DLPack, and compute the Gram with a custom \texttt{RawKernel}.
 \end{itemize}
 
-This unification had genuine engineering value: it enabled comparing backend correctness with the same preprocessing, normalization and instrumentation.
-
 \subsection{Torch GPU Backend}
-The \texttt{torch} backend is the "high-level" path. It prepares states on the GPU via PennyLane+Torch and computes the Gram matrix using native PyTorch operations. This backend serves as a practical reference: it is easier to implement but less flexible for low-level research.
-
-In the project this backend was used for three purposes:
-\begin{itemize}
-    \item establish a performance and correctness baseline;
-    \item provide a comparison point for the custom CUDA backend;
-    \item confirm that issues observed on some datasets were not solely caused by the C++ kernel.
-\end{itemize}
+The \texttt{torch} backend uses native PyTorch GPU operations to generate states and compute Gram matrices. In this study it is treated as the main GPU reference point for quality/runtime comparison against both \texttt{numpy} and \texttt{cuda\_states}.
 
 \subsection{Custom CUDA Backend \texttt{cuda\_states}}
-The central contribution of the project is the \texttt{cuda\_states} backend. The workflow is:
-\begin{enumerate}
-    \item build quantum states with PennyLane+Torch on the GPU;
-    \item convert Torch CUDA tensors to CuPy via \texttt{DLPack} without a CPU copy;
-    \item compute the Gram matrix with a CUDA kernel compiled on-the-fly via \texttt{cp.RawKernel}.
-\end{enumerate}
+The \texttt{cuda\_states} backend computes Gram matrices with custom CUDA kernels through CuPy. In this report, its role is assessed by measured throughput and downstream classification metrics, not by internal kernel structure.
 
-The final kernel follows a simple and robust \textbf{output-stationary} design:
-\begin{itemize}
-    \item a CUDA thread computes exactly one entry $C[i,j]$;
-    \item states are stored as \texttt{double2};
-    \item internal accumulators are \texttt{double sum\_real} and \texttt{double sum\_imag};
-    \item the complex product explicitly uses the conjugate of $B$;
-    \item the stored output is $\texttt{sum\_real}^2 + \texttt{sum\_imag}^2$.
-\end{itemize}
-
-In other words, the computation performed by each thread is:
-\[
-\texttt{sum\_real} \leftarrow \sum_k (a_r b_r + a_i b_i), \qquad
-\texttt{sum\_imag} \leftarrow \sum_k (a_i b_r - a_r b_i),
-\]
-puis
-\[
-C[i,j] = \texttt{sum\_real}^2 + \texttt{sum\_imag}^2.
-\]
-
-The Python launcher also forces input tiles to be contiguous using \texttt{cp.ascontiguousarray(..., dtype=cp.complex128)} before launching the kernel. This detail contributed to stabilizing the backend.
+All backend comparisons use the same post-processing and evaluation protocol to preserve metric comparability.
 
 \subsection{Memory Management, Tiling, and Streams}
-The project added several layers of optimization around the kernel:
+The benchmark explores the following runtime controls:
 \begin{itemize}
     \item \textbf{VRAM-aware sizing}: \texttt{state\_tile=-1} automatically sizes state block dimensions according to available VRAM.
     \item \textbf{Autotuning}: CUDA kernel tile sizes are learned and cached in \texttt{.cuda\_kernel\_autotune.json}. A specific entry for 16 qubits in double precision is handled.
@@ -178,15 +149,13 @@ The project added several layers of optimization around the kernel:
     \item \textbf{Memory profiling}: the benchmark measures VRAM usage, transfers and throughput.
 \end{itemize}
 
-The most important optimization, however, was not streaming but \textbf{synchronization consistency}. A subtle bug existed between PyTorch and CuPy streams: some states were prepared on one stream and consumed by the \texttt{RawKernel} on another. This could corrupt Gram blocks, distort kernel geometry and collapse AUC to approximately $0.5$. The fix was to ensure that state normalization, numerical checks and writes to \texttt{K\_cp} occur on the same stream as the kernel.
+In the reported campaign, the observed best settings were \texttt{vram\_fraction=0.95}, \texttt{num\_streams=1}, and \texttt{torch\_pinned+streams} for the torch path.
 
 \subsection{Numerical Safety and Shared Post-Processing}
-Another essential part of the work focused on a common mathematical semantics across backends. In the final version:
+Cross-backend comparisons use a shared post-processing definition:
 \begin{itemize}
-    \item runs at 16 qubits automatically switch to \texttt{float64} to avoid overflow and error accumulation;
-    \item GPU states can be explicitly re-normalized before computing overlaps for large Hilbert spaces;
-    \item \texttt{NaN}/\texttt{Inf} values are detected and repaired per block;
-    \item kernel normalization is no longer specific to \texttt{cuda\_states}, but common across all backends;
+    \item finite-value checks (NaN/Inf) before writing kernel blocks;
+    \item shared kernel normalization across backends;
     \item strict cross-normalization
     \[
     \hat K(X,Y)_{ij} = \frac{K(X,Y)_{ij}}{\sqrt{K(X,X)_{ii}K(Y,Y)_{jj}}}
@@ -194,19 +163,17 @@ Another essential part of the work focused on a common mathematical semantics ac
     is applied after computing the diagonals.
 \end{itemize}
 
-The project further optimized this by adding a \textbf{direct diagonal computation} for the self-kernel. Instead of forming the full $K(X,X)$ just to extract its diagonal, the code reconstructs states by block, computes their norms, and directly derives the kernel diagonal. This optimization greatly reduces the cost of normalized cross-kernels.
+This common normalization makes the backend comparison interpretable at the metric level.
 
-\section{Validation and Debugging Deliverables}
-The project produced several validation deliverables beyond plain training:
+\section{Validation Protocol}
+Validation relies on three measurable checks:
 \begin{itemize}
-    \item \texttt{tools/compare\_kernel\_backends.py}: systematic comparison of balanced blocks between \texttt{torch} and \texttt{cuda\_states}, before and after normalization/centering;
-    \item \texttt{tests/check\_nan.py}: quick numerical stability check;
-    \item an updated \texttt{README.md} documenting architecture, Docker and real repository commands;
-    \item a path fix in \texttt{tests/test\_static\_validation.py};
-    \item cleanup of batch scripts and logging harmonization.
+    \item cross-backend consistency checks on normalized kernel blocks;
+    \item numerical stability checks (NaN/Inf, diagonal validity, normalization bounds);
+    \item run-scoped result extraction to avoid mixing historical logs.
 \end{itemize}
 
-In practice, cross-backend comparison served as a \emph{regression harness}: it enabled isolating the stream bug and verifying that the new strict normalization produced the same kernel semantics across backends.
+These checks separate implementation correctness from model performance and support reproducible comparisons.
 
 \section{Performance Results}
 \subsection{Benchmark}
@@ -214,167 +181,113 @@ The repository benchmark reports more than a single runtime. It captures qubit s
 
 \begin{table}[t]
 \centering
-\caption{Multi-dataset benchmark summary (latest profile sweep).}
+\caption{Essential benchmark statistics from the latest profile sweep (Mpairs/s).}
 \label{tab:benchmark}
 \small
-\begin{tabular}{lccc}
+\begin{tabular}{lcc}
 \toprule
-\textbf{Dataset} & \textbf{Fastest backend comparison} & \textbf{Best global throughput} & \textbf{Best torch optimization} \\
+\textbf{Dataset} & \textbf{Fastest backend panel} & \textbf{Best overall throughput} \\
 \midrule
-fashion & \texttt{cuda\_states} (0.088) & \texttt{numpy} (0.101) & \texttt{torch\_pinned+streams} (0.060) \\
-cifar10 & \texttt{cuda\_states} (0.047) & \texttt{numpy} (0.097) & \texttt{torch\_pinned+streams} (0.038) \\
-svhn & \texttt{cuda\_states} (0.049) & \texttt{numpy} (0.097) & \texttt{torch\_pinned+streams} (0.038) \\
+fashion & \texttt{cuda\_states} 0.088 & \texttt{numpy} 0.101 \\
+cifar10 & \texttt{cuda\_states} 0.047 & \texttt{numpy} 0.097 \\
+svhn & \texttt{cuda\_states} 0.049 & \texttt{numpy} 0.097 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Four observations stand out from this benchmark set:
+Key observations from these benchmark statistics are:
 \begin{itemize}
     \item \texttt{cuda\_states} remains the fastest backend in direct backend-comparison panels on all three datasets.
     \item The best single throughput value in each profile often comes from \texttt{numpy} on easier points (small/medium kernels), showing that CPU remains competitive at this scale.
-    \item The best \texttt{torch} configuration is consistent across datasets: \texttt{torch\_pinned+streams}.
-    \item At sample scaling $N=1024$, \texttt{torch} can exceed \texttt{numpy} on CIFAR-10 and SVHN, while \texttt{numpy} stays ahead on Fashion-MNIST.
+    \item At sample scaling $N=1024$, \texttt{torch} exceeds \texttt{numpy} on CIFAR-10 and SVHN, while \texttt{numpy} remains ahead on Fashion-MNIST.
 \end{itemize}
 
 Taken together, these results indicate a mixed regime: backend-comparison tests favor the custom GPU path, while the absolute best-throughput rows can still be obtained on CPU for moderate configurations.
 
-\subsection{Sample Scaling Summary}
-Sample scaling now includes \texttt{numpy} up to \(N=1024\), matching \texttt{torch} and \texttt{cuda\_states}. Table~\ref{tab:sample-impact-summary} reports the measured throughput at \(N=1024\).
-
-\begin{table}[t]
+\begin{figure*}[t]
 \centering
-\caption{Sample-scaling throughput at \(N=1024\) (Mpairs/s).}
-\label{tab:sample-impact-summary}
-\small
-\begin{tabular}{lccc}
-\toprule
-\textbf{Dataset} & \textbf{cuda\_states} & \textbf{torch} & \textbf{numpy} \\
-\midrule
-fashion & 0.055 & 0.057 & 0.086 \\
-cifar10 & 0.024 & 0.038 & 0.032 \\
-svhn & 0.024 & 0.037 & 0.033 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\begin{subfigure}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{benchmark_results/fashion/benchmark.png}
+    \caption{Fashion-MNIST profile benchmark.}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{benchmark_results/cifar10/benchmark.png}
+    \caption{CIFAR-10 profile benchmark.}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.32\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{benchmark_results/svhn/benchmark.png}
+    \caption{SVHN profile benchmark.}
+\end{subfigure}
+\caption{Per-dataset benchmark figures generated by the profile sweep. Each panel includes backend comparison, scaling behavior, optimization ablations, and speedup summaries.}
+\label{fig:profile-benchmarks}
+\end{figure*}
 
-The practical consequence is that the panel-6 speedup analysis can now rely on sample-scaling data consistently across all backends and all dataset profiles.
-
-\subsection{Qubit Impact Summary}
-The qubit-impact sweep confirms that \texttt{numpy} remains strong at lower qubit counts, while \texttt{cuda\_states} keeps competitive throughput at larger settings. Table~\ref{tab:qubit-impact-summary} reports the best observed values per profile.
-
-\begin{table}[t]
-\centering
-\caption{Best observed qubit-scaling throughput per dataset (Mpairs/s).}
-\label{tab:qubit-impact-summary}
-\small
-\begin{tabular}{lccc}
-\toprule
-\textbf{Dataset} & \textbf{cuda\_states} & \textbf{torch} & \textbf{numpy} \\
-\midrule
-fashion & 0.074 (6 qubits) & 0.053 (12 qubits) & 0.101 (6 qubits) \\
-cifar10 & 0.056 (8 qubits) & 0.054 (12 qubits) & 0.097 (8 qubits) \\
-svhn & 0.069 (8 qubits) & 0.034 (12 qubits) & 0.097 (8 qubits) \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-This confirms that both qubit scaling and backend ranking depend on the dataset profile, which justifies reporting profile-specific benchmark tables.
-
-\subsection{Tile Impact Summary}
-Tile and runtime-option sweeps produced stable best settings for each profile.
-
-\begin{table}[t]
-\centering
-\caption{Best optimization settings from profile benchmarks.}
-\label{tab:tile-impact-summary}
-\small
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Dataset} & \textbf{Best state\_tile} & \textbf{Best vram\_fraction} & \textbf{Best stream count} & \textbf{Best torch config} \\
-\midrule
-fashion & \texttt{2048} & 0.95 & 1 & \texttt{torch\_pinned+streams} \\
-cifar10 & \texttt{32768} & 0.95 & 1 & \texttt{torch\_pinned+streams} \\
-svhn & \texttt{16384} & 0.95 & 1 & \texttt{torch\_pinned+streams} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Optimization Ablation}
-Benchmark ablations also clarify which choices mattered most:
+\subsection{Important Optimization Statistics}
+Benchmark ablations identify the most useful settings:
 \begin{itemize}
-    \item \textbf{Precompute is still the dominant lever}: \emph{No Precompute} remains the most expensive configuration in every profile.
-    \item \textbf{VRAM fraction is robust}: \texttt{vram\_fraction=0.95} is consistently the best point across Fashion-MNIST, CIFAR-10, and SVHN.
-    \item \textbf{Stream count remains simple}: \texttt{num\_streams=1} was best in all three profile sweeps.
-    \item \textbf{Torch optimization is consistent}: \texttt{torch\_pinned+streams} is the best-performing torch configuration in all profiles.
+    \item \textbf{Precompute dominates}: disabling precompute is consistently the slowest option.
+    \item \textbf{VRAM setting is stable}: \texttt{vram\_fraction=0.95} is best across all three profiles.
+    \item \textbf{Stream count is simple}: \texttt{num\_streams=1} is best in the measured sweeps.
+    \item \textbf{Torch variant is stable}: \texttt{torch\_pinned+streams} is the strongest torch configuration in all profiles.
 \end{itemize}
 
-From an HPC perspective, the current generation of experiments shows that memory organization and data movement still dominate over aggressive stream tuning at these workload sizes.
+At this scale, data movement and memory organization have a larger effect than increasing stream complexity.
 
 \section{Classification Results}
-\begin{table*}[t]
+\begin{table}[t]
 \centering
-\caption{Final results on the repository's \texttt{all} tasks. Wall-clock times are taken from aggregated logs in \texttt{summary\_results\_v2.csv}.}
-\label{tab:results}
+\caption{Mean classification and runtime statistics on the latest shared setup (sizes 500 and 1000, 18 matched tasks), using \texttt{summary\_results\_latest\_alias.csv} and \texttt{summary\_results\_classical\_20260615\_182830.csv}.}
+\label{tab:classification-summary}
 \small
-\begin{tabular}{lllrrl}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Dataset} & \textbf{Difficulty} & \textbf{Backend} & \textbf{F1} & \textbf{AUC} & \textbf{Wall-clock} \\
+\textbf{Backend} & \textbf{Mean F1} & \textbf{Mean AUC} & \textbf{Mean time/task (min)} \\
 \midrule
-cifar10 & easy & classical & 0.8026 & 0.8726 & 6m 20s \\
-cifar10 & easy & torch & 0.5432 & 0.5295 & 39m 50s \\
-cifar10 & easy & cuda\_states & 0.5971 & 0.5516 & 50m 54s \\
-\midrule
-cifar10 & med & classical & 0.7390 & 0.7736 & 5m 55s \\
-cifar10 & med & torch & 0.6571 & 0.5589 & 40m 38s \\
-cifar10 & med & cuda\_states & 0.6648 & 0.6108 & 51m 37s \\
-\midrule
-cifar10 & hard & classical & 0.5414 & 0.5000 & 6m 17s \\
-cifar10 & hard & torch & 0.5080 & 0.5449 & 42m 22s \\
-cifar10 & hard & cuda\_states & 0.5084 & 0.5000 & 52m 21s \\
-\midrule
-fashion & easy & classical & 0.9864 & 0.9993 & 0m 48s \\
-fashion & easy & torch & 0.9750 & 0.9965 & 46m 27s \\
-fashion & easy & cuda\_states & 0.9756 & 0.9964 & 56m 10s \\
-\midrule
-fashion & med & classical & 0.9917 & 0.9987 & 3m 07s \\
-fashion & med & torch & 0.9824 & 0.9971 & 47m 29s \\
-fashion & med & cuda\_states & 0.9829 & 0.9971 & 56m 25s \\
-\midrule
-fashion & hard & classical & 0.8265 & 0.9163 & 6m 39s \\
-fashion & hard & torch & 0.7907 & 0.8945 & 47m 41s \\
-fashion & hard & cuda\_states & 0.7815 & 0.8893 & 56m 40s \\
-\midrule
-svhn & easy & classical & 0.8640 & 0.9747 & 17m 45s \\
-svhn & easy & torch & 0.0000 & 0.4616 & 93m 59s \\
-svhn & easy & cuda\_states & 0.1191 & 0.4883 & 109m 49s \\
-\midrule
-svhn & med & classical & 0.7864 & 0.9156 & 9m 20s \\
-svhn & med & torch & 0.2780 & 0.5044 & 79m 39s \\
-svhn & med & cuda\_states & 0.4347 & 0.5163 & 93m 40s \\
-\midrule
-svhn & hard & classical & 0.7688 & 0.8638 & 6m 26s \\
-svhn & hard & torch & 0.4155 & 0.4560 & 73m 07s \\
-svhn & hard & cuda\_states & 0.3657 & 0.4561 & 87m 00s \\
+classical & 0.7120 & 0.8051 & 0.24 \\
+torch & 0.5405 & 0.6507 & 4.09 \\
+cuda\_states & 0.4842 & 0.6255 & 7.20 \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
 
-Three facts stand out immediately:
-\begin{itemize}
-    \item \textbf{Fashion-MNIST} is the success case for the quantum approach. The two quantum backends remain very close to each other and relatively close to the classical baseline.
-    \item \textbf{CIFAR-10} is much more ambiguous. On easy and medium tasks, the classical method keeps a clear advantage. Quantum backends are sometimes usable but lose much of their discriminative power.
-    \item \textbf{SVHN} is the clearest failure case for the current QSVM. AUCs remain near $0.5$ despite large computation times.
-\end{itemize}
+The central pattern is that the classical baseline leads in both quality and runtime on the aggregated workload, while torch remains stronger than \texttt{cuda\_states} among the quantum backends.
 
-It is also worth noting an important validation achieved after the backend fixes. For the targeted test command \texttt{fashion\_easy}, \texttt{cuda\_states}, subset 1,000, the log \texttt{log\_test\_cuda\_states.txt} reports \textbf{val\_F1 = 0.9662}, \textbf{test\_F1 = 0.9623} and \textbf{test\_AUC = 0.9933} in \textbf{4m33}. This run demonstrates that the fixed backend is no longer stuck at AUC 0.5 and reproduces expected quality on a favorable case.
+At dataset level, Fashion-MNIST remains the favorable case for quantum kernels in the latest campaign, whereas CIFAR-10 and especially SVHN show lower AUC and weaker class separation.
+
+\subsection{Latest Run-Scoped Comparison Against the Classical Baseline}
+To avoid mixing historical logs, run-scoped summaries are filtered with \texttt{--run} or \texttt{--latest-run}. The latest quantum campaign (36 successful runs) is compared against the latest classical campaign (45 successful runs) on the shared setup (same dataset, difficulty, and sample sizes 500/1000).
+
+The paired analysis is exported in \texttt{summary\_comparison\_by\_dataset\_difficulty.csv}. Table~\ref{tab:latest-run-comparison} reports the aggregate outcome.
+
+\begin{table}[t]
+\centering
+\caption{Run-scoped paired comparison on shared settings (sizes 500 and 1000). Positive deltas indicate better classical quality; negative time deltas indicate faster classical execution.}
+\label{tab:latest-run-comparison}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Comparison} & $\Delta$\textbf{F1} & $\Delta$\textbf{AUC} & $\Delta$\textbf{Time (s)} \\
+\midrule
+Classical $-$ Torch & +0.1714 & +0.1544 & -231.40 \\
+Classical $-$ cuda\_states & +0.2277 & +0.1795 & -417.71 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In paired wins, classical records \textbf{16/1/1} against Torch and \textbf{16/1/1} against \texttt{cuda\_states}, confirming the aggregate result in Table~\ref{tab:classification-summary}.
 
 \section{Failure Analysis: Kernel Collapse and Barren Plateau-Like Regimes}
-One of the most interesting contributions of the project is that it does not hide its failures. Logs clearly show that several hard tasks produce kernels that are nearly constant after centering/normalization:
+Hard tasks exhibit the following quantitative pattern:
 \begin{itemize}
-    \item inter-class gap (\texttt{class\_gap}) close to zero;
-    \item test kernel standard deviation often around $10^{-4}$ to $10^{-3}$;
-    \item support-vector fraction close to $1.0$;
-    \item final AUC close to random.
+    \item inter-class gap near zero after centering/normalization;
+    \item test-kernel standard deviation on the order of $10^{-4}$ to $10^{-3}$;
+    \item support-vector fraction near $1.0$;
+    \item AUC close to random in the hardest cases.
 \end{itemize}
 
 The \texttt{cifar10\_hard} case with \textbf{6 layers} is particularly revealing. In logs such as \texttt{log\_cifar10\_hard\_torch\_500\_6layers.txt} one typically observes:
@@ -385,7 +298,7 @@ The \texttt{cifar10\_hard} case with \textbf{6 layers} is particularly revealing
     \item \texttt{test\_AUC = 0.4757}.
 \end{itemize}
 
-This behavior is consistent with a \textbf{kernel concentration}: states become almost indistinguishable in terms of overlap used by the SVM. It is reasonable to interpret this as a \emph{barren-plateau-like} or \emph{kernel collapse} regime, although multiple factors likely combine:
+This behavior is consistent with a \textbf{kernel concentration}: states become almost indistinguishable in terms of overlap used by the SVM. It is reasonable to interpret this as a \emph{barren-plateau-like} or \emph{kernel collapse} regime~\cite{larocca2024review,thanasilp2022exponential}, although multiple factors likely combine:
 \begin{itemize}
     \item loss of information due to conversion to grayscale and subsequent PCA;
     \item generic ansatz not informed by image geometry;
@@ -393,44 +306,55 @@ This behavior is consistent with a \textbf{kernel concentration}: states become 
     \item intrinsic limitations of global fidelity kernels on complex visual data.
 \end{itemize}
 
-The project thus highlights an important scientific limit: accelerating the computation of a poor kernel does not make the model good. The HPC engineering solved the implementation cost and correctness problems; it did not remove the representational limits of the chosen quantum feature map.
+These observations indicate that compute acceleration alone does not resolve representational limits of the feature map.
 
 \section{Reproducibility and Engineering Hygiene}
-Another successful aspect of the project is its practical reproducibility:
+Reproducibility is supported by containerized execution and run-scoped extraction:
 \begin{itemize}
-    \item documented GPU Docker image in the \texttt{README};
-    \item CPU/GPU batch scripts to launch experiment campaigns;
-    \item YAML files per dataset and difficulty level;
-    \item on-disk kernel cache;
-    \item persistent autotuning cache for CUDA tiles;
-    \item detailed logs and systematic export to W\&B.
+    \item same software environment for all runs;
+    \item explicit separation of classical and quantum sweeps;
+    \item deterministic run filtering with \texttt{--run} and \texttt{--latest-run};
+    \item persistent caches for kernels and autotune settings.
 \end{itemize}
 
-The whole set forms a credible research environment: another user can re-run experiments, profile the backend, modify the CUDA kernel, compare backends and analyze the same diagnostic metrics.
-
-\section{What Was Achieved in This Project}
-In summary, the project accomplished the following tasks:
+\subsection{Minimal Reproducibility Workflow}
+The minimal command sequence to reproduce the quantum training campaign is:
 \begin{enumerate}
-    \item design of a full training pipeline for classical and quantum SVMs;
-    \item implementation of a high-level GPU backend \texttt{torch};
-    \item implementation of a low-level GPU backend \texttt{cuda\_states} with \texttt{RawKernel};
-    \item DLPack integration to avoid intermediate CPU copies;
-    \item addition of persistent autotuning and VRAM-aware memory sizing;
-    \item addition of a CUDA stream pool, memory profiling and performance ablations;
-    \item fixing numerical accumulation errors via using \texttt{double2}/\texttt{float64};
-    \item fixing an inter-stream synchronization bug that corrupted the Gram matrix;
-    \item strict harmonization of kernel normalization across backends;
-    \item addition of sufficiently rich W\&B logging to properly evaluate models;
-    \item production of a coherent set of benchmarks, logs and result tables.
+    \item Build the GPU Docker image:\\{\small\texttt{docker compose build trainer-quantum}}
+    \item Launch the quantum sweep on available GPUs:\\{\small\texttt{bash run\_all\_quantum.sh}}
+    \item Launch the classical baseline:\\{\small\texttt{bash run\_all\_classical.sh}}
+    \item Extract results from the latest run only:\\{\small\texttt{docker compose run --rm extract-results python3 extract\_results.py --latest-run --csv summary\_results\_latest.csv}}
+    \item Extract a specific timestamped run:\\{\small\texttt{docker compose run --rm extract-results python3 extract\_results.py --run 20260615\_211954}}
 \end{enumerate}
 
-\section{Conclusion}
-This project confirms an important point for scientific computing applied to QML: a custom CUDA backend is not just an optimization exercise, it is also a way to precisely control the mathematical semantics of the computation. Moving to an \emph{output-stationary} double-precision kernel, rigorous stream management, strict cross-normalization and direct diagonal computation turned \texttt{cuda\_states} into a reliable research backend.
+The \texttt{--latest-run} flag introduced in \texttt{extract\_results.py} prevents mixing logs from different historical runs. The \texttt{summary\_comparison\_by\_dataset\_difficulty.csv} artifact consolidates paired classical-vs-quantum deltas across all dataset/difficulty/size combinations.
 
-From an application perspective, the project shows that simulated quantum kernels can be highly competitive on simple tasks such as Fashion-MNIST, but they remain challenged on richer images like CIFAR-10 or SVHN with the current feature map. This conclusion is useful: it indicates that the next bottleneck is no longer merely the HPC implementation but the design of kernels and ansatz better suited to the data.
+\section{Data and Code Availability}
+The full project repository is publicly available at:\\{\small\url{https://github.com/DylanUnifi/ProjectWorkParallelProgramming}}
+
+Datasets are loaded automatically from standard sources:
+\begin{itemize}
+    \item \textbf{Fashion-MNIST}~\cite{xiao2017fashion}: via \texttt{torchvision.datasets.FashionMNIST}.
+    \item \textbf{CIFAR-10}~\cite{krizhevsky2009cifar}: via \texttt{torchvision.datasets.CIFAR10}.
+    \item \textbf{SVHN}~\cite{netzer2011svhn}: via \texttt{torchvision.datasets.SVHN}.
+\end{itemize}
+
+Key artifacts generated by the experiments and referenced in this report:
+\begin{itemize}
+    \item \texttt{summary\_results\_latest\_alias.csv} and \texttt{summary\_results\_classical\_20260615\_182830.csv} — latest run-scoped results used for Table~\ref{tab:classification-summary}.
+    \item \texttt{summary\_comparison\_by\_dataset\_difficulty.csv} — run-scoped paired deltas (Table~\ref{tab:latest-run-comparison}).
+    \item \texttt{benchmark\_results/benchmark.csv} — backend throughput data (Table~\ref{tab:benchmark}).
+    \item \texttt{benchmark\_results/\{fashion,cifar10,svhn\}/benchmark.png} — profile benchmark figures (Fig.~\ref{fig:profile-benchmarks}).
+    \item \texttt{.cuda\_kernel\_autotune.json} — persistent CUDA tile autotune cache.
+\end{itemize}
+
+\section{Conclusion}
+The measured results show a consistent trade-off. Classical SVM remains strongest on aggregated quality and runtime, while \texttt{cuda\_states} leads direct backend throughput panels on the benchmark profiles.
+
+Simulated quantum kernels stay competitive on easier distributions (notably Fashion-MNIST), but performance degrades on CIFAR-10 and SVHN where kernel concentration indicators are strongest. This points to feature-map expressivity as the primary bottleneck beyond raw compute efficiency.
 
 \section{Perspectives}
-Logical next steps for the project are clear:
+Data-supported next steps are:
 \begin{itemize}
     \item projected or local kernels to limit global fidelity concentration;
     \item geometry-aware ansatzes for image data;
@@ -439,5 +363,10 @@ Logical next steps for the project are clear:
     \item scale up cross-benchmarks between \texttt{torch} and \texttt{cuda\_states};
     \item possible integration of a native GPU SVM solver to remove the final CPU bottleneck.
 \end{itemize}
+
+{\small
+\bibliographystyle{ieeetr}
+\bibliography{parallel_qkernel_references}
+}
 
 \end{document}

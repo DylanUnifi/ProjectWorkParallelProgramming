@@ -1,68 +1,77 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
 build/
 dist/
 *.egg-info/
 .eggs/
 
-# Virtual environments
+# Environments
 .env
+.venv/
+venv/
 
-# IDEs and editors
+# IDE / editor
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Logs and debug
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime logs and experiment outputs
 *.log
 logs/
 wandb/
 results/
+outputs/
+cache/
+tmp/
+kernel_cache/
 
-# Data and checkpoints
+# Generated training summaries and local report tables
+summary_*.csv
+summary_*.txt
+
+# Root generated logs from batch scripts
+log_*.txt
+
+# Benchmark generated artifacts
+benchmark_results/
+
+# Local runtime autotune/history
+.cuda_kernel_autotune.json
+.tile_optimizer_history.json
+
+# Data / checkpoints (local-only for this project)
 data/
 datasets/
 checkpoints/
 
-# OS files
-.DS_Store
-Thumbs.db
+# Local helper libs
+local_libs/
 
-# Docker
-.dockerignore
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.log
+*.lot
+*.out
+*.synctex.gz
+*.toc
 
-# CUDA kernel autotune cache
-.cuda_kernel_autotune.json
-
-# Benchmark results
-benchmark_results/
-
-# Tile optimizer history
-.tile_optimizer_history.json
+# Generated report PDF
+parallel_qkernel_report_final.pdf
 
 # Backup files
 *.backup
 *_new.py
-
-# Local libraries
-local_libs/
-tmp/
-
-kernel_cache/
-
-.log_*
-log_*.txt
-
-.summary_*
-summary_*.txt
-summary_results_v2.csv
-summary_results.csv

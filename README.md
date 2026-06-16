@@ -1,490 +1,84 @@
-# Parallel Programming Project
+# Parallel Programming Exam Project
 
-[![Frameworks](https://img.shields.io/badge/Frameworks-PyTorch%20%7C%20PennyLane%20%7C%20CuPy%20%7C%20CUDA-green?logo=pytorch)](#overview)
-[![Hardware](https://img.shields.io/badge/Hardware-NVIDIA%20RTX%206000%20(96GB)%20%7C%20AMD%20EPYC%2074F3-red)](#-hardware-specs)
-[![W&B](https://img.shields.io/badge/Weights_&_Biases-logging-orange?logo=weightsandbiases)](#-logging--artifacts)
+This repository contains the exam work on parallel acceleration of SVM pipelines with:
 
-SVM **quantum and classical training** for binary image classification on CIFAR-10, Fashion-MNIST, and SVHN, with a focus on **parallel** and **heterogeneous** computation of **quantum kernel matrices**.  
-Project developed in the *Parallel Programming* course (University of Florence).
+- classical baseline (`classical`)
+- quantum-kernel backend with PyTorch (`torch`)
+- custom CUDA backend (`cuda_states`)
 
-> **Core Innovation:** We implemented a custom **High-Performance Backend** (`cuda_states`) using Raw CUDA Kernels via CuPy and Zero-Copy memory transfer (DLPack) to bypass standard library overheads.
+Target datasets:
 
----
+- Fashion-MNIST
+- CIFAR-10
+- SVHN
 
-## Table of Contents
+## What Is Included
 
-- [Overview](#overview)
-- [Repo layout](#repo-layout)
-- [High-Performance Architecture](#-high-performance-architecture)
-- [Hardware Specs](#-hardware-specs)
-- [Setup](#setup)
-- [Backends & knobs](#backends--knobs)
-- [Training & Usage](#-training--usage)
-- [Benchmarking](#benchmarking)
-- [Logging & artifacts](#-logging--artifacts)
-- [License & citation](#license--citation)
+- Training scripts:
+  - `train_svm_classical.py`
+  - `train_svm_qkernel.py`
+- Batch launchers:
+  - `run_all_classical.sh`
+  - `run_all_quantum.sh`
+- Benchmark suite:
+  - `benchmark.py`
+- Result extraction:
+  - `extract_results.py`
 
----
+## Quick Start (Docker Compose)
 
-## Overview
-
-We provide binary SVM classification on classical image datasets (CIFAR-10, Fashion-MNIST, SVHN) using quantum kernels computed on GPU:
-
-- `train_svm_qkernel.py` — Main script for quantum-kernel SVM training (CV, Optuna, caching).
-- `train_svm_classical.py` — Classical SVM baseline for direct CPU comparisons.
-- `scripts/pipeline_backends.py` — Unified API to compute $K$ with:
-  - **`cuda_states`**: *Flagship backend*. Custom C++ CUDA kernels compiled via NVRTC + CuPy. Supports massive tiling.
-  - **`torch`**: Streaming GPU implementation using native PyTorch operations.
-  - **`numpy`**: Fallback CPU implementation with multiprocessing.
-- `tools/benchmark_pl_kernel.py` — Tool to measure throughput (Mpairs/s) and VRAM usage.
-- `tools/profile_kernel.py` — Standalone profiler for kernel execution and memory usage.
-- `benchmark.py` — End-to-end benchmark suite that writes CSV, JSON, and plot artifacts.
-
----
-
-## Repo layout
-
-```text
-train_svm_qkernel.py               # Main Entry Point
-train_svm_classical.py             # Classical baseline
-benchmark.py                       # Full benchmark suite
-run_all_classical.sh                     # CPU batch launcher
-run_all_quantum.sh                 # GPU quantum batch launcher
-scripts/
- └─ pipeline_backends.py           # Unified kernel API (The "Engine")
-tools/
- ├─ benchmark_pl_kernel.py         # Throughput benchmark
- └─ profile_kernel.py              # Kernel profiler
-tests/
- └─ check_nan.py                   # Numerical stability check
-configs/
- ├─ fashion_med.yaml
- ├─ fashion_easy.yaml
- └─ fashion_hard.yaml
-models/
- └─ svm_extension.py               # Custom SVM wrapper (Save/Load/Thresholds)
-benchmark_results/                 # Default benchmark outputs
-kernel_cache/                      # Runtime kernel cache
-
-```
-
----
-
-## 🚀 High-Performance Architecture
-
-This project implements a custom **GPU-accelerated pipeline** (`cuda_states`) designed for massive quantum kernel computations on NVIDIA GPUs.
-
-### Key Features
-
-1. **Zero-Copy Memory Management:** Uses `DLPack` to transfer state vectors from PennyLane/PyTorch to CuPy/CUDA without CPU round-trips.
-2. **Custom CUDA Kernels:** Implements output-stationary raw CUDA kernels (`cgemm_abs2_os_full`) to fuse dot-product and magnitude-squared operations while keeping numerical accumulation in double precision.
-3. **Synchronization:** Explicit CUDA stream synchronization to prevent race conditions between PyTorch (State Generation) and CuPy (Kernel Calculation).
-4. **Float64 Support:** Full support for double precision to ensure numerical stability in SVM solvers.
-
----
-
-## 💻 Hardware Specs
-
-Benchmarks and training were performed on a high-end HPC node:
-
-- **GPU:** 2x **NVIDIA RTX 6000 Ada Generation** (96 GB VRAM each)
-- **CPU:** Dual **AMD EPYC 74F3** 24-Core Processor (96 threads total)
-- **RAM:** 512 GB DDR4
-- **CUDA:** Version 13.0
-
----
-
-## Setup
-
-### Environment
-
-- **OS**: Linux (tested on Ubuntu 22.04/24.04)
-- **CUDA**: 12.x or 13.x
+### 1. Build containers
 
 ```bash
-# Clone
-git clone https://github.com/DylanUnifi/ProjectWorkParallelProgramming.git
-cd ProjectWorkParallelProgramming
-
-# Install dependencies
-pip install -r requirements.txt
-
+docker compose build trainer-classical trainer-quantum
 ```
 
-### Docker (Recommended)
-
-We provide two Docker images: a CPU baseline and a slimmer GPU image built on Python 3.10 with CUDA 13.0 wheels.
+### 2. Run full exam sweeps
 
 ```bash
-# Build CPU image
-docker build -t parallel-programming:cpu -f Dockerfile .
-
-# Build GPU image
-docker build -t parallel-programming:gpu -f Dockerfile.gpu130 .
-
-# Run CPU container
-docker run --rm -it -v $(pwd):/app parallel-programming:cpu
-
-# Run GPU container (mounting current dir)
-docker run --rm -it --gpus all --shm-size=16g -v $(pwd):/app parallel-programming:gpu
-
+bash run_all_classical.sh
+bash run_all_quantum.sh
 ```
 
-With docker compose, `trainer-classical` builds the CPU image and `trainer-quantum` / `run-all-gpu130` build the CUDA 13.0 image from `Dockerfile.gpu130`. On the server, run scripts through Docker only: `run_all_classical.sh` and `run_all_quantum.sh` now re-execute themselves inside the right container, and direct commands should use `docker compose run`. The default GPU image keeps the optional `lightning.gpu` extra out to stay within tighter Docker storage budgets.
-
----
-
-## Backends & knobs
-
-The script `train_svm_qkernel.py` exposes several knobs to tune performance:
-
-- **`--gram-backend`**: `cuda_states`, `torch`, or `numpy`.
-- **`--state-tile`**: Number of quantum states processed per GPU batch for `cuda_states`.
-- **`--tile-size`**: Tile size used by the non-`cuda_states` backends.
-- **`--dtype`**: `float32` (speed) or `float64` (precision). `float64` is recommended for numerical stability.
-- **`--cache-kernels`**: Save computed matrices to disk to skip re-computation during hyperparameter tuning.
-
----
-
-## 🔥 Training & Usage
-
-### Optimal Configuration (Benchmark-Validated)
+### 3. Extract results (latest run only)
 
 ```bash
-docker compose -f docker-compose.yml run --rm trainer-quantum \
-    python3 train_svm_qkernel.py \
-        --config configs/cifar10_med.yaml \
-        --gram-backend cuda_states \
-        --pl-device lightning.gpu \
-        --state-tile -1 \
-        --vram-fraction 0.95 \
-        --num-streams 2 \
-        --precompute-all-states \
-        --no-dynamic-batch \
-        --no-cuda-graphs \
-        --dtype float64
+docker compose run --rm extract-results \
+  python3 extract_results.py --latest-run --csv summary_results_latest.csv
 ```
 
-**Key findings:**
-
-- `precompute_all_states=True` provides **74% speedup** (most critical)
-- `state_tile=-1` (auto) is **78% faster** than fixed sizes
-- `vram_fraction=0.95` maximizes GPU utilization
-- `dynamic_batch` and `cuda_graphs` show no benefit, slight overhead
-
-### 1. Ultra-High Performance (Recommended)
-
-To unleash the full performance on high-end GPUs, use `cuda_states` with huge tiles.
+### 4. Extract a specific run
 
 ```bash
-docker compose -f docker-compose.yml run --rm trainer-quantum \
-    python3 train_svm_qkernel.py \
-        --config configs/fashion_easy.yaml \
-        --gram-backend cuda_states \
-        --dtype float64 \
-        --state-tile -1 \
-        --cache-kernels \
-        --pca-components 16 \
-        --embed-mode ryrz \
-        --kernel-centering \
-        --normalize-kernel \
-        --angle-scale 0.1
+docker compose run --rm extract-results \
+  python3 extract_results.py --run 20260615_211954 --csv summary_results_run_20260615_211954.csv
 ```
 
-### 2. Multi-GPU Training
+## Main Files Used for the Report
 
-If your system has multiple GPUs, you can train multiple configurations simultaneously:
+- Full historical extraction:
+  - `summary_results_v2.csv`
+- Latest quantum run:
+  - `summary_results_latest_alias.csv`
+- Classical run used for paired comparison:
+  - `summary_results_classical_20260615_182830.csv`
+- Final paired table (dataset/difficulty):
+  - `summary_comparison_by_dataset_difficulty.csv`
+- Report source:
+  - `parallel_qkernel_report_final.tex`
 
-```bash
-# Terminal 1: GPU 0 -> Fashion-MNIST EASY
-docker compose -f docker-compose.yml run --rm trainer-quantum \
-    bash -lc 'CUDA_VISIBLE_DEVICES=0 python3 train_svm_qkernel.py --config configs/fashion_easy.yaml ...'
+## Benchmark Figures
 
-# Terminal 2: GPU 1 -> Fashion-MNIST HARD
-docker compose -f docker-compose.yml run --rm trainer-quantum \
-    bash -lc 'CUDA_VISIBLE_DEVICES=1 python3 train_svm_qkernel.py --config configs/fashion_hard.yaml ...'
-```
+- Global: `benchmark_results/benchmark.png`
+- Fashion: `benchmark_results/fashion/benchmark.png`
+- CIFAR-10: `benchmark_results/cifar10/benchmark.png`
+- SVHN: `benchmark_results/svhn/benchmark.png`
 
-Batch helpers are also available:
+## Notes for This Exam Repository
 
-```bash
-bash run_all_quantum.sh   # quantum runs
-bash run_all_classical.sh   # classical baseline runs
+- `.gitignore` is configured to avoid committing generated logs, local caches, benchmark outputs, summary CSVs, and LaTeX build artifacts.
+- Re-run experiments locally when needed; generated artifacts are intentionally ignored to keep the repository clean.
 
-```
+## Author
 
----
-
-## Benchmarking
-
-### Example 1: Quick Backend Comparison
-
-Test the three backends with a smaller workload:
-
-```bash
-docker compose -f docker-compose.yml run --rm trainer-quantum \
-    python3 benchmark.py --backend-comparison --n-samples 4000 --n-qubits 16
-```
-
-### Example 2: Full cuda_states Optimization Study
-
-Comprehensive study of all cuda_states optimizations:
-
-```bash
-docker compose -f docker-compose.yml run --rm trainer-quantum \
-    python3 benchmark.py \
-        --cuda-states-ablation \
-        --cuda-states-state-tile \
-        --cuda-states-vram \
-        --cuda-states-streams \
-        --n-samples 8000 \
-        --n-qubits 16 \
-        --verbose
-```
-
-### Example 3: Focused torch Comparison
-
-Compare `torch` directly against `cuda_states` and `numpy`:
-
-```bash
-docker compose -f docker-compose.yml run --rm trainer-quantum \
-    python3 benchmark.py \
-        --backend-comparison \
-        --backends torch cuda_states numpy \
-        --n-samples 8000 \
-        --verbose
-```
-
-### Example 4: Memory Profiling
-
-Run with detailed memory profiling:
-
-```bash
-python benchmark.py \
-    --memory-profiling \
-    --backend-comparison \
-    --n-samples 4000 \
-    --verbose
-```
-
-### Example 5: Scaling Analysis
-
-Analyze how performance scales:
-
-```bash
-python benchmark.py \
-    --qubit-scaling \
-    --sample-scaling \
-    --verbose
-```
-
-### Example 6: Production-Ready Full Suite
-
-Run the complete benchmark suite with production settings:
-
-```bash
-python benchmark.py \
-    --all \
-    --n-samples 1000 \
-    --n-qubits 16 \
-    --warmup-runs 2 \
-    --benchmark-runs 5 \
-    --output-dir benchmark_results \
-    --verbose
-```
-
-### Example 7: Dataset Profiles (Fashion, CIFAR10, SVHN)
-
-Use dataset profiles to reproduce the validated benchmark campaign across Fashion-MNIST, CIFAR-10, and SVHN.
-
-```bash
-# Run all three profiles sequentially (fashion, cifar10, svhn)
-bash run_benchmark_profiles.sh
-
-# Optional: run one profile manually
-docker compose run --rm trainer-quantum python3 benchmark.py \
-    --all \
-    --parallel-gpus 3 \
-    --dataset-profile fashion \
-    --warmup-runs 2 \
-    --benchmark-runs 2 \
-    --output-dir benchmark_results/fashion
-```
-
-Notes:
-
-- `--dataset-profile` configures `QUBITS_RANGE`, `SAMPLE_SIZES`, and default benchmark scales.
-- `--warmup-runs` controls GPU warmup passes before timing.
-- `--benchmark-runs` controls timed repetitions and averages per test point.
-- `run_benchmark_profiles.sh` writes logs to `benchmark_results/logs/` and per-profile outputs to `benchmark_results/<profile>/`.
-
-## Output Files
-
-The benchmark generates comprehensive output in the selected output directory. By default this is `benchmark_results/`.
-
-### Main Artifacts
-
-- `benchmark.csv` - Combined row-wise results from every executed benchmark test.
-- `benchmark_summary.json` - Aggregated summary statistics.
-- `benchmark.png` - Comprehensive visualization with 6 subplots:
-  - Throughput vs Qubits
-  - Time vs Qubits (Log Scale)
-  - GPU Memory Usage
-  - Sample Scaling (O(N²) verification)
-  - Optimization Ablation (CUDA_STATES and TORCH)
-  - Backend Speedup vs Numpy (sample-scaling first, qubit fallback)
-
-## Interpreting Results
-
-### Backend Comparison
-
-Look for:
-
-- **Best throughput** (Mpairs/s): Higher is better
-- **GPU memory usage**: Ensure it fits in available VRAM
-- **Speedup vs CPU**: How much faster GPU backends are
-
-### Optimization Ablation
-
-- **Baseline**: Performance with all optimizations OFF
-- **Individual optimizations**: Contribution of each optimization
-- **Full optimizations**: Performance with all optimizations ON
-- **Speedup factor**: Full optimizations vs Baseline
-
-### Tile Size Optimization
-
-- **Optimal tile size**: Balance between memory usage and performance
-- **Performance curve**: How throughput varies with tile size
-- **Memory impact**: Larger tiles may use more memory
-
-### VRAM Fraction Impact
-
-- **Sweet spot**: Best vram_fraction for your workload
-- **Stability**: Higher fractions may be less stable
-- **Throughput**: Impact on performance
-
-### Stream Pool Impact
-
-- **Optimal stream count**: More isn't always better
-- **Diminishing returns**: Look for performance plateau
-- **Overhead**: Too many streams can add overhead
-
-### Scaling Analysis
-
-- **Qubit scaling**: Should show exponential growth (2^n)
-- **Sample scaling**: Should show O(N²) behavior
-- **Backend comparison**: How different backends scale
-
-The latest validated benchmark campaign used dataset profiles with `warmup-runs=2` and `benchmark-runs=2`.
-
-| Dataset | Fastest backend (backend comparison) | Best global throughput | Best torch optimization | Sample scaling N=1024 (cuda_states / torch / numpy) |
-| --- | ---: | ---: | ---: | ---: |
-| fashion | cuda_states (0.088 Mpairs/s) | numpy (0.101 Mpairs/s) | torch_pinned+streams (0.060 Mpairs/s) | 0.055 / 0.057 / 0.086 |
-| cifar10 | cuda_states (0.047 Mpairs/s) | numpy (0.097 Mpairs/s) | torch_pinned+streams (0.038 Mpairs/s) | 0.024 / 0.038 / 0.032 |
-| svhn | cuda_states (0.049 Mpairs/s) | numpy (0.097 Mpairs/s) | torch_pinned+streams (0.038 Mpairs/s) | 0.024 / 0.037 / 0.033 |
-
-Optimization summary from the same campaign:
-
-| Dataset | Best cuda_states tile | Best vram_fraction | Best stream count | Best torch config |
-| --- | ---: | ---: | ---: | --- |
-| fashion | state_tile=2048 | 0.95 | 1 | torch_pinned+streams |
-| cifar10 | state_tile=32768 | 0.95 | 1 | torch_pinned+streams |
-| svhn | state_tile=16384 | 0.95 | 1 | torch_pinned+streams |
-
-Two practical conclusions follow from these runs:
-
-- panel 6 now uses sample-scaling results for the speedup curve whenever they are available;
-- `numpy` is benchmarked up to `N=1024`, matching the GPU backends for the sample-scaling study.
-
-## Performance Tips
-
-1. **Start small**: Test with smaller workloads first (e.g., --n-samples 2000)
-2. **Use warmup**: Always use at least 1 warmup run to prime the GPU
-3. **Multiple runs**: Use 3-5 benchmark runs for accurate timing
-4. **Monitor memory**: Watch GPU memory usage, especially for large qubit counts
-5. **Optimize incrementally**: Test one optimization at a time before combining
-
-## Troubleshooting
-
-### Out of Memory Errors
-
-- Reduce `--n-samples` or `--n-qubits`
-- Lower `vram_fraction` (e.g., 0.7 instead of 0.95)
-- Use smaller state_tile values
-- Close other GPU applications
-
-### Slow Performance
-
-- Ensure GPU isn't being used by other processes
-- Check that CUDA is properly installed
-- Verify that optimizations are enabled
-- Try different tile sizes
-
-### Import Errors
-
-Ensure all dependencies are installed:
-
-```bash
-pip install numpy pandas matplotlib seaborn torch cupy
-```
-
-## Advanced Usage
-
-### Custom Configuration
-
-You can modify `BACKEND_CONFIGS` in the script to test custom configurations:
-
-```python
-BACKEND_CONFIGS = {
-    "cuda_states": {
-        "state_tile": 4096,  # Custom value
-        "vram_fraction": 0.9,  # Custom value
-        "num_streams": 8,  # Custom value
-        # ... other parameters
-    },
-}
-```
-
-### Batch Testing
-
-Create a shell script to run multiple configurations:
-
-```bash
-#!/bin/bash
-for samples in 2000 4000 8000 16000; do
-    for qubits in 8 10 12 14; do
-        python benchmark.py \
-            --backend-comparison \
-            --n-samples $samples \
-            --n-qubits $qubits \
-            --output-dir results_${samples}_${qubits}
-    done
-done
-```
-
-## Hardware Requirements
-
-- **Minimum**: NVIDIA GPU with 8GB VRAM, CUDA 11.0+
-- **Recommended**: NVIDIA GPU with 16GB+ VRAM, CUDA 12.0+
-- **Optimal**: NVIDIA RTX 6000 Ada (96GB VRAM), CUDA 13.0
-
----
-
-## 📦 Logging & artifacts
-
-- **Weights & Biases**: Tracks F1-score, AUC, Accuracy, and **Confusion Matrices**.
-- **Kernel Cache**: Computed Gram matrices are stored in `./kernel_cache/` (md5 hashed based on data and parameters).
-- **Batch Logs**: `run_all_classical.sh` writes `log_*_classical_*.txt` and `run_all_quantum.sh` writes `log_*_torch_*.txt`.
-
----
-
-## License & citation
-
-- Code released for academic use within the Parallel Programming course.
-- Please cite the repo and upstream frameworks (PennyLane, PyTorch, CuPy) if you build on it.
-
----
-
-✍️ **Author**: Dylan Fouepe — Master’s in AI, University of Florence
-
-GitHub: [@DylanUnifi](https://github.com/DylanUnifi)
+Dylan Fouepe

@@ -12,6 +12,8 @@ Supported log filename format:
 
 Usage:
   python3 extract_results.py                     # writes summary_results_v2.csv
+    python3 extract_results.py --run 20260615_211954  # only that run folder
+    python3 extract_results.py --latest-run        # only newest run folder
   python3 extract_results.py --csv my_out.csv    # custom output path
   python3 extract_results.py --verbose           # print per-file details
 """
@@ -40,8 +42,18 @@ FILENAME_RE = re.compile(
 Q_METRICS_RE = re.compile(r"test_F1=([0-9\.]+)\s+test_AUC=([0-9\.]+)")
 
 # Classical SVM final metrics (train_svm_classical.py)
+# Current format example:
+#   Average RBF SVM | val_F1: 0.9792 | test_F1: 0.9780 | test_AUC: 0.9965 | ...
 C_METRICS_RE = re.compile(
-    r"AVERAGE RBF SVM \| F1:\s*([0-9\.]+)\s*\| AUC:\s*([0-9\.]+)"
+    r"Average\s+RBF\s+SVM\s*\|\s*val_F1:\s*[0-9\.]+\s*\|\s*"
+    r"test_F1:\s*([0-9\.]+)\s*\|\s*test_AUC:\s*([0-9\.]+)",
+    re.IGNORECASE,
+)
+
+# Legacy format kept for backward compatibility.
+C_METRICS_RE_LEGACY = re.compile(
+    r"AVERAGE\s+RBF\s+SVM\s*\|\s*F1:\s*([0-9\.]+)\s*\|\s*AUC:\s*([0-9\.]+)",
+    re.IGNORECASE,
 )
 
 # Wall-clock time – handles `real 4m33.210s` and `4:33.21elapsed`
@@ -69,6 +81,21 @@ def discover_logs(root: Path) -> list[Path]:
                 seen.add(resolved)
                 files.append(resolved)
     return files
+
+
+def filter_logs_by_run(log_files: list[Path], run: str | None) -> list[Path]:
+    """Filter logs to a specific timestamped run directory when requested."""
+    if not run:
+        return log_files
+    return [p for p in log_files if p.parent.name == run]
+
+
+def get_latest_run_name(log_files: list[Path]) -> str | None:
+    """Return latest run directory name inferred from log parent folders."""
+    run_names = sorted({p.parent.name for p in log_files if p.parent.name})
+    if not run_names:
+        return None
+    return run_names[-1]
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +126,8 @@ def parse_log(path: Path, verbose: bool = False) -> dict | None:
     # ---- metrics -----------------------------------------------------------
     if backend == "classical":
         metric_matches = C_METRICS_RE.findall(content)
+        if not metric_matches:
+            metric_matches = C_METRICS_RE_LEGACY.findall(content)
     else:
         metric_matches = Q_METRICS_RE.findall(content)
 
@@ -148,14 +177,34 @@ def parse_log(path: Path, verbose: bool = False) -> dict | None:
 # Main
 # ---------------------------------------------------------------------------
 
-def parse_logs(csv_out: str = "summary_results_v2.csv", verbose: bool = False) -> list[dict]:
+def parse_logs(
+    csv_out: str = "summary_results_v2.csv",
+    verbose: bool = False,
+    run: str | None = None,
+    latest_run: bool = False,
+) -> list[dict]:
     root = Path(__file__).resolve().parent
-    log_files = discover_logs(root)
+    all_logs = discover_logs(root)
+
+    run_filter = run
+    if run_filter == "latest":
+        latest_run = True
+        run_filter = None
+
+    if latest_run:
+        run_filter = get_latest_run_name(all_logs)
+
+    log_files = filter_logs_by_run(all_logs, run_filter)
 
     if not log_files:
-        print("Warning: no log_*.txt files found. Run the training scripts first.", file=sys.stderr)
+        if run_filter:
+            print(f"Warning: no log_*.txt files found for run '{run_filter}'.", file=sys.stderr)
+        else:
+            print("Warning: no log_*.txt files found. Run the training scripts first.", file=sys.stderr)
         return []
 
+    if run_filter:
+        print(f"Run filter: {run_filter}")
     print(f"Found {len(log_files)} log file(s).")
 
     results = []
@@ -192,5 +241,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract training results from log files.")
     parser.add_argument("--csv", default="summary_results_v2.csv", help="Output CSV file path")
     parser.add_argument("--verbose", "-v", action="store_true", help="Print per-file details")
+    parser.add_argument(
+        "--run",
+        default=None,
+        help="Filter logs to a single run folder timestamp (example: 20260615_211954). Use 'latest' for newest run.",
+    )
+    parser.add_argument(
+        "--latest-run",
+        action="store_true",
+        help="Filter logs to the newest run folder automatically.",
+    )
     args = parser.parse_args()
-    parse_logs(csv_out=args.csv, verbose=args.verbose)
+    parse_logs(csv_out=args.csv, verbose=args.verbose, run=args.run, latest_run=args.latest_run)

@@ -1,18 +1,18 @@
-# Parallel Programming Exam Project
+# Parallel Programming Project
 
-This repository contains the exam work on parallel acceleration of SVM pipelines with:
+This repository studies acceleration of quantum-kernel SVM pipelines for image classification with three execution paths:
 
-- classical baseline (`classical`)
-- quantum-kernel backend with PyTorch (`torch`)
-- custom CUDA backend (`cuda_states`)
+- CPU base: classical CPU baseline and reference path
+- GPU base: PyTorch GPU backend
+- GPU custom: CuPy + custom CUDA kernel backend
 
-Target datasets:
+Datasets used in experiments:
 
 - Fashion-MNIST
 - CIFAR-10
 - SVHN
 
-## What Is Included
+## Repository Contents
 
 - Training scripts:
   - `train_svm_classical.py`
@@ -24,60 +24,78 @@ Target datasets:
   - `benchmark.py`
 - Result extraction:
   - `extract_results.py`
+- Main report source:
+  - `report_pw_pp.tex`
+- Main presentation source:
+  - `presentation pw-pp.tex`
 
-## Quick Start (Docker Compose)
+## Quick Start
 
-### 1. Build containers
+### 1. Build runtime containers
 
 ```bash
 docker compose build trainer-classical trainer-quantum
 ```
 
-### 2. Run full exam sweeps
+### 2. Run full sweeps
 
 ```bash
 bash run_all_classical.sh
 bash run_all_quantum.sh
 ```
 
-### 3. Extract results (latest run only)
+## Build PDF Outputs (Docker)
+
+### Report
 
 ```bash
-docker compose run --rm extract-results \
-  python3 extract_results.py --latest-run --csv summary_results_latest.csv
+docker compose run --rm latex-build bash -lc "pdflatex -interaction=nonstopmode report_pw_pp.tex && bibtex report_pw_pp && pdflatex -interaction=nonstopmode report_pw_pp.tex && pdflatex -interaction=nonstopmode report_pw_pp.tex"
 ```
 
-### 4. Extract a specific run
+### Presentation
 
 ```bash
-docker compose run --rm extract-results \
-  python3 extract_results.py --run 20260615_211954 --csv summary_results_run_20260615_211954.csv
+docker compose run --rm latex-build bash -lc "lualatex -interaction=nonstopmode 'presentation pw-pp.tex' && lualatex -interaction=nonstopmode 'presentation pw-pp.tex'"
 ```
 
-## Main Files Used for the Report
+## Key Results
 
-- Full historical extraction:
-  - `summary_results_v2.csv`
-- Latest quantum run:
-  - `summary_results_latest_alias.csv`
-- Classical run used for paired comparison:
-  - `summary_results_classical_20260615_182830.csv`
-- Final paired table (dataset/difficulty):
-  - `summary_comparison_by_dataset_difficulty.csv`
-- Report source:
-  - `parallel_qkernel_report_final.tex`
+### Highlights
 
-## Benchmark Figures
+| Metric | Value | Context |
+|---|---:|---|
+| Best quantum F1 | 0.9653 | Fashion-MNIST, GPU base, size 1000 |
+| Best quantum AUC | 0.9956 | Fashion-MNIST, GPU base, size 1000 |
+| Classical wins | 8/9 | Paired comparisons at size 500 and 1000 |
 
-- Global: `benchmark_results/benchmark.png`
-- Fashion: `benchmark_results/fashion/benchmark.png`
-- CIFAR-10: `benchmark_results/cifar10/benchmark.png`
-- SVHN: `benchmark_results/svhn/benchmark.png`
+### Classical vs Quantum (Size 1000)
 
-## Notes for This Exam Repository
+| Comparison | Delta F1 | Delta AUC | Delta Time (s) |
+|---|---:|---:|---:|
+| Classical - GPU base | +0.1721 | +0.1600 | -274.52 |
+| Classical - GPU custom | +0.2676 | +0.1990 | -475.66 |
 
-- `.gitignore` is configured to avoid committing generated logs, local caches, benchmark outputs, summary CSVs, and LaTeX build artifacts.
-- Re-run experiments locally when needed; generated artifacts are intentionally ignored to keep the repository clean.
+### Collapse Indicators (Hard CIFAR-10, 6 Layers)
+
+| Indicator | Value |
+|---|---:|
+| Kernel std | 0.0005 |
+| Support-vector fraction | 1.0000 |
+| Test F1 | 0.0000 |
+| Test AUC | 0.4757 |
+
+These values are reported in `report_pw_pp.tex`.
+
+## Important Figures
+
+| Figure | Description | Path |
+|---|---|---|
+| Fashion benchmark | Throughput and backend profile on Fashion-MNIST | `benchmark_results/fashion/benchmark.png` |
+| CIFAR-10 benchmark | Throughput and backend profile on CIFAR-10 | `benchmark_results/cifar10/benchmark.png` |
+| SVHN benchmark | Throughput and backend profile on SVHN | `benchmark_results/svhn/benchmark.png` |
+| HPC architecture diagrams | Backend API and kernel-construction figures | `report_pw_pp.tex` |
+| Presentation visuals | Condensed storyline and result figures | `presentation pw-pp.tex` |
+
 
 ## Author
 

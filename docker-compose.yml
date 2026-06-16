@@ -113,3 +113,16 @@ services:
       - ./outputs:/app/outputs
     working_dir: /app
     command: bash run_all_classical.sh
+
+  latex-build:
+    image: texlive/texlive:latest
+    volumes:
+      - ./:/app
+    working_dir: /app
+    command: >
+      bash -c "
+        pdflatex -interaction=nonstopmode report_pw_pp.tex &&
+        bibtex report_pw_pp &&
+        pdflatex -interaction=nonstopmode report_pw_pp.tex &&
+        pdflatex -interaction=nonstopmode report_pw_pp.tex
+      "

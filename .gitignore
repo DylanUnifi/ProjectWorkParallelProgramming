@@ -35,7 +35,7 @@ tmp/
 kernel_cache/
 
 # Generated training summaries and local report tables
-summary_*.csv
+*.csv
 summary_*.txt
 
 # Root generated logs from batch scripts
@@ -70,7 +70,7 @@ local_libs/
 *.toc
 
 # Generated report PDF
-parallel_qkernel_report_final.pdf
+report_pw_pp.pdf
 
 # Backup files
 *.backup

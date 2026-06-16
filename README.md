@@ -14,20 +14,14 @@ Datasets used in experiments:
 
 ## Repository Contents
 
-- Training scripts:
-  - `train_svm_classical.py`
-  - `train_svm_qkernel.py`
-- Batch launchers:
-  - `run_all_classical.sh`
-  - `run_all_quantum.sh`
-- Benchmark suite:
-  - `benchmark.py`
-- Result extraction:
-  - `extract_results.py`
-- Main report source:
-  - `report_pw_pp.tex`
-- Main presentation source:
-  - `presentation pw-pp.tex`
+- Training scripts: `train_svm_classical.py`, `train_svm_qkernel.py`
+- Batch launchers: `run_all_classical.sh`, `run_all_quantum.sh`
+- Benchmark suite: `benchmark.py`
+- Result extraction: `extract_results.py`
+- HPC pipeline scripts: `scripts/`
+- Report: `report_pw_pp.pdf`
+- Presentation: `presentation pw-pp.pdf`
+- Benchmark figures: `benchmark_results/*/benchmark.png`
 
 ## Quick Start
 
@@ -70,19 +64,21 @@ bash run_all_quantum.sh
 | Test F1 | 0.0000 |
 | Test AUC | 0.4757 |
 
-These values are reported in `report_pw_pp.tex`.
+These values are reported in `report_pw_pp.pdf`.
 
 ## Important Figures
 
 | Figure | Description | Path |
 |---|---|---|
+| Global benchmark | Overall throughput profile across backends | `benchmark_results/benchmark.png` |
 | Fashion benchmark | Throughput and backend profile on Fashion-MNIST | `benchmark_results/fashion/benchmark.png` |
 | CIFAR-10 benchmark | Throughput and backend profile on CIFAR-10 | `benchmark_results/cifar10/benchmark.png` |
 | SVHN benchmark | Throughput and backend profile on SVHN | `benchmark_results/svhn/benchmark.png` |
-| HPC architecture diagrams | Backend API and kernel-construction figures | `report_pw_pp.tex` |
-| Presentation visuals | Condensed storyline and result figures | `presentation pw-pp.tex` |
+
+Full architecture diagrams and result figures are available in `report_pw_pp.pdf` and `presentation pw-pp.pdf`.
 
 
 ## Author
 
-Dylan Fouepe
+Dylan Fouepe — University of Florence  
+*Project Work, Parallel Programming — 2025*

@@ -44,20 +44,6 @@ bash run_all_classical.sh
 bash run_all_quantum.sh
 ```
 
-## Build PDF Outputs (Docker)
-
-### Report
-
-```bash
-docker compose run --rm latex-build bash -lc "pdflatex -interaction=nonstopmode report_pw_pp.tex && bibtex report_pw_pp && pdflatex -interaction=nonstopmode report_pw_pp.tex && pdflatex -interaction=nonstopmode report_pw_pp.tex"
-```
-
-### Presentation
-
-```bash
-docker compose run --rm latex-build bash -lc "lualatex -interaction=nonstopmode 'presentation pw-pp.tex' && lualatex -interaction=nonstopmode 'presentation pw-pp.tex'"
-```
-
 ## Key Results
 
 ### Highlights

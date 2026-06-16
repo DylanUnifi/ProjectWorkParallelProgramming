@@ -1,29 +1,42 @@
-# Parallel Programming Project
+# Acceleration of Quantum Kernel Methods for Image Classification
 
-This repository studies acceleration of quantum-kernel SVM pipelines for image classification with three execution paths:
+![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![CUDA](https://img.shields.io/badge/CUDA-13.1-green.svg)
+![PyTorch](https://img.shields.io/badge/PyTorch-GPU-ee4c2c.svg)
+![CuPy](https://img.shields.io/badge/CuPy-Custom_Kernels-blue)
 
-- CPU base: classical CPU baseline and reference path
-- GPU base: PyTorch GPU backend
-- GPU custom: CuPy + custom CUDA kernel backend
+This repository contains the codebase and reports for a parallel programming 
+project studying the acceleration of quantum-kernel Support Vector Machine (SVM) pipelines.
 
-Datasets used in experiments:
+To overcome the $\mathcal{O}(N^2 \cdot 2^Q)$ Gram matrix bottleneck in 
+high-dimensional Hilbert spaces, we evaluate three execution paths:
 
-- Fashion-MNIST
-- CIFAR-10
-- SVHN
+- **CPU base:** Classical CPU baseline and reference path (NumPy).
+- **GPU base:** Native PyTorch GPU backend with pinned memory and streams.
+- **GPU custom:** Advanced backend utilizing CuPy, DLPack (zero-copy), and 
+a custom output-stationary CUDA kernel in FP64.
 
-## Repository Contents
+Datasets evaluated: **Fashion-MNIST**, **CIFAR-10**, and **SVHN**.
 
-- Training scripts: `train_svm_classical.py`, `train_svm_qkernel.py`
-- Batch launchers: `run_all_classical.sh`, `run_all_quantum.sh`
-- Benchmark suite: `benchmark.py`
-- Result extraction: `extract_results.py`
-- HPC pipeline scripts: `scripts/`
-- Report: `report_pw_pp.pdf`
-- Presentation: `presentation pw-pp.pdf`
-- Benchmark figures: `benchmark_results/*/benchmark.png`
+---
+
+## Hardware & Environment Setup
+
+All benchmarks and training pipelines reported in this repository were 
+executed on the following HPC configuration:
+
+- **GPU:** NVIDIA RTX 6000 Ada Generation (48 GB VRAM)
+- **CPU:** AMD EPYC 7343 16-Core Processor (64 threads)
+- **Environment:** CUDA 13.1
+
+---
 
 ## Quick Start
+
+### Prerequisites
+
+- Docker and Docker Compose
+- **NVIDIA Container Toolkit** (required for GPU passthrough to the containers)
 
 ### 1. Build runtime containers
 
@@ -31,16 +44,29 @@ Datasets used in experiments:
 docker compose build trainer-classical trainer-quantum
 ```
 
-### 2. Run full sweeps
+### 2. Run full benchmark sweeps
 
 ```bash
 bash run_all_classical.sh
 bash run_all_quantum.sh
 ```
 
+Alternatively, run individual evaluations locally using Python directly:
+
+```bash
+python train_svm_qkernel.py --config configs/fashion_easy.yaml --backend 
+gpu_custom
+```
+
+---
+
 ## Key Results
 
-### Highlights
+### Global Benchmark Profile
+
+*Throughput profile across backends. Notice how the custom CUDA kernel 
+dominates at smaller sample sizes, while the PyTorch backend excels at 
+larger batches due to dense matrix optimizations.*
 
 | Metric | Value | Context |
 |---|---:|---|
@@ -48,7 +74,7 @@ bash run_all_quantum.sh
 | Best quantum AUC | 0.9956 | Fashion-MNIST, GPU base, size 1000 |
 | Classical wins | 8/9 | Paired comparisons at size 500 and 1000 |
 
-### Classical vs Quantum (Size 1000)
+### Predictive Highlights (Size 1000)
 
 | Comparison | Delta F1 | Delta AUC | Delta Time (s) |
 |---|---:|---:|---:|
@@ -57,6 +83,9 @@ bash run_all_quantum.sh
 
 ### Collapse Indicators (Hard CIFAR-10, 6 Layers)
 
+Deeper quantum circuits on complex datasets lead to state concentration 
+(kernel collapse).
+
 | Indicator | Value |
 |---|---:|
 | Kernel std | 0.0005 |
@@ -64,7 +93,23 @@ bash run_all_quantum.sh
 | Test F1 | 0.0000 |
 | Test AUC | 0.4757 |
 
-These values are reported in `report_pw_pp.pdf`.
+---
+
+## Repository Structure
+
+```
+.
+├── scripts/                    # HPC pipeline scripts and GPU memory optimization utilities
+├── configs/                    # YAML configuration files per dataset and backend
+├── benchmark_results/          # Generated throughput plots
+├── train_svm_classical.py      # Classical SVM training loop
+├── train_svm_qkernel.py        # Quantum kernel SVM training loop
+├── benchmark.py                # Benchmark suite for timing isolated Gram matrix builds
+├── report_pw_pp.pdf            # Full academic report detailing kernel logic and analysis
+└── presentation pw-pp.pdf      # Slide deck summarizing the project
+```
+
+---
 
 ## Important Figures
 

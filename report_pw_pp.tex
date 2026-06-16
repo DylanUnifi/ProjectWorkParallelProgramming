@@ -2,7 +2,8 @@
 
 % CVPR-style formatting and fonts
 \usepackage{cvpr}
-\usepackage{times}
+\usepackage{mathptmx} % Remplace l'ancien package 'times'
+\usepackage{microtype} % Règle automatiquement les espacements disgracieux
 \usepackage{epsfig}
 \usepackage{graphicx}
 \usepackage{amsmath}
@@ -85,7 +86,11 @@ The analysis focuses on measurable outcomes: F1, AUC, runtime, throughput, and k
 \section{Experimental Methodology}
 Three datasets are used for binary classification: Fashion-MNIST~\cite{xiao2017fashion}, 
 CIFAR-10~\cite{krizhevsky2009cifar}, and SVHN~\cite{netzer2011svhn}. 
-Each is binarized into three tasks of increasing difficulty (see Table~\ref{tab:tasks}). 
+Each is binarized into three tasks of increasing difficulty (see Table~\ref{tab:tasks}).
+
+\textbf{Hardware Setup:} All benchmarks and training pipelines were executed on a dedicated HPC node equipped 
+with an AMD EPYC 7343 16-Core Processor and a NVIDIA RTX 6000 Ada Generation GPU (48\,GB VRAM). The environment 
+relies on CUDA 13.1, providing massive parallelism for both the native PyTorch and custom CUDA backends.
 All experiments use $Q=16$ qubits by default, yielding state vectors of dimension $2^{16} = 65{,}536$ 
 complex amplitudes. Key performance observations from the benchmark campaign at this scale are:
 \begin{itemize}
@@ -146,7 +151,8 @@ The experimental protocol uses:
 \begin{itemize}
     \item train/test split inherited from the dataset;
     \item 3-fold cross-validation on the training partition;
-    \item hyperparameter optimization of $C$ via Optuna~\cite{akiba2019optuna};
+    \item hyperparameter optimization of $C$ via Optuna~\cite{akiba2019optuna} 
+    (sampling $C$ over a log-uniform distribution);
     \item final re-fit on train+val;
     \item final evaluation on the test set.
 \end{itemize}
@@ -162,8 +168,8 @@ but delegates execution to three paths:
 \begin{itemize}
     \item \textbf{CPU base}: CPU fallback, useful as a reference and for small cases;
     \item \textbf{GPU base}: generate states and perform matrix computation directly on the GPU with PyTorch;
-    \item \textbf{GPU custom}: generate states with PyTorch, convert tensors to CuPy via DLPack, 
-    and compute the Gram with a custom \textit{CUDA kernel}.
+    \item \textbf{GPU custom}: generate states with PyTorch, convert tensors to CuPy via DLPack (enabling 
+    efficient zero-copy memory sharing without CPU round-trips), and compute the Gram with a custom \textit{CUDA kernel}.
 \end{itemize}
 Figure~\ref{fig:backend-api} summarises the delegation flow from preprocessed features to the SVM solver.
 
@@ -190,7 +196,8 @@ Figure~\ref{fig:backend-api} summarises the delegation flow from preprocessed fe
     \draw[arr] (numpy) -| (svm);
 \end{tikzpicture}%
 }
-\caption{Unified backend API: the Gram matrix is computed on GPU (\textbf{GPU base} or \textbf{GPU custom}) or CPU (\textbf{CPU base}); the SVM solver always runs on CPU.}
+\caption{Unified backend API: the Gram matrix is computed on GPU (\textbf{GPU base} or \textbf{GPU custom}) or CPU (\textbf{CPU base}); 
+the SVM solver always runs on CPU.}
 \label{fig:backend-api}
 \end{figure}
 
@@ -214,11 +221,11 @@ In this report, its role is assessed through measured throughput and downstream 
 not by internal kernel structure.
 Figure~\ref{fig:cuda-flow} details its computation pipeline.
 
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
-\begin{subfigure}[t]{0.32\textwidth}
+
+\begin{subfigure}[t]{\columnwidth}
 \centering
-\resizebox{0.76\linewidth}{!}{%
 \begin{tikzpicture}[
     box/.style={draw, rounded corners, minimum width=1.4cm, minimum height=0.52cm,
                                 align=center, font=\small},
@@ -230,15 +237,15 @@ Figure~\ref{fig:cuda-flow} details its computation pipeline.
     \node[box, fill=BackendNumpy, below=of states] (gram) {Gram};
     \draw[arr] (feat) -- (states);
     \draw[arr] (states) -- (gram);
-\end{tikzpicture}%
-}
+\end{tikzpicture}
 \caption{CPU base flow.}
 \label{fig:numpy-flow}
 \end{subfigure}
-\hfill
-\begin{subfigure}[t]{0.32\textwidth}
+
+\vspace{0.4cm}
+
+\begin{subfigure}[t]{\columnwidth}
 \centering
-\resizebox{0.84\linewidth}{!}{%
 \begin{tikzpicture}[
     box/.style={draw, rounded corners, minimum width=1.6cm, minimum height=0.6cm,
                                 align=center, font=\small},
@@ -252,15 +259,15 @@ Figure~\ref{fig:cuda-flow} details its computation pipeline.
     \draw[arr] (feat) -- (states);
     \draw[arr] (states) -- (gram);
     \draw[arr] (gram) -- (norm);
-\end{tikzpicture}%
-}
+\end{tikzpicture}
 \caption{GPU base flow.}
 \label{fig:torch-flow}
 \end{subfigure}
-\hfill
-\begin{subfigure}[t]{0.32\textwidth}
+
+\vspace{0.4cm}
+
+\begin{subfigure}[t]{\columnwidth}
 \centering
-\resizebox{0.76\linewidth}{!}{%
 \begin{tikzpicture}[
     box/.style={draw, rounded corners, minimum width=1.4cm, minimum height=0.52cm,
                                 align=center, font=\small},
@@ -276,19 +283,20 @@ Figure~\ref{fig:cuda-flow} details its computation pipeline.
     \draw[arr] (states) -- (dlpack);
     \draw[arr] (dlpack) -- (rawker);
     \draw[arr] (rawker) -- (norm);
-\end{tikzpicture}%
-}
+\end{tikzpicture}
 \caption{GPU custom flow.}
 \label{fig:cuda-flow}
 \end{subfigure}
-\caption{Horizontal comparison of backend pipelines referenced in the HPC architecture section.}
-\end{figure*}
 
-\begin{figure*}[t]
+\caption{Comparison of backend pipelines}
+\label{fig:backend_comparison}
+\end{figure}
+
+\begin{figure}[t]
 \centering
-\begin{subfigure}[t]{0.32\textwidth}
+
+\begin{subfigure}[t]{0.28\columnwidth}
 \centering
-\resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
         stage/.style={draw, fill=BackendCuda, rounded corners,
                     minimum width=1.6cm, minimum height=0.6cm, align=center, font=\scriptsize},
@@ -299,14 +307,12 @@ Figure~\ref{fig:cuda-flow} details its computation pipeline.
     \node[stage] (s3) at (0,-1.70) {Launch};
     \draw[arr] (s1) -- (s2);
     \draw[arr] (s2) -- (s3);
-\end{tikzpicture}%
-}
+\end{tikzpicture}
 \caption{Host flow.}
-\end{subfigure}
+\end{subfigure}%
 \hfill
-\begin{subfigure}[t]{0.32\textwidth}
+\begin{subfigure}[t]{0.42\columnwidth}
 \centering
-\resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
         stage/.style={draw, fill=BackendCuda, rounded corners,
                     minimum width=1.6cm, minimum height=0.6cm, align=center, font=\scriptsize},
@@ -318,14 +324,12 @@ Figure~\ref{fig:cuda-flow} details its computation pipeline.
     \node[note] (eq) at (0,-1.85) {$K_{ij}=|\sum_k A_i[k]\overline{B_j[k]}|^2$};
     \draw[arr] (s4.south) -- (s5.north);
     \draw[arr] (s5.south) -- (eq.north);
-\end{tikzpicture}%
-}
+\end{tikzpicture}
 \caption{Device core.}
-\end{subfigure}
+\end{subfigure}%
 \hfill
-\begin{subfigure}[t]{0.32\textwidth}
+\begin{subfigure}[t]{0.28\columnwidth}
 \centering
-\resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
     opt/.style={draw, rounded corners, fill=BackendNumpy, minimum width=1.6cm, minimum height=0.6cm, align=center, font=\scriptsize}
 ]
@@ -334,33 +338,43 @@ Figure~\ref{fig:cuda-flow} details its computation pipeline.
     \node[opt] (o3) at (0,-1.2) {streams};
     \node[opt] (o4) at (0,-1.8) {FP64};
     \node[opt] (o5) at (0,-2.4) {lower-tri};
-\end{tikzpicture}%
-}
-\caption{Opt knobs.}
+\end{tikzpicture}
+\caption{Optimization.}
 \end{subfigure}
-\caption{Kernel construction in \textbf{GPU custom}, organized across three full-width elements: host orchestration, device kernel core, and optimization controls.}
+
+\caption{Kernel construction in \textbf{GPU custom}, organized across three elements: host orchestration, device kernel core, and optimization controls.}
 \label{fig:rawkernel}
-\end{figure*}
+\end{figure}
 
 \subsubsection{Backend Optimizations}
-Backend-specific optimizations are grouped to clarify what changes execution speed and what preserves metric comparability:
+Backend-specific optimizations are:
 \begin{itemize}
-    \item \textbf{CPU base path}: CPU-only reference path with no VRAM-aware tiling, stream orchestration, or kernel autotuning.
     \item \textbf{GPU base path}: pinned host memory and CUDA streams are used to overlap transfer/compute stages, without custom CUDA kernel tuning.
     \item \textbf{VRAM-aware sizing}: state\_tile=-1 automatically sizes state block dimensions 
     according to available VRAM.
     \item \textbf{Autotuning}: CUDA kernel tile sizes are learned and cached persistently across runs.
      A specific entry for 16 qubits in double precision is handled.
-    \item \textbf{Bulk precompute}: when memory permits, all states in a block are prebuilt to reduce round-trips.
+    \item \textbf{Bulk precompute}: when memory permits, all states in a block are prebuilt to reduce round-trips and leverage GPU parallelism.
     \item \textbf{Stream pool}: multiple CUDA streams can be used to orchestrate state preparation and Gram computation.
     \item \textbf{Memory profiling}: the benchmark measures VRAM usage, transfers and throughput.
+    \item \textbf{CPU base path}: Use smal state\_tile sizes to take advantage of CPU cache and avoid VRAM-like bottlenecks.
+     The CPU path does not use pinned memory or streams, as these are GPU-specific optimizations.
+     Instead, it relies on efficient NumPy operations and multi-threading where possible.
 \end{itemize}
 
-The observed best settings were vram\_fraction=0.95 and num\_streams=1,
-with pinned memory + streams on the \textbf{GPU base} path.
+Benchmark ablations identify the most useful settings:
+\begin{itemize}
+    \item disabling precompute is the slowest option in the reported \textbf{GPU custom} ablation rows;
+    \item vram\_fraction=0.95 is the selected optimum in each of the stored profile logs;
+    \item num\_streams=1 is the selected optimum in the stored stream-sweep rows;
+    \item torch\_pinned+streams is the best torch configuration in the stored torch ablation rows.
+\end{itemize}
+
+At this scale, data movement and memory organization have a larger effect than increasing stream complexity.
 
 \subsubsection{Normalization and Metric Comparability}
-All backend comparisons share the same post-processing and kernel normalization protocol so that F1/AUC and runtime differences can be interpreted as backend effects rather than normalization artifacts:
+All backends share the same post-processing and kernel normalization protocol so that F1/AUC and runtime differences can be interpreted as backend effects 
+rather than normalization artifacts:
 \begin{itemize}
     \item finite-value checks (NaN/Inf) before writing kernel blocks;
     \item diagonal validation before normalization and classifier fitting;
@@ -384,11 +398,12 @@ per-dataset benchmark summaries, figures, and execution logs.
 
 \begin{table}[t]
 \centering
-\caption{Sample-scaling throughput (Mpairs/s) by dataset and backend from per-dataset benchmark CSVs. Values are reported at the highest sample-scaling qubit setting available in each dataset profile (Fashion: 12 qubits; CIFAR-10 and SVHN: 16 qubits).}
+\caption{Sample-scaling throughput (Mpairs/s) by dataset and backend from per-dataset benchmark CSVs. Values 
+are reported at the highest sample-scaling qubit setting available in each dataset profile 
+(Fashion: 12 qubits; CIFAR-10 and SVHN: 16 qubits).}
 \label{tab:benchmark}
 \scriptsize
-\setlength{\tabcolsep}{3pt}
-\resizebox{\columnwidth}{!}{%
+\setlength{\tabcolsep}{4pt} % Légèrement augmenté car on a enlevé le resizebox
 \begin{tabular}{llcccc}
 \toprule
 \textbf{Dataset} & \textbf{Size} & \textbf{Qubits} & \textbf{CPU base} & \textbf{GPU base} & \textbf{GPU custom} \\
@@ -402,9 +417,7 @@ cifar10 & 1024 & 16 & 0.0319 & 0.0375 & 0.0245 \\
 svhn    & 256  & 16 & 0.0023 & 0.0053 & 0.0058 \\
 svhn    & 512  & 16 & 0.0097 & 0.0175 & 0.0124 \\
 svhn    & 1024 & 16 & 0.0328 & 0.0366 & 0.0243 \\
-\bottomrule
 \end{tabular}
-}
 \end{table}
 
 Key observations from these benchmark statistics are:
@@ -414,42 +427,33 @@ Key observations from these benchmark statistics are:
     \item at 1024 samples, \textbf{GPU base} remains fastest on CIFAR-10 and SVHN, while \textbf{CPU base} is fastest on Fashion.
 \end{itemize}
 
-The benchmark plots in Figs.~\ref{fig:bench-fashion}, \ref{fig:bench-cifar10}, and \ref{fig:bench-svhn} are consistent with Table~\ref{tab:benchmark}: backend ranking depends on both dataset profile and sample size.
+The benchmark plots in Figs.~\ref{fig:bench-fashion}, \ref{fig:bench-cifar10}, and \ref{fig:bench-svhn} are consistent with Table~\ref{tab:benchmark}: 
+backend ranking depends on both dataset profile and sample size.
 
-\begin{figure*}[t]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{benchmark_results/fashion/benchmark.png}
+\includegraphics[width=\columnwidth]{benchmark_results/fashion/benchmark.png}
 \caption{Fashion-MNIST benchmark profile.}
 \label{fig:bench-fashion}
-\end{figure*}
+\end{figure}
 
-\begin{figure*}[t]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{benchmark_results/cifar10/benchmark.png}
+\includegraphics[width=\columnwidth]{benchmark_results/cifar10/benchmark.png}
 \caption{CIFAR-10 benchmark profile.}
 \label{fig:bench-cifar10}
-\end{figure*}
+\end{figure}
 
-\begin{figure*}[t]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{benchmark_results/svhn/benchmark.png}
+\includegraphics[width=\columnwidth]{benchmark_results/svhn/benchmark.png}
 \caption{SVHN benchmark profile.}
 \label{fig:bench-svhn}
-\end{figure*}
+\end{figure}
 
-\FloatBarrier
-\clearpage
+\FloatBarrier % Garde les figures dans cette section, mais autorise le texte suivant à monter sur la page !
+% Le \clearpage a été supprimé d'ici pour éviter le saut de page forcé.
 
-\subsection{Important Optimization Statistics}
-Benchmark ablations identify the most useful settings:
-\begin{itemize}
-    \item disabling precompute is the slowest option in the reported \textbf{GPU custom} ablation rows;
-    \item vram\_fraction=0.95 is the selected optimum in each of the stored profile logs;
-    \item num\_streams=1 is the selected optimum in the stored stream-sweep rows;
-    \item torch\_pinned+streams is the best torch configuration in the stored torch ablation rows.
-\end{itemize}
-
-At this scale, data movement and memory organization have a larger effect than increasing stream complexity.
 
 \section{Classification Results}
 \begin{table}[t]
@@ -480,7 +484,10 @@ svhn    & 1000 & \textbf{GPU base}   & 0.2998 & 0.4846 & 380.61 \\
 }
 \end{table}
 
-Table~\ref{tab:classification-summary} shows that, within quantum backends, \textbf{GPU base} is generally faster and often more accurate than \textbf{GPU custom}, while both remain strong on Fashion and weak on SVHN.
+Table~\ref{tab:classification-summary} shows that, within quantum backends, \textbf{GPU base} is generally faster 
+and often more accurate than \textbf{GPU custom}, while both remain strong on Fashion and weak on SVHN. Note that 
+the reported \textbf{Mean time} measures the full pipeline execution, including state simulation, Gram matrix building, 
+and the complete Optuna cross-validation loop.
 
 \subsection{Quantum Comparison Against the Classical Baseline}
 
@@ -491,7 +498,8 @@ Table~\ref{tab:latest-run-comparison} reports size-aware deltas.
 
 \begin{table}[t]
 \centering
-\caption{Run-scoped paired comparison by sample size. Positive deltas indicate better classical quality; negative time deltas indicate faster classical execution.}
+\caption{Run-scoped paired comparison by sample size. Positive deltas indicate better classical quality; negative time deltas indicate 
+faster classical execution.}
 \label{tab:latest-run-comparison}
 \scriptsize
 \setlength{\tabcolsep}{4pt}
@@ -517,7 +525,7 @@ Hard tasks exhibit the following quantitative pattern:
     \item inter-class gap near zero after centering/normalization;
     \item test-kernel standard deviation on the order of $10^{-4}$ to $10^{-3}$;
     \item support-vector fraction near $1.0$;
-    \item AUC close to random in the hardest cases.
+    \item AUC close to 0.5 (random guessing) in the hardest cases.
 \end{itemize}
 
 The hard CIFAR-10 case with \textbf{6 layers} is particularly revealing. In this regime, one typically observes:
@@ -548,7 +556,10 @@ hard / GPU base   & 0.3289 & 0.6126 & 251.88 \\
 \end{tabular}
 \end{table}
 
-This behavior is consistent with a \textbf{kernel concentration}: states become almost indistinguishable in terms of overlap used by the SVM. It is reasonable to interpret this as a \emph{barren-plateau-like} or \emph{kernel collapse} regime~\cite{larocca2024review,thanasilp2022exponential}, although multiple factors likely combine:
+This behavior is consistent with a \textbf{kernel concentration}: states become almost indistinguishable in terms 
+of overlap used by the SVM. It is reasonable to interpret this as a \emph{barren-plateau-like} or 
+\emph{kernel collapse} regime~\cite{larocca2024review,thanasilp2022exponential}, 
+although multiple factors likely combine:
 \begin{itemize}
     \item loss of information due to conversion to grayscale and subsequent PCA;
     \item generic ansatz not informed by image geometry;
@@ -556,8 +567,7 @@ This behavior is consistent with a \textbf{kernel concentration}: states become 
     \item intrinsic limitations of global fidelity kernels on complex visual data.
 \end{itemize}
 
-These observations indicate that acceleration alone does not remove
-the representational limits of the feature map.
+These observations indicate that acceleration alone does not remove the representational limits of the feature map.
 
 \section{Data and Code Availability}
 Project repository: \textbf{github.com/DylanUnifi}.
@@ -571,12 +581,12 @@ Datasets used in this study:
 
 
 \section{Conclusion}
-The updated benchmark and classification tables show that backend ranking is not global: it depends on sample size, dataset profile, and backend implementation details. 
-In the benchmark campaign, GPU paths dominate low-size regimes,
-while some larger-size points still favor \textbf{CPU base} in specific profiles.
-
-On predictive quality, both quantum backends remain competitive on Fashion-MNIST but degrade on CIFAR-10 and especially SVHN, where collapse indicators and near-random AUC values appear repeatedly in hard settings.
-Overall, acceleration improves throughput but does not remove the representational bottleneck of the current feature map/ansatz pair on harder visual distributions.
+The updated benchmark and classification tables show that backend ranking is not global: it depends on sample size, 
+dataset profile, and backend implementation details.  In the benchmark campaign, GPU paths dominate low-size regimes, 
+while some larger-size points still favor \textbf{CPU base} in specific profiles. On predictive quality, both quantum 
+backends remain competitive on Fashion-MNIST but degrade on CIFAR-10 and especially SVHN, where collapse indicators 
+and near-random AUC values appear repeatedly in hard settings. Overall, acceleration improves throughput but does not 
+remove the representational bottleneck of the current feature map/ansatz pair on harder visual distributions.
 
 \section{Perspectives}
 Data-driven next steps are:
